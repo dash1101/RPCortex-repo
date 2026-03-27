@@ -7,21 +7,21 @@
       "ver": "1.0.0",
       "desc": "Sample demo package for RPCortex",
       "author": "dash1101",
-      "url": "http://rpc.novalabs.app/repo/packages/helloworld.pkg"
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/helloworld.pkg"
     },
     {
       "name": "Ask",
       "ver": "1.2.0",
       "desc": "Ask an AI a question — Ollama, Groq, Claude, OpenAI",
       "author": "dash1101",
-      "url": "http://rpc.novalabs.app/repo/packages/ask.pkg"
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ask.pkg"
     },
     {
       "name": "SysMon",
       "ver": "1.0.0",
       "desc": "Live system monitor (htop-style)",
       "author": "dash1101",
-      "url": "http://rpc.novalabs.app/repo/packages/sysmon.pkg"
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
     }
   ]
 }
