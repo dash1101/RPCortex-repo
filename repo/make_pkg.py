@@ -47,8 +47,10 @@ def make_pkg(source_dir, output_path=None):
 
     with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
         for root, dirs, files in os.walk(source_dir):
-            dirs.sort()
+            dirs[:] = [d for d in sorted(dirs) if d != '__pycache__']
             for fname in sorted(files):
+                if fname.endswith('.pyc'):
+                    continue
                 fpath  = os.path.join(root, fname)
                 # Archive path: dir_name/relative_path (matches pkgmgr prefix stripping)
                 rel    = os.path.relpath(fpath, parent)

@@ -3,6 +3,20 @@
   "maintainer": "dash1101",
   "packages": [
     {
+      "name": "PicoFetch",
+      "ver": "1.0.0",
+      "desc": "Neofetch-style system info display (fetch / neofetch)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/picofetch.pkg"
+    },
+    {
+      "name": "NebulaMark",
+      "ver": "2.0.0",
+      "desc": "CPU/RAM benchmark suite (bench)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/nebulamark.pkg"
+    },
+    {
       "name": "HelloWorld",
       "ver": "1.0.0",
       "desc": "Sample demo package for RPCortex",
