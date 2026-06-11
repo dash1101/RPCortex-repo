@@ -1,6 +1,6 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.0.0
+# Version: 2.1.0
 # Author: dash1101
 #
 # Full-screen live dashboard. Auto-refreshes every 3s.
@@ -106,6 +106,21 @@ def _reg(key):
         return None
 
 
+def _now_str():
+    """Return the current local time as YYYY-MM-DD HH:MM:SS, applying TZ_Offset."""
+    try:
+        off = 0
+        try:
+            off = int(_reg('System.TZ_Offset') or 0)
+        except Exception:
+            pass
+        t = utime.localtime(utime.time() + off * 3600) if off else utime.localtime()
+        return '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(
+            t[0], t[1], t[2], t[3], t[4], t[5])
+    except Exception:
+        return 'N/A'
+
+
 def _log_tail(n=5):
     """Return last n lines of /Pulsar/Logs/latest.log."""
     try:
@@ -173,6 +188,7 @@ def _collect():
         d['mp_ver'] = '?'
 
     d['wifi'] = _get_wifi()
+    d['time'] = _now_str()
     return d
 
 
@@ -226,29 +242,30 @@ def _colorize_log(line):
     return _DG + line + _R
 
 
-def _draw(d, show_log, show_net_detail):
+def _draw(d, show_log, show_net_detail, first_draw=False):
     lines = []
     a = lines.append
 
-    a('\x1b[2J\x1b[H\x1b[?25l')
-
     # ── Title bar ──────────────────────────────────────────────────────────
     ver      = d.get('os_ver', '?')
-    left_vis = len('  RPCortex Monitor  ·  ') + len(ver)
+    device   = d.get('device', 'pulsar')
+    owner    = d.get('owner')
+    title_r  = '{} · {}'.format(device, owner) if owner else device
+    left_vis = len('  RPCortex Monitor  ·  ') + len(ver) + 2 + len(title_r)
     hints    = '[r]refresh  [l]log  [n]net  [q]quit'
     pad      = max(1, _W - left_vis - len(hints))
     a('  ' + _WH + _BD + 'RPCortex Monitor' + _R
-      + '  ·  ' + _DG + ver + _R
+      + '  ·  ' + _DG + ver + '  ' + title_r + _R
       + ' ' * pad + _DG + hints + _R)
     a(_div())
 
-    # ── CPU / Temperature / Uptime ─────────────────────────────────────────
+    # ── System ─────────────────────────────────────────────────────────────
     a(_sec('System'))
-    a(_row('Platform', d.get('platform','?'),  'Device', d.get('device','?')))
-    a(_row('CPU Freq',  d.get('freq','?'),     'Temp',   d.get('temp','N/A')))
-    a(_row('Uptime',    d.get('uptime','?'),   'User',   d.get('user','?') +
-           ('  (owner: {})'.format(d['owner']) if d.get('owner') else '')))
-    a(_row('MicroPy',   d.get('mp_ver','?'),  'UID',    d.get('uid','N/A')))
+    a(_row('Platform', d.get('platform','?'),  'Device',  d.get('device','?')))
+    a(_row('CPU Freq',  d.get('freq','?'),     'Temp',    d.get('temp','N/A')))
+    a(_row('Uptime',    d.get('uptime','?'),   'Time',    d.get('time','N/A')))
+    a(_row('User',      d.get('user','?'),     'MicroPy', d.get('mp_ver','?')))
+    a(_row('UID',       d.get('uid','N/A')))
     a('')
 
     # ── Memory bars ────────────────────────────────────────────────────────
@@ -305,7 +322,18 @@ def _draw(d, show_log, show_net_detail):
     a(_div())
     a(_DG + '  Refreshes every {}s  ·  r=now  l=log  n=net detail  q=quit'.format(REFRESH_S) + _R)
 
-    sys.stdout.write('\n'.join(lines) + '\n')
+    # Efficient in-place refresh: full clear only on first draw.
+    # Each subsequent frame homes the cursor and erases trailing chars per line
+    # so prior-frame content is overwritten cleanly even when frame height changes.
+    buf = []
+    if first_draw:
+        buf.append('\x1b[2J')
+    buf.append('\x1b[H\x1b[?25l')
+    for line in lines:
+        buf.append(line)
+        buf.append('\x1b[K\n')
+    buf.append('\x1b[J')   # erase from cursor to end (handles frame shrinkage)
+    sys.stdout.write(''.join(buf))
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +343,7 @@ def _draw(d, show_log, show_net_detail):
 def htop(args=None):
     show_log        = False
     show_net_detail = False
+    first_draw      = True
 
     try:
         import select
@@ -326,7 +355,8 @@ def htop(args=None):
         while True:
             gc.collect()
             d = _collect()
-            _draw(d, show_log, show_net_detail)
+            _draw(d, show_log, show_net_detail, first_draw)
+            first_draw = False
             del d
             gc.collect()
 

@@ -332,6 +332,21 @@ def _do_claude(messages, model, api_key):
 # Dispatch a single turn to the configured backend
 # ---------------------------------------------------------------------------
 
+def _require_network():
+    """Return True if network is available and connected; False with error message otherwise."""
+    try:
+        import net
+        if not net.is_available():
+            error("WiFi not available on this board.")
+            return False
+        if not net.online():
+            error("Not connected to WiFi. Run: wifi connect")
+            return False
+    except ImportError:
+        pass   # no net module — let the socket call try anyway
+    return True
+
+
 def _send(messages, backend, model):
     if backend == 'ollama':
         host = _rget(_REG_OLLAMA_HOST)
@@ -597,6 +612,9 @@ def ask(args=None):
             return
 
     model = _rget(_REG_MODEL) or _DEFAULTS.get(backend, 'default')
+
+    if not _require_network():
+        return
 
     # --- Single-shot mode (question passed as arg) ---
     if args and args.strip():

@@ -1,6 +1,6 @@
 # Desc: Calc — shell calculator for RPCortex
 # File: /Packages/Calc/calc.py
-# Version: 1.0.0
+# Version: 1.2.0
 # Author: dash1101
 #
 # A small, dependency-free calculator that runs entirely offline.
@@ -12,10 +12,6 @@
 #   calc bin <value>       show <value> in binary
 #   calc oct <value>       show <value> in octal
 #   calc dec <value>       show <value> in decimal (accepts 0x.. / 0b.. / 0o..)
-#
-# Expressions use a restricted namespace: only math functions and a handful of
-# safe builtins are exposed — no filesystem, no imports, no attribute access to
-# the OS.  Operators: + - * / // % ** ( ).
 
 import sys
 
@@ -23,6 +19,14 @@ if '/Core' not in sys.path:
     sys.path.append('/Core')
 
 from RPCortex import error, info, ok, multi
+
+# Math functions available in eval — bare eval uses this module's namespace,
+# so star-importing math here makes sqrt/pi/cos/etc. resolve without a custom
+# globals dict (which breaks __builtins__ resolution on MicroPython).
+try:
+    from math import *
+except ImportError:
+    pass
 
 
 _USAGE = (
@@ -42,36 +46,6 @@ def _fmt(n):
             return str(int(n))
         return "{:.10g}".format(n)
     return str(n)
-
-
-def _safe_ns():
-    """Build the eval namespace: every math function, plus safe builtins.
-
-    On MicroPython, eval(expr, custom_dict) does NOT automatically inject
-    builtins into the dict the way CPython does — pass the actual builtins
-    module so that basic operators and literals resolve correctly.
-    """
-    ns = {}
-    try:
-        import builtins as _bi
-        ns['__builtins__'] = _bi
-    except ImportError:
-        pass
-    try:
-        import math
-        for name in dir(math):
-            if not name.startswith('_'):
-                ns[name] = getattr(math, name)
-    except ImportError:
-        pass
-    ns['abs']   = abs
-    ns['round'] = round
-    ns['min']   = min
-    ns['max']   = max
-    ns['pow']   = pow
-    ns['int']   = int
-    ns['float'] = float
-    return ns
 
 
 def _convert(base, value):
@@ -112,9 +86,11 @@ def calc(args=None):
         _convert(sub, parts[1].strip())
         return
 
-    # Otherwise: evaluate the whole thing as an arithmetic expression
+    # Otherwise: evaluate the whole thing as an arithmetic expression.
+    # Bare eval uses this module's own globals — math functions land here via
+    # the star import above, and builtins resolve normally (no custom dict).
     try:
-        result = eval(args, _safe_ns())
+        result = eval(args)
     except ZeroDivisionError:
         error("Division by zero.")
         return
