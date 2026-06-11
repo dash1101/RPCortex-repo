@@ -1,13 +1,14 @@
-# Desc: PulseMark benchmark package for RPCortex - Pulsar OS
-# File: /Packages/PulseMark/pulsemark.py
-# Last Updated: 6/10/2026
+# Desc: RPCMark benchmark package for RPCortex - Pulsar OS
+# File: /Packages/RPCMark/rpcmark.py
+# Last Updated: 6/11/2026
 # Lang: MicroPython, English
-# Version: v2.0.0
+# Version: v2.1.0
 # Author: dash1101
 #
 # Shell command: bench
 # A CPU/RAM benchmark. Lives as a package so it can be updated (or removed and
-# reinstalled) through the package manager. (Formerly "NebulaMark".)
+# reinstalled) through the package manager.
+# (Formerly "NebulaMark", then "PulseMark" — now permanently "RPCMark".)
 
 import gc
 import sys
@@ -18,7 +19,7 @@ import sys
 tr = []
 
 
-def PulseMark():
+def RPCMark():
     global tr
     tr = []   # reset between runs — module stays cached in the shell scope
 
@@ -206,9 +207,9 @@ def PulseMark():
 
 
 def bench(args=None):
-    """Shell entry point: run the PulseMark benchmark."""
-    print('Starting PulseMark benchmark — this will take a while...')
-    PulseMark()
+    """Shell entry point: run the RPCMark benchmark."""
+    print('Starting RPCMark benchmark — this will take a while...')
+    RPCMark()
 
 
 if __name__ == '__main__':

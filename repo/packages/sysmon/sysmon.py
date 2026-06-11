@@ -1,9 +1,9 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.1.0
+# Version: 2.2.0
 # Author: dash1101
 #
-# Full-screen live dashboard. Auto-refreshes every 3s.
+# Full-screen live dashboard. Auto-refreshes every 1s.
 # Panels: Header · CPU/Uptime · Memory bars · Network · System · Logs
 #
 # Keys (while running):
@@ -34,7 +34,7 @@ _W        = 78     # display width
 _BW       = 22     # progress-bar width
 _COL      = 40     # two-column split
 
-REFRESH_S = 3
+REFRESH_S = 1
 _BOOT     = utime.ticks_ms()
 
 # ---------------------------------------------------------------------------

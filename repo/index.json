@@ -10,11 +10,11 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/picofetch.pkg"
     },
     {
-      "name": "PulseMark",
-      "ver": "2.0.0",
+      "name": "RPCMark",
+      "ver": "2.1.0",
       "desc": "CPU/RAM benchmark (bench)",
       "author": "dash1101",
-      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/pulsemark.pkg"
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/rpcmark.pkg"
     },
     {
       "name": "HelloWorld",
@@ -32,7 +32,7 @@
     },
     {
       "name": "SysMon",
-      "ver": "2.1.0",
+      "ver": "2.2.0",
       "desc": "Live system monitor (htop-style)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
@@ -64,6 +64,27 @@
       "desc": "Network time sync — set the clock over WiFi (no RTC needed)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ntp.pkg"
+    },
+    {
+      "name": "DHT",
+      "ver": "1.0.0",
+      "desc": "Read DHT11/DHT22 temperature & humidity sensors from the shell",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/dht.pkg"
+    },
+    {
+      "name": "SpeedTest",
+      "ver": "1.0.0",
+      "desc": "Measure WiFi latency and download throughput",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/speedtest.pkg"
+    },
+    {
+      "name": "Backup",
+      "ver": "1.0.0",
+      "desc": "Snapshot and restore registry, users, WiFi, aliases and tasks",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/backup.pkg"
     }
   ]
 }
