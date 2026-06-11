@@ -10,11 +10,11 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/picofetch.pkg"
     },
     {
-      "name": "NebulaMark",
+      "name": "PulseMark",
       "ver": "2.0.0",
-      "desc": "CPU/RAM benchmark suite (bench)",
+      "desc": "CPU/RAM benchmark (bench)",
       "author": "dash1101",
-      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/nebulamark.pkg"
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/pulsemark.pkg"
     },
     {
       "name": "HelloWorld",

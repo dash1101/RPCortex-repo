@@ -29,11 +29,19 @@ from RPCortex import error, info, ok, warn, multi
 
 
 def _pin_num(s):
+    # "LED" is the onboard LED on Pico W / Pico 2 W (it's on the WiFi chip, not
+    # a numbered GPIO). machine.Pin("LED") handles it; on other boards it's GP25.
+    if isinstance(s, str) and s.upper() == 'LED':
+        return 'LED'
     try:
         return int(s)
     except (ValueError, TypeError):
-        error("Pin must be a number, got '{}'.".format(s))
+        error("Pin must be a number or 'LED', got '{}'.".format(s))
         return None
+
+
+def _lbl(pin):
+    return 'LED' if pin == 'LED' else 'GP{}'.format(pin)
 
 
 def _read(pin, pull):
@@ -45,7 +53,7 @@ def _read(pin, pull):
     else:
         p = Pin(pin, Pin.IN)
     val = p.value()
-    ok("GP{} = {}  ({})".format(pin, val, 'HIGH' if val else 'LOW'))
+    ok("{} = {}  ({})".format(_lbl(pin), val, 'HIGH' if val else 'LOW'))
 
 
 def _set(pin, level):
@@ -60,7 +68,7 @@ def _set(pin, level):
         return
     p = Pin(pin, Pin.OUT)
     p.value(v)
-    ok("GP{} set {}".format(pin, 'HIGH' if v else 'LOW'))
+    ok("{} set {}".format(_lbl(pin), 'HIGH' if v else 'LOW'))
 
 
 def _toggle(pin):
@@ -68,7 +76,7 @@ def _toggle(pin):
     cur = Pin(pin, Pin.IN).value()
     nv = 0 if cur else 1
     Pin(pin, Pin.OUT).value(nv)
-    ok("GP{} toggled -> {}".format(pin, 'HIGH' if nv else 'LOW'))
+    ok("{} toggled -> {}".format(_lbl(pin), 'HIGH' if nv else 'LOW'))
 
 
 def _pwm(pin, pct, freq):
@@ -115,7 +123,8 @@ def _info():
     info("=== GPIO ===")
     multi("  Platform : {}".format(sys.platform))
     multi("  Pin numbers are the chip GPIO numbers, not the physical header pins.")
-    multi("  RP2040/RP2350 : GP0-GP28; ADC on GP26-GP28; onboard LED GP25 (Pico).")
+    multi("  RP2040/RP2350 : GP0-GP28; ADC on GP26-GP28.")
+    multi("  Onboard LED   : 'gpio set LED high' (Pico W / Pico 2 W use the WiFi-chip LED; plain Pico = GP25).")
     multi("  ESP32         : varies by module; check your pinout.")
     multi("")
     multi("  read <pin> [up|down] | set <pin> high|low | toggle <pin>")
@@ -154,6 +163,9 @@ def gpio(args=None):
             elif sub == 'toggle':
                 _toggle(pin)
             elif sub == 'pwm':
+                if pin == 'LED':
+                    error("PWM isn't supported on the named LED pin. Use a numbered GPIO.")
+                    return
                 if len(parts) < 3:
                     error("Usage: gpio pwm <pin> <0-100> [hz]")
                     return
@@ -172,6 +184,9 @@ def gpio(args=None):
             elif sub == 'stop':
                 _stop(pin)
             elif sub == 'adc':
+                if pin == 'LED':
+                    error("ADC isn't supported on the named LED pin. Use a numbered GPIO.")
+                    return
                 _adc(pin)
         except Exception as e:
             error("GPIO operation failed: {}".format(e))
