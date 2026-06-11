@@ -1,6 +1,6 @@
 # Desc: NTP — network time sync for RPCortex (no RTC required)
 # File: /Packages/NTP/ntp.py
-# Version: 1.0.0
+# Version: 1.1.0
 # Author: dash1101
 #
 # Sets the system clock from an internet time server over UDP, so log
@@ -87,6 +87,15 @@ def _server(override):
     return _DEFAULT_SERVER
 
 
+def _tz_offset():
+    """Return System.TZ_Offset as an int (hours), or 0 if unset/invalid."""
+    try:
+        import regedit
+        return int(regedit.read('System.TZ_Offset') or 0)
+    except Exception:
+        return 0
+
+
 def _online():
     """True if WiFi is up; prints guidance and returns False otherwise."""
     try:
@@ -125,14 +134,31 @@ def _sync(server):
     t = time.gmtime(secs)
     ok("Clock synced (UTC): {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
         t[0], t[1], t[2], t[3], t[4], t[5]))
-    info("Local time uses System.TZ_Offset — see 'date'.")
+    # Also show the local wall-clock time using the configured TZ offset, so the
+    # user doesn't have to run `date` to see what their actual time now is.
+    off = _tz_offset()
+    if off:
+        lt = time.gmtime(secs + off * 3600)
+        sign = '+' if off >= 0 else '-'
+        ok("Local time (UTC{}{}): {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+            sign, abs(off), lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
+    else:
+        info("Local time = UTC (set a zone with: reg set System.TZ_Offset <hrs>)")
 
 
 def _status():
     import time
     t = time.localtime()
-    multi("  Current clock : {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+    multi("  UTC clock     : {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
         t[0], t[1], t[2], t[3], t[4], t[5]))
+    off = _tz_offset()
+    if off:
+        lt = time.gmtime(time.time() + off * 3600)
+        sign = '+' if off >= 0 else '-'
+        multi("  Local (UTC{}{}): {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+            sign, abs(off), lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
+    else:
+        multi("  Local         : = UTC (System.TZ_Offset is 0)")
     multi("  NTP server    : {}".format(_server(None)))
     multi("  Sync now      : ntp sync")
 

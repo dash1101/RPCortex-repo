@@ -32,7 +32,7 @@
     },
     {
       "name": "SysMon",
-      "ver": "2.2.0",
+      "ver": "2.3.0",
       "desc": "Live system monitor (htop-style)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
@@ -60,7 +60,7 @@
     },
     {
       "name": "NTP",
-      "ver": "1.0.0",
+      "ver": "1.1.0",
       "desc": "Network time sync — set the clock over WiFi (no RTC needed)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ntp.pkg"

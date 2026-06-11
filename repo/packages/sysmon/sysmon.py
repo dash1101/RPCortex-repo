@@ -1,16 +1,20 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.2.0
+# Version: 2.3.0
 # Author: dash1101
 #
-# Full-screen live dashboard. Auto-refreshes every 1s.
+# Full-screen live dashboard. Refresh interval is configurable (default 750ms),
+# stored in the registry (Apps.SysMon_Refresh, milliseconds) and adjustable live.
 # Panels: Header · CPU/Uptime · Memory bars · Network · System · Logs
 #
 # Keys (while running):
 #   r / Enter  refresh immediately
+#   + / -      faster / slower refresh (saved to the registry)
 #   l          toggle log tail panel
 #   n          toggle network detail
 #   q / Ctrl+C quit
+#
+# Usage: `sysmon` or `sysmon <ms>` to override the interval for this run.
 
 import sys
 import gc
@@ -34,8 +38,35 @@ _W        = 78     # display width
 _BW       = 22     # progress-bar width
 _COL      = 40     # two-column split
 
-REFRESH_S = 1
-_BOOT     = utime.ticks_ms()
+_DEFAULT_REFRESH_MS = 750
+_REG_REFRESH        = 'Apps.SysMon_Refresh'
+_MIN_REFRESH_MS     = 100
+_MAX_REFRESH_MS     = 10000
+_BOOT               = utime.ticks_ms()
+
+
+def _load_refresh():
+    """Read the saved refresh interval (ms) from the registry, or the default."""
+    try:
+        import regedit
+        v = int(regedit.read(_REG_REFRESH) or 0)
+        if v >= _MIN_REFRESH_MS:
+            return min(v, _MAX_REFRESH_MS)
+    except Exception:
+        pass
+    return _DEFAULT_REFRESH_MS
+
+
+def _save_refresh(ms):
+    try:
+        import regedit
+        regedit.save(_REG_REFRESH, str(ms))
+    except Exception:
+        pass
+
+
+def _fmt_refresh(ms):
+    return '{:.2f}s'.format(ms / 1000.0) if ms >= 1000 else '{}ms'.format(ms)
 
 # ---------------------------------------------------------------------------
 # Stat helpers
@@ -242,7 +273,7 @@ def _colorize_log(line):
     return _DG + line + _R
 
 
-def _draw(d, show_log, show_net_detail, first_draw=False):
+def _draw(d, show_log, show_net_detail, first_draw=False, refresh_ms=_DEFAULT_REFRESH_MS):
     lines = []
     a = lines.append
 
@@ -252,7 +283,7 @@ def _draw(d, show_log, show_net_detail, first_draw=False):
     owner    = d.get('owner')
     title_r  = '{} · {}'.format(device, owner) if owner else device
     left_vis = len('  RPCortex Monitor  ·  ') + len(ver) + 2 + len(title_r)
-    hints    = '[r]refresh  [l]log  [n]net  [q]quit'
+    hints    = '[r]refresh  [+/-]speed  [l]log  [n]net  [q]quit'
     pad      = max(1, _W - left_vis - len(hints))
     a('  ' + _WH + _BD + 'RPCortex Monitor' + _R
       + '  ·  ' + _DG + ver + '  ' + title_r + _R
@@ -320,7 +351,8 @@ def _draw(d, show_log, show_net_detail, first_draw=False):
         a('')
 
     a(_div())
-    a(_DG + '  Refreshes every {}s  ·  r=now  l=log  n=net detail  q=quit'.format(REFRESH_S) + _R)
+    a(_DG + '  Refresh {}  ·  r=now  +/-=speed  l=log  n=net  q=quit'.format(
+        _fmt_refresh(refresh_ms)) + _R)
 
     # Efficient in-place refresh: full clear only on first draw.
     # Each subsequent frame homes the cursor and erases trailing chars per line
@@ -340,10 +372,27 @@ def _draw(d, show_log, show_net_detail, first_draw=False):
 # Input / event loop
 # ---------------------------------------------------------------------------
 
+def _adjust(refresh_ms, faster):
+    """Step the refresh interval up/down and persist it. Returns the new value."""
+    step = 250 if refresh_ms >= 500 else 100
+    refresh_ms = refresh_ms - step if faster else refresh_ms + step
+    refresh_ms = max(_MIN_REFRESH_MS, min(_MAX_REFRESH_MS, refresh_ms))
+    _save_refresh(refresh_ms)
+    return refresh_ms
+
+
 def htop(args=None):
     show_log        = False
     show_net_detail = False
     first_draw      = True
+
+    refresh_ms = _load_refresh()
+    if args and str(args).strip():
+        try:
+            v = int(str(args).strip())
+            refresh_ms = max(_MIN_REFRESH_MS, min(_MAX_REFRESH_MS, v))
+        except ValueError:
+            pass
 
     try:
         import select
@@ -355,7 +404,7 @@ def htop(args=None):
         while True:
             gc.collect()
             d = _collect()
-            _draw(d, show_log, show_net_detail, first_draw)
+            _draw(d, show_log, show_net_detail, first_draw, refresh_ms)
             first_draw = False
             del d
             gc.collect()
@@ -363,7 +412,7 @@ def htop(args=None):
             if has_select:
                 t0 = utime.ticks_ms()
                 ch = None
-                while utime.ticks_diff(utime.ticks_ms(), t0) < REFRESH_S * 1000:
+                while utime.ticks_diff(utime.ticks_ms(), t0) < refresh_ms:
                     r, _, _ = select.select([sys.stdin], [], [], 0.2)
                     if r:
                         ch = sys.stdin.read(1)
@@ -374,6 +423,10 @@ def htop(args=None):
                     show_log = not show_log
                 if ch in ('n', 'N'):
                     show_net_detail = not show_net_detail
+                if ch in ('+', '='):
+                    refresh_ms = _adjust(refresh_ms, True)
+                if ch in ('-', '_'):
+                    refresh_ms = _adjust(refresh_ms, False)
                 # r/R/Enter/timeout: just redraw
             else:
                 sys.stdout.write(_DG + '\n  (no auto-refresh — r=refresh, l=log, n=net, q=quit)\n' + _R)
