@@ -57,6 +57,13 @@
       "desc": "Scan the I2C bus and identify common devices",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/i2cscan.pkg"
+    },
+    {
+      "name": "NTP",
+      "ver": "1.0.0",
+      "desc": "Network time sync — set the clock over WiFi (no RTC needed)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ntp.pkg"
     }
   ]
 }
