@@ -36,6 +36,27 @@
       "desc": "Live system monitor (htop-style)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
+    },
+    {
+      "name": "Calc",
+      "ver": "1.0.0",
+      "desc": "Offline shell calculator (math + base conversion)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/calc.pkg"
+    },
+    {
+      "name": "Gpio",
+      "ver": "1.0.0",
+      "desc": "Drive and read GPIO pins from the shell",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/gpio.pkg"
+    },
+    {
+      "name": "I2CScan",
+      "ver": "1.0.0",
+      "desc": "Scan the I2C bus and identify common devices",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/i2cscan.pkg"
     }
   ]
 }
