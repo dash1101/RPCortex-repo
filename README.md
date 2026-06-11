@@ -18,33 +18,6 @@ Or browse and install packages from your browser — no WiFi, no REPL — at [rp
 
 ---
 
-## Available packages
-
-| Package | Version | Description |
-|---------|---------|-------------|
-| HelloWorld | 1.0.0 | Sample demo package for RPCortex |
-| Ask | 1.2.0 | Ask an AI a question — Ollama, Groq, Claude, OpenAI |
-| SysMon | 1.0.0 | Live system monitor (htop-style) |
-
----
-
-## Repository structure
-
-```
-repo/
-  index.json          ← package index (fetched by pkg manager)
-  packages/
-    helloworld/       ← package source
-    helloworld.pkg    ← installable archive
-    ask/
-    ask.pkg
-    sysmon/
-    sysmon.pkg
-  make_pkg.py         ← build script: source dir → .pkg archive
-```
-
----
-
 ## Building a package
 
 A `.pkg` file is a ZIP archive containing your package files and a `package.cfg` descriptor.
