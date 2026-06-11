@@ -45,14 +45,18 @@ def _fmt(n):
 
 
 def _safe_ns():
-    """Build the eval namespace: every math function, plus a few safe builtins.
+    """Build the eval namespace: every math function, plus safe builtins.
 
-    Note: we do NOT set '__builtins__' here. On MicroPython, supplying an empty
-    '__builtins__' breaks name resolution for the whole expression (even plain
-    arithmetic) — so the runtime's normal builtins stay available. This is a
-    calculator on a personal device, not a security boundary.
+    On MicroPython, eval(expr, custom_dict) does NOT automatically inject
+    builtins into the dict the way CPython does — pass the actual builtins
+    module so that basic operators and literals resolve correctly.
     """
     ns = {}
+    try:
+        import builtins as _bi
+        ns['__builtins__'] = _bi
+    except ImportError:
+        pass
     try:
         import math
         for name in dir(math):
