@@ -1,11 +1,11 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.3.0
+# Version: 2.4.0
 # Author: dash1101
 #
 # Full-screen live dashboard. Refresh interval is configurable (default 750ms),
 # stored in the registry (Apps.SysMon_Refresh, milliseconds) and adjustable live.
-# Panels: Header · CPU/Uptime · Memory bars · Network · System · Logs
+# Panels: Header · System · Resources (rough CPU load + RAM/Flash) · Network · Logs
 #
 # Keys (while running):
 #   r / Enter  refresh immediately
@@ -84,6 +84,32 @@ def _uptime():
     if m:
         return '{}m {}s'.format(m, s)
     return '{}s'.format(s)
+
+
+_cpu_cal = None   # fastest micro-benchmark time seen (µs) = idle baseline
+
+
+def _cpu_estimate():
+    """Rough CPU-load estimate without a scheduler counter.
+
+    Times a tiny fixed busy-loop and compares it to the fastest run ever seen
+    (the idle baseline). On a cooperative single core nothing preempts Python,
+    so a slower run means C-level work (WiFi/USB/timer interrupts, GC) is
+    stealing cycles — i.e. the CPU is busier. Self-calibrating; ~0% when idle.
+    The benchmark is a few hundred µs, negligible against the refresh interval.
+    """
+    global _cpu_cal
+    t0 = utime.ticks_us()
+    x = 0
+    for i in range(2000):
+        x += i
+    dt = utime.ticks_diff(utime.ticks_us(), t0)
+    if dt <= 0:
+        return 0
+    if _cpu_cal is None or dt < _cpu_cal:
+        _cpu_cal = dt
+    over = (dt - _cpu_cal) * 100 // _cpu_cal
+    return 0 if over < 0 else (100 if over > 100 else over)
 
 
 def _get_temp():
@@ -220,6 +246,7 @@ def _collect():
 
     d['wifi'] = _get_wifi()
     d['time'] = _now_str()
+    d['cpu']  = _cpu_estimate()
     return d
 
 
@@ -299,8 +326,11 @@ def _draw(d, show_log, show_net_detail, first_draw=False, refresh_ms=_DEFAULT_RE
     a(_row('UID',       d.get('uid','N/A')))
     a('')
 
-    # ── Memory bars ────────────────────────────────────────────────────────
-    a(_sec('Memory'))
+    # ── Resources ──────────────────────────────────────────────────────────
+    a(_sec('Resources'))
+    cp = d.get('cpu', 0)
+    a('  CPU    [{}]  {}%    {}  (rough load estimate)'.format(
+        _bar(cp), cp, d.get('freq', '?')))
     rp = d.get('ram_pct', 0)
     a('  RAM    [{}]  {}%    {} KB used / {} KB total  ({} KB free)'.format(
         _bar(rp), rp, d.get('ram_used',0), d.get('ram_total',0), d.get('ram_free',0)))
