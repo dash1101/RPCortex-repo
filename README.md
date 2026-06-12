@@ -14,7 +14,7 @@ pkg update
 pkg available
 ```
 
-Or browse and install packages from your browser — no WiFi, no REPL — at [rpc.novalabs.app/packages.html](https://rpc.novalabs.app/packages.html).
+Or browse and install packages from your browser — no WiFi, no REPL — at [rpc.novalabs.app/packages](https://rpc.novalabs.app/packages).
 
 ---
 ## Documentation
