@@ -115,18 +115,54 @@ def _online():
 
 
 def _parse_sync_flags(rest):
-    """Split a sync arg-string into (server_or_None, silent). Strips -s/--silent."""
+    """Split a sync arg-string into (server_or_None, silent, auto).
+    Strips -s/--silent and -a/--auto; the first non-flag token is the server."""
     server = None
     silent = False
+    auto = False
     for tok in (rest or '').split():
         if tok in ('-s', '--silent'):
             silent = True
+        elif tok in ('-a', '--auto'):
+            auto = True
         elif server is None:
             server = tok
-    return server, silent
+    return server, silent, auto
 
 
-def _sync(server, silent=False):
+def _auto_tz(silent=False):
+    """Set System.TZ_Offset automatically from the device's public-IP location.
+
+    Uses ip-api.com (HTTP, no key) which returns the current UTC offset in
+    seconds (DST-aware). Stored as whole hours — half-hour zones truncate."""
+    try:
+        import net
+    except ImportError:
+        return False
+    try:
+        status, body = net.wget('http://ip-api.com/json/', verbose=False)
+        if status != 200:
+            raise ValueError("HTTP {}".format(status))
+        import ujson
+        data = ujson.loads(body.decode('utf-8') if isinstance(body, (bytes, bytearray)) else body)
+        off_s = int(data.get('offset', 0))
+        zone  = data.get('timezone', '?')
+    except Exception as e:
+        if not silent:
+            warn("Auto-timezone lookup failed: {}".format(e))
+        return False
+    hours = int(off_s / 3600)   # whole hours; half-hour zones truncate
+    try:
+        import regedit
+        regedit.save('System.TZ_Offset', str(hours))
+    except Exception:
+        return False
+    if not silent:
+        ok("Timezone auto-set: UTC{}{}  ({})".format('+' if hours >= 0 else '', hours, zone))
+    return True
+
+
+def _sync(server, silent=False, auto=False):
     host = _server(server)
     if not _online():
         return
@@ -143,6 +179,8 @@ def _sync(server, silent=False):
     except Exception as e:
         error("Could not set RTC: {}".format(e))
         return
+    if auto:
+        _auto_tz(silent)   # geolocate + set TZ before reporting local time
     if silent:
         return
     import time
@@ -187,8 +225,8 @@ def ntp(args=None):
     rest = parts[1].strip() if len(parts) > 1 else ''
 
     if sub == 'sync':
-        server, silent = _parse_sync_flags(rest)
-        _sync(server, silent)
+        server, silent, auto = _parse_sync_flags(rest)
+        _sync(server, silent, auto)
     elif sub == 'status':
         _status()
     elif sub == 'server':
@@ -202,6 +240,6 @@ def ntp(args=None):
         except Exception as e:
             error("Could not save server: {}".format(e))
     else:
-        # Treat `ntp <host>` (and bare `ntp -s`) as a sync.
-        server, silent = _parse_sync_flags(args.strip())
-        _sync(server, silent)
+        # Treat `ntp <host>` (and bare `ntp -s` / `ntp --auto`) as a sync.
+        server, silent, auto = _parse_sync_flags(args.strip())
+        _sync(server, silent, auto)

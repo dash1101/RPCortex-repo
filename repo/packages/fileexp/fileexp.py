@@ -1,6 +1,6 @@
 # Desc: TUI file explorer for RPCortex - Pulsar OS
 # File: /Packages/FileExp/fileexp.py
-# Version: 0.2.0
+# Version: 0.3.0
 # Author: dash1101
 #
 # A nano-style terminal file browser. Arrow-key navigation, open files in the
@@ -16,7 +16,8 @@
 #   <- / Bksp   (or h)       go up to the parent folder
 #   /                        search / filter the current folder
 #   d  or  Del               delete the selected entry (asks first)
-#   n                        new folder (prompts for a name)
+#   n                        new file (opens it in the editor), or a folder
+#                            if the name ends with '/'
 #   g                        go to a path (prompts)
 #   r                        refresh
 #   q                        quit
@@ -52,6 +53,14 @@ def _clear():
 def _is_dir(path):
     try:
         return (uos.stat(path)[0] & _DIR_FLAG) != 0
+    except OSError:
+        return False
+
+
+def _exists(path):
+    try:
+        uos.stat(path)
+        return True
     except OSError:
         return False
 
@@ -157,10 +166,11 @@ def _prompt(label):
 
 
 def _open_in_editor(path):
-    """Open a file in the RPCortex text editor. Returns True if it ran."""
+    """Open a file in the RPCortex text editor (now the Editor package).
+    Returns True if it ran."""
     try:
-        if '/Core' not in sys.path:
-            sys.path.append('/Core')
+        if '/Packages/Editor' not in sys.path:
+            sys.path.append('/Packages/Editor')
         import editor
         editor.edit(path)
         return True
@@ -218,7 +228,7 @@ def _draw(cwd, entries, sel, top, status, total, flt):
     _w(_DG + ('-' * 60) + _R + '\x1b[K\r\n')
     _w(_DG + ' {} items  {} total'.format(len(entries), _fmt_size(total)) +
        _R + '\x1b[K\r\n')
-    _w(_DG + ' Up/Down  Enter open  v view  / search  d/Del del  n new  g goto  r  q quit' +
+    _w(_DG + ' Up/Down  Enter open  v view  / find  d/Del del  n new file/dir  g goto  r  q quit' +
        _R + '\x1b[K\r\n')
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
@@ -351,16 +361,25 @@ def files(args=None):
 
             elif key == 'n':
                 _w('\x1b[?25h')
-                name = _prompt('New folder name:')
+                name = _prompt('New (end name with / for a folder):')
                 _w('\x1b[?25l')
                 if name:
+                    target = _join(cwd, name.rstrip('/'))
                     try:
-                        uos.mkdir(_join(cwd, name))
+                        if name.endswith('/'):
+                            uos.mkdir(target)
+                            status = "Created folder '{}'.".format(name.rstrip('/'))
+                        else:
+                            # New FILE: create it empty, then open it in the editor.
+                            if not _exists(target):
+                                with open(target, 'w'):
+                                    pass
+                            _open_in_editor(target)
+                            status = "Created '{}'.".format(name)
                         all_entries, total = _reload(cwd)
                         entries = _apply_filter()
-                        status = "Created '{}'.".format(name)
                     except Exception as e:
-                        status = 'mkdir failed: {}'.format(e)
+                        status = 'create failed: {}'.format(e)
                 _clear()
 
             elif key in ('d', 'DEL'):

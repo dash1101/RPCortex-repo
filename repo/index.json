@@ -17,6 +17,13 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/rpcmark.pkg"
     },
     {
+      "name": "Editor",
+      "ver": "0.9.1",
+      "desc": "Nano-style terminal text editor (edit/nano/vi/vim)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/editor.pkg"
+    },
+    {
       "name": "HelloWorld",
       "ver": "1.0.0",
       "desc": "Sample demo package for RPCortex",
@@ -60,14 +67,14 @@
     },
     {
       "name": "NTP",
-      "ver": "1.1.0",
-      "desc": "Network time sync — set the clock over WiFi (no RTC needed)",
+      "ver": "1.2.0",
+      "desc": "Network time sync + auto-timezone — set the clock over WiFi (no RTC needed)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ntp.pkg"
     },
     {
       "name": "DHT",
-      "ver": "1.0.0",
+      "ver": "1.1.0",
       "desc": "Read DHT11/DHT22 temperature & humidity sensors from the shell",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/dht.pkg"
@@ -88,10 +95,24 @@
     },
     {
       "name": "FileExp",
-      "ver": "0.2.0",
-      "desc": "TUI file explorer - browse, edit, search, make and delete files (files / fm)",
+      "ver": "0.3.0",
+      "desc": "TUI file explorer - browse, edit, create files/folders, search, delete (files / fm)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/fileexp.pkg"
+    },
+    {
+      "name": "Desktop",
+      "ver": "0.1.0",
+      "desc": "A keyboard-driven icon desktop - move a cursor over file icons, Enter to open/run (desktop / dt)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/desktop.pkg"
+    },
+    {
+      "name": "IDE",
+      "ver": "0.1.0",
+      "desc": "In-device IDE - browse, edit, run and live-test packages and .rps scripts (ide / dev)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ide.pkg"
     }
   ]
 }
