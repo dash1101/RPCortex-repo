@@ -46,7 +46,7 @@
     },
     {
       "name": "Gpio",
-      "ver": "1.1.0",
+      "ver": "1.2.0",
       "desc": "Drive and read GPIO pins from the shell",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/gpio.pkg"

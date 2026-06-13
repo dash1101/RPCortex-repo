@@ -25,7 +25,7 @@ import sys
 if '/Core' not in sys.path:
     sys.path.append('/Core')
 
-from RPCortex import error, info, ok, warn, multi
+from RPCortex import error, info, ok, warn, multi, is_capturing
 
 
 def _pin_num(s):
@@ -53,7 +53,13 @@ def _read(pin, pull):
     else:
         p = Pin(pin, Pin.IN)
     val = p.value()
-    ok("{} = {}  ({})".format(_lbl(pin), val, 'HIGH' if val else 'LOW'))
+    # When a script captures this (`capture X gpio read N`) or it's piped, emit
+    # JUST the raw 0/1 via multi() so it's machine-readable; otherwise the
+    # friendly line. This is the convention for data-producing package commands.
+    if is_capturing():
+        multi(str(val))
+    else:
+        ok("{} = {}  ({})".format(_lbl(pin), val, 'HIGH' if val else 'LOW'))
 
 
 def _set(pin, level):
@@ -113,7 +119,10 @@ def _adc(pin):
             a = ADC(pin)               # RP2 channel-number style
         raw = a.read_u16()
         volts = raw * 3.3 / 65535
-        ok("GP{} ADC: {}  ({:.3f} V)".format(pin, raw, volts))
+        if is_capturing():
+            multi(str(raw))          # raw 0-65535 for scripts/pipes
+        else:
+            ok("GP{} ADC: {}  ({:.3f} V)".format(pin, raw, volts))
     except Exception as e:
         error("ADC read failed on pin {}: {}".format(pin, e))
         info("ADC pins are limited (RP2040: GP26-28). Check your board.")
