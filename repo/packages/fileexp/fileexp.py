@@ -1,19 +1,21 @@
 # Desc: TUI file explorer for RPCortex - Pulsar OS
 # File: /Packages/FileExp/fileexp.py
-# Version: 0.1.0  (DRAFT — staged in temp_claude for on-device testing)
+# Version: 0.2.0
 # Author: dash1101
 #
-# A nano-style terminal file browser. Arrow-key navigation, view files, make
-# and delete entries — without memorising ls/cd/rm. Needs a real serial
-# terminal (PuTTY); arrow keys are unreliable in the Thonny REPL.
+# A nano-style terminal file browser. Arrow-key navigation, open files in the
+# text editor, search, make and delete entries - without memorising ls/cd/rm.
+# Needs a real serial terminal (PuTTY); arrow keys are flaky in the Thonny REPL.
 #
 # Shell command:  files [path]      (also: fm, explorer)
 #
 # Keys:
 #   Up / Down   (or k / j)   move the selection
-#   Enter / ->  (or l)       open a folder, or view a file
+#   Enter / ->  (or l)       open a folder, or open a file in the editor
+#   v                        quick-view a file (first 8 KB), no editor
 #   <- / Bksp   (or h)       go up to the parent folder
-#   d                        delete the selected entry (asks first)
+#   /                        search / filter the current folder
+#   d  or  Del               delete the selected entry (asks first)
 #   n                        new folder (prompts for a name)
 #   g                        go to a path (prompts)
 #   r                        refresh
@@ -24,15 +26,15 @@
 import sys
 import uos
 
-# ── ANSI ────────────────────────────────────────────────────────────────────
-_CY = '\x1b[96m'   # cyan   — headings
-_GR = '\x1b[92m'   # green  — folders
-_YL = '\x1b[93m'   # yellow — status
-_DG = '\x1b[90m'   # gray   — rules / hints
-_WH = '\x1b[97m'   # white  — selected
-_RD = '\x1b[91m'   # red    — warnings
+# -- ANSI ------------------------------------------------------------------
+_CY = '\x1b[96m'   # cyan   - headings
+_GR = '\x1b[92m'   # green  - folders
+_YL = '\x1b[93m'   # yellow - status
+_DG = '\x1b[90m'   # gray   - rules / hints
+_WH = '\x1b[97m'   # white  - selected
+_RD = '\x1b[91m'   # red    - warnings
 _BD = '\x1b[1m'
-_RV = '\x1b[7m'    # reverse video — selection bar
+_RV = '\x1b[7m'    # reverse video - selection bar
 _R  = '\x1b[0m'
 
 _DIR_FLAG = 0x4000
@@ -77,14 +79,14 @@ def _parent(d):
 
 
 def _listing(d):
-    """Return a sorted list of (name, is_dir, size) — folders first."""
-    out = []
+    """Return (sorted [ (name, is_dir, size) ], total_file_bytes). Folders first."""
+    dirs = []
+    files = []
+    total = 0
     try:
         names = uos.listdir(d)
     except OSError:
-        return out
-    dirs = []
-    files = []
+        return [], 0
     for n in names:
         full = _join(d, n)
         try:
@@ -93,28 +95,44 @@ def _listing(d):
                 dirs.append((n, True, 0))
             else:
                 files.append((n, False, st[6]))
+                total += st[6]
         except OSError:
             files.append((n, False, 0))
     dirs.sort(key=lambda e: e[0].lower())
     files.sort(key=lambda e: e[0].lower())
-    out.extend(dirs)
-    out.extend(files)
-    return out
+    return dirs + files, total
+
+
+def _alpha(ch):
+    return ('A' <= ch <= 'Z') or ('a' <= ch <= 'z')
 
 
 def _read_key():
-    """Blocking read of one logical key. Arrows -> 'UP'/'DOWN'/'LEFT'/'RIGHT'."""
+    """Blocking read of one logical key. Decodes arrows + Home/End/Del."""
     c = sys.stdin.read(1)
-    if c == '\x1b':
-        seq = sys.stdin.read(2)
-        return {'[A': 'UP', '[B': 'DOWN', '[C': 'RIGHT', '[D': 'LEFT'}.get(seq, 'ESC')
-    if c in ('\r', '\n'):
-        return 'ENTER'
-    if c in ('\x7f', '\x08'):
-        return 'BKSP'
-    if c == '\x03':
-        return 'q'           # Ctrl+C exits cleanly
-    return c
+    if c != '\x1b':
+        if c in ('\r', '\n'):
+            return 'ENTER'
+        if c in ('\x7f', '\x08'):
+            return 'BKSP'
+        if c == '\x03':
+            return 'q'           # Ctrl+C exits cleanly
+        return c
+    if sys.stdin.read(1) != '[':
+        return 'ESC'
+    seq = ''
+    while True:
+        ch = sys.stdin.read(1)
+        seq += ch
+        if _alpha(ch) or ch == '~':
+            break
+        if len(seq) > 6:
+            break
+    return {
+        'A': 'UP', 'B': 'DOWN', 'C': 'RIGHT', 'D': 'LEFT',
+        'H': 'HOME', 'F': 'END', '1~': 'HOME', '7~': 'HOME',
+        '4~': 'END', '8~': 'END', '3~': 'DEL',
+    }.get(seq, 'ESC')
 
 
 def _prompt(label):
@@ -138,8 +156,20 @@ def _prompt(label):
     return buf.strip()
 
 
+def _open_in_editor(path):
+    """Open a file in the RPCortex text editor. Returns True if it ran."""
+    try:
+        if '/Core' not in sys.path:
+            sys.path.append('/Core')
+        import editor
+        editor.edit(path)
+        return True
+    except Exception:
+        return False
+
+
 def _view_file(path):
-    """Show up to 8 KB of a file, then wait for a key."""
+    """Quick-view: show up to 8 KB of a file, then wait for a key."""
     _clear()
     _w(_CY + _BD + 'VIEW  ' + _R + _WH + path + _R + '\r\n')
     _w(_DG + ('-' * 60) + _R + '\r\n')
@@ -156,14 +186,17 @@ def _view_file(path):
     _read_key()
 
 
-def _draw(cwd, entries, sel, top, status):
+def _draw(cwd, entries, sel, top, status, total, flt):
     _w('\x1b[H')                                   # home, no full clear (less flicker)
-    _w(_CY + _BD + ' RPCortex Files ' + _R +
-       _DG + '  ' + cwd + _R + '\x1b[K\r\n')
+    title = ' RPCortex Files '
+    if flt:
+        title = ' RPCortex Files  [/' + flt + '] '
+    _w(_CY + _BD + title + _R + _DG + '  ' + cwd + _R + '\x1b[K\r\n')
     _w(_DG + ('-' * 60) + _R + '\x1b[K\r\n')
 
     if not entries:
-        _w(_DG + '  (empty folder)' + _R + '\x1b[K\r\n')
+        msg = '  (no matches)' if flt else '  (empty folder)'
+        _w(_DG + msg + _R + '\x1b[K\r\n')
         shown = 0
     else:
         shown = 0
@@ -179,12 +212,14 @@ def _draw(cwd, entries, sel, top, status):
                 _w(col + row + _R + '\x1b[K\r\n')
             shown += 1
 
-    # pad to a stable height
-    for _ in range(_PAGE - shown):
+    for _ in range(_PAGE - shown):                 # pad to a stable height
         _w('\x1b[K\r\n')
 
     _w(_DG + ('-' * 60) + _R + '\x1b[K\r\n')
-    _w(_DG + ' Up/Down move  Enter open  <- up  d del  n new  g goto  r refresh  q quit' + _R + '\x1b[K\r\n')
+    _w(_DG + ' {} items  {} total'.format(len(entries), _fmt_size(total)) +
+       _R + '\x1b[K\r\n')
+    _w(_DG + ' Up/Down  Enter open  v view  / search  d/Del del  n new  g goto  r  q quit' +
+       _R + '\x1b[K\r\n')
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
 
@@ -199,21 +234,32 @@ def files(args=None):
     if not _is_dir(cwd):
         cwd = '/'
 
-    entries = _listing(cwd)
+    all_entries, total = _listing(cwd)
+    flt = ''
+    entries = all_entries
     sel = 0
     top = 0
     status = ''
     _clear()
     _w('\x1b[?25l')                                # hide cursor
 
+    def _apply_filter():
+        if not flt:
+            return all_entries
+        f = flt.lower()
+        return [e for e in all_entries if f in e[0].lower()]
+
+    def _reload(path):
+        a, t = _listing(path)
+        return a, t
+
     try:
         while True:
-            # keep selection within the viewport
             if sel < top:
                 top = sel
             elif sel >= top + _PAGE:
                 top = sel - _PAGE + 1
-            _draw(cwd, entries, sel, top, status)
+            _draw(cwd, entries, sel, top, status, total, flt)
             status = ''
 
             key = _read_key()
@@ -229,11 +275,18 @@ def files(args=None):
                 if entries:
                     sel = (sel + 1) % len(entries)
 
+            elif key == 'HOME':
+                sel = 0
+            elif key == 'END':
+                sel = max(0, len(entries) - 1)
+
             elif key in ('LEFT', 'BKSP', 'h'):
                 newd = _parent(cwd)
                 if newd != cwd:
                     cwd = newd
-                    entries = _listing(cwd)
+                    all_entries, total = _reload(cwd)
+                    flt = ''
+                    entries = all_entries
                     sel = 0
                     top = 0
 
@@ -243,15 +296,40 @@ def files(args=None):
                     target = _join(cwd, name)
                     if is_dir:
                         cwd = target
-                        entries = _listing(cwd)
+                        all_entries, total = _reload(cwd)
+                        flt = ''
+                        entries = all_entries
                         sel = 0
                         top = 0
                     else:
-                        _view_file(target)
+                        if not _open_in_editor(target):
+                            _view_file(target)
+                        _clear()
+                        all_entries, total = _reload(cwd)   # size may have changed
+                        entries = _apply_filter()
+                        if sel >= len(entries):
+                            sel = max(0, len(entries) - 1)
+
+            elif key == 'v':                        # quick-view (no editor)
+                if entries:
+                    name, is_dir, _sz = entries[sel]
+                    if not is_dir:
+                        _view_file(_join(cwd, name))
                         _clear()
 
+            elif key == '/':                        # search / filter
+                _w('\x1b[?25h')
+                flt = _prompt('Search (blank clears):')
+                _w('\x1b[?25l')
+                entries = _apply_filter()
+                sel = 0
+                top = 0
+                status = ('Filter: ' + flt) if flt else 'Filter cleared.'
+                _clear()
+
             elif key == 'r':
-                entries = _listing(cwd)
+                all_entries, total = _reload(cwd)
+                entries = _apply_filter()
                 if sel >= len(entries):
                     sel = max(0, len(entries) - 1)
                 status = 'Refreshed.'
@@ -262,7 +340,9 @@ def files(args=None):
                 _w('\x1b[?25l')
                 if dest and _is_dir(dest):
                     cwd = dest
-                    entries = _listing(cwd)
+                    all_entries, total = _reload(cwd)
+                    flt = ''
+                    entries = all_entries
                     sel = 0
                     top = 0
                 elif dest:
@@ -276,13 +356,14 @@ def files(args=None):
                 if name:
                     try:
                         uos.mkdir(_join(cwd, name))
-                        entries = _listing(cwd)
+                        all_entries, total = _reload(cwd)
+                        entries = _apply_filter()
                         status = "Created '{}'.".format(name)
                     except Exception as e:
                         status = 'mkdir failed: {}'.format(e)
                 _clear()
 
-            elif key == 'd':
+            elif key in ('d', 'DEL'):
                 if entries:
                     name, is_dir, _sz = entries[sel]
                     target = _join(cwd, name)
@@ -295,7 +376,8 @@ def files(args=None):
                                 uos.rmdir(target)     # only removes empty dirs
                             else:
                                 uos.remove(target)
-                            entries = _listing(cwd)
+                            all_entries, total = _reload(cwd)
+                            entries = _apply_filter()
                             if sel >= len(entries):
                                 sel = max(0, len(entries) - 1)
                             status = "Deleted '{}'.".format(name)

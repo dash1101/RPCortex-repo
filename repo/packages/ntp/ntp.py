@@ -114,21 +114,36 @@ def _online():
     return True
 
 
-def _sync(server):
+def _parse_sync_flags(rest):
+    """Split a sync arg-string into (server_or_None, silent). Strips -s/--silent."""
+    server = None
+    silent = False
+    for tok in (rest or '').split():
+        if tok in ('-s', '--silent'):
+            silent = True
+        elif server is None:
+            server = tok
+    return server, silent
+
+
+def _sync(server, silent=False):
     host = _server(server)
     if not _online():
         return
-    info("Syncing time from {} ...".format(host))
+    if not silent:
+        info("Syncing time from {} ...".format(host))
     try:
         secs = _query(host)
     except Exception as e:
-        error("NTP sync failed: {}".format(e))
+        error("NTP sync failed: {}".format(e))   # errors always print
         info("Check WiFi, or try another server: ntp sync time.google.com")
         return
     try:
         _set_clock(secs)
     except Exception as e:
         error("Could not set RTC: {}".format(e))
+        return
+    if silent:
         return
     import time
     t = time.gmtime(secs)
@@ -172,7 +187,8 @@ def ntp(args=None):
     rest = parts[1].strip() if len(parts) > 1 else ''
 
     if sub == 'sync':
-        _sync(rest or None)
+        server, silent = _parse_sync_flags(rest)
+        _sync(server, silent)
     elif sub == 'status':
         _status()
     elif sub == 'server':
@@ -186,5 +202,6 @@ def ntp(args=None):
         except Exception as e:
             error("Could not save server: {}".format(e))
     else:
-        # Treat `ntp <host>` as a sync from that host
-        _sync(args.strip())
+        # Treat `ntp <host>` (and bare `ntp -s`) as a sync.
+        server, silent = _parse_sync_flags(args.strip())
+        _sync(server, silent)

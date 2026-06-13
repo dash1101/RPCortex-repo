@@ -1,0 +1,10 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+# mpy-cross temp output (the built .pkg files ARE committed)
+*.mpy
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp

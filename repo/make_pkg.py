@@ -33,6 +33,21 @@ def _compile_to_mpy(py_path):
                            or 'mpy-cross failed (is it installed? pip install mpy-cross)')
     return tmp
 
+def _retarget_cfg_to_mpy(text):
+    """Rewrite pkg.cmd file paths from .py to .mpy (compile mode only).
+
+    pkg.cmd entries look like 'cmd:/Packages/X/x.py:func' (';'-separated). The
+    '.py:' sits between the module path and the function name, so swapping
+    '.py:' -> '.mpy:' retargets every entry without touching anything else.
+    """
+    out = []
+    for line in text.split('\n'):
+        if line.strip().startswith('pkg.cmd'):
+            line = line.replace('.py:', '.mpy:')
+        out.append(line)
+    return '\n'.join(out)
+
+
 def make_pkg(source_dir, out_dir, compile_py=True):
     source_dir = os.path.normpath(source_dir)
 
@@ -61,7 +76,7 @@ def make_pkg(source_dir, out_dir, compile_py=True):
                 fpath = os.path.join(root, fname)
                 rel   = os.path.relpath(fpath, parent).replace('\\', '/')
                 
-                # Compile .py -> .mpy by default (package.cfg stays source).
+                # Compile .py -> .mpy by default.
                 if compile_py and fname.endswith('.py'):
                     try:
                         mpy = _compile_to_mpy(fpath)
@@ -75,6 +90,14 @@ def make_pkg(source_dir, out_dir, compile_py=True):
                     except OSError:
                         pass
                     print(f"  + {arc}  (compiled)")
+                elif compile_py and fname == 'package.cfg':
+                    # In compile mode the .py modules become .mpy, so point the
+                    # pkg.cmd path at the .mpy to avoid any loader ambiguity.
+                    with open(fpath, 'r') as cf:
+                        cfg_text = cf.read()
+                    cfg_text = _retarget_cfg_to_mpy(cfg_text)
+                    zf.writestr(rel, cfg_text)
+                    print(f"  + {rel}  (cmd -> .mpy)")
                 else:
                     zf.write(fpath, rel)
                     print(f"  + {rel}")

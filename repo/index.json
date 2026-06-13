@@ -88,8 +88,8 @@
     },
     {
       "name": "FileExp",
-      "ver": "0.1.0",
-      "desc": "TUI file explorer - browse, view, make and delete files (files / fm)",
+      "ver": "0.2.0",
+      "desc": "TUI file explorer - browse, edit, search, make and delete files (files / fm)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/fileexp.pkg"
     }
