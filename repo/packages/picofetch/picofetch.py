@@ -116,7 +116,14 @@ def _get_mpy():
 
 def _get_freq():
     try:
-        return '{} MHz'.format(machine.freq() // 1_000_000)
+        s = '{} MHz'.format(machine.freq() // 1_000_000)
+        try:
+            import regedit
+            if (regedit.read('Settings.Dynamic_Clock') or 'false') == 'true':
+                s += ' (dynamic)'
+        except Exception:
+            pass
+        return s
     except Exception:
         return 'Unknown'
 

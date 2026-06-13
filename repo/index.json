@@ -4,7 +4,7 @@
   "packages": [
     {
       "name": "PicoFetch",
-      "ver": "1.0.0",
+      "ver": "1.1.0",
       "desc": "Neofetch-style system info display (fetch / neofetch)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/picofetch.pkg"
@@ -18,8 +18,8 @@
     },
     {
       "name": "Editor",
-      "ver": "0.9.1",
-      "desc": "Nano-style terminal text editor (edit/nano/vi/vim)",
+      "ver": "0.9.2",
+      "desc": "Nano-style terminal text editor (edit/nano/vi/vim) - word-nav + Esc-discard",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/editor.pkg"
     },
@@ -33,13 +33,13 @@
     {
       "name": "Ask",
       "ver": "1.2.0",
-      "desc": "Ask an AI a question — Ollama, Groq, Claude, OpenAI",
+      "desc": "Ask an AI a question \u2014 Ollama, Groq, Claude, OpenAI",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ask.pkg"
     },
     {
       "name": "SysMon",
-      "ver": "2.4.0",
+      "ver": "2.5.0",
       "desc": "Live system monitor (htop-style)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
@@ -68,7 +68,7 @@
     {
       "name": "NTP",
       "ver": "1.2.0",
-      "desc": "Network time sync + auto-timezone — set the clock over WiFi (no RTC needed)",
+      "desc": "Network time sync + auto-timezone \u2014 set the clock over WiFi (no RTC needed)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ntp.pkg"
     },
@@ -95,24 +95,31 @@
     },
     {
       "name": "FileExp",
-      "ver": "0.3.0",
+      "ver": "0.3.1",
       "desc": "TUI file explorer - browse, edit, create files/folders, search, delete (files / fm)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/fileexp.pkg"
     },
     {
       "name": "Desktop",
-      "ver": "0.1.0",
+      "ver": "0.1.1",
       "desc": "A keyboard-driven icon desktop - move a cursor over file icons, Enter to open/run (desktop / dt)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/desktop.pkg"
     },
     {
       "name": "IDE",
-      "ver": "0.1.0",
+      "ver": "0.1.1",
       "desc": "In-device IDE - browse, edit, run and live-test packages and .rps scripts (ide / dev)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ide.pkg"
+    },
+    {
+      "name": "HTTPd",
+      "ver": "0.1.0",
+      "desc": "Tiny web server - live dashboard + browsable/downloadable filesystem over WiFi (httpd)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/httpd.pkg"
     }
   ]
 }
