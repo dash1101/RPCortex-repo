@@ -42,7 +42,6 @@ _DEFAULT_REFRESH_MS = 750
 _REG_REFRESH        = 'Apps.SysMon_Refresh'
 _MIN_REFRESH_MS     = 100
 _MAX_REFRESH_MS     = 10000
-_BOOT               = utime.ticks_ms()
 
 
 def _load_refresh():
@@ -73,7 +72,9 @@ def _fmt_refresh(ms):
 # ---------------------------------------------------------------------------
 
 def _uptime():
-    s = utime.ticks_diff(utime.ticks_ms(), _BOOT) // 1000
+    # Raw ticks_ms() counts from system reset (~boot), matching the shell's
+    # `uptime` command — NOT from when this app started.
+    s = utime.ticks_ms() // 1000
     m, s = divmod(s, 60)
     h, m = divmod(m, 60)
     d, h = divmod(h, 24)
@@ -195,6 +196,12 @@ def _collect():
     try:
         import machine
         d['freq'] = '{} MHz'.format(machine.freq() // 1000000)
+        try:
+            import regedit
+            if (regedit.read('Settings.Dynamic_Clock') or 'false') == 'true':
+                d['freq'] += ' (dyn)'
+        except Exception:
+            pass
     except Exception:
         d['freq'] = 'N/A'
 
@@ -310,7 +317,7 @@ def _draw(d, show_log, show_net_detail, first_draw=False, refresh_ms=_DEFAULT_RE
     owner    = d.get('owner')
     title_r  = '{} · {}'.format(device, owner) if owner else device
     left_vis = len('  RPCortex Monitor  ·  ') + len(ver) + 2 + len(title_r)
-    hints    = '[r]refresh  [+/-]speed  [l]log  [n]net  [q]quit'
+    hints    = '[r]refresh  [+/-]speed  [l]log  [n]net  [q/Esc]quit'
     pad      = max(1, _W - left_vis - len(hints))
     a('  ' + _WH + _BD + 'RPCortex Monitor' + _R
       + '  ·  ' + _DG + ver + '  ' + title_r + _R
@@ -381,7 +388,7 @@ def _draw(d, show_log, show_net_detail, first_draw=False, refresh_ms=_DEFAULT_RE
         a('')
 
     a(_div())
-    a(_DG + '  Refresh {}  ·  r=now  +/-=speed  l=log  n=net  q=quit'.format(
+    a(_DG + '  Refresh {}  ·  r=now  +/-=speed  l=log  n=net  q/Esc=quit'.format(
         _fmt_refresh(refresh_ms)) + _R)
 
     # Efficient in-place refresh: full clear only on first draw.
@@ -447,7 +454,7 @@ def htop(args=None):
                     if r:
                         ch = sys.stdin.read(1)
                         break
-                if ch in ('q', 'Q', '\x03', '\x04'):
+                if ch in ('q', 'Q', '\x03', '\x04', '\x1b'):   # q / Ctrl+C / ESC
                     break
                 if ch in ('l', 'L'):
                     show_log = not show_log
@@ -461,7 +468,7 @@ def htop(args=None):
             else:
                 sys.stdout.write(_DG + '\n  (no auto-refresh — r=refresh, l=log, n=net, q=quit)\n' + _R)
                 ch = sys.stdin.read(1)
-                if ch in ('q', 'Q', '\x03'):
+                if ch in ('q', 'Q', '\x03', '\x1b'):
                     break
                 if ch in ('l', 'L'):
                     show_log = not show_log

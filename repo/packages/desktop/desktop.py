@@ -199,54 +199,72 @@ def _pause(msg='Press any key...'):
 def _clock():
     try:
         import time
-        t = time.localtime()
+        off = 0
+        try:
+            import regedit
+            off = int(regedit.read('System.TZ_Offset') or 0)
+        except Exception:
+            off = 0
+        t = time.localtime(time.time() + off * 3600)   # RTC is UTC; apply the zone
         return '{:02d}:{:02d}'.format(t[3], t[4])
     except Exception:
         return '--:--'
 
 
+def _center(s, w):
+    if len(s) >= w:
+        return s[:w]
+    pad = w - len(s)
+    left = pad // 2
+    return (' ' * left) + s + (' ' * (pad - left))
+
+
 def _draw(cwd, items, sel, top, status):
     _w('\x1b[H')
-    bar = ' RPCortex Desktop '
-    right = cwd + '   ' + _clock()
-    pad = max(1, _W - len(bar) - len(right))
-    _w(_CY + _BD + bar + _R + _DG + ' ' * pad + right + _R + '\x1b[K\r\n')
-    _w(_DG + ('=' * _W) + _R + '\x1b[K\r\n')
+    # --- taskbar (reverse-video, full width) ---
+    left = ' ■ RPCortex Desktop '
+    right = ' ' + _clock() + ' '
+    mid = cwd
+    space = _W - len(left) - len(right) - len(mid)
+    if space < 0:
+        mid = '…' + mid[len(mid) - (_W - len(left) - len(right) - 1):]
+        space = _W - len(left) - len(right) - len(mid)
+    _w(_RV + _CY + _BD + (left + mid + ' ' * max(0, space) + right)[:_W] + _R + '\x1b[K\r\n')
+    _w('\x1b[K\r\n')   # wallpaper gap
 
     if not items:
-        _w('\r\n' + _DG + '   (empty folder - press n to make a file)' + _R + '\x1b[K\r\n')
+        _w(_DG + '   (empty - press n to make a file or folder)' + _R + '\x1b[K\r\n')
         for _ in range(_ROWS * 3 - 1):
             _w('\x1b[K\r\n')
     else:
         page = items[top:top + _ROWS * _COLS]
         for r in range(_ROWS):
             row = page[r * _COLS:(r + 1) * _COLS]
-            # line 1: blank spacer ; line 2: [glyph] ; line 3: name
-            glyph_line = '  '
-            name_line  = '  '
+            glyph_line = ' '
+            name_line  = ' '
             for c in range(_COLS):
                 gi = top + r * _COLS + c
                 if c < len(row):
                     name, is_dir = row[c]
                     gl = '[' + _glyph(name, is_dir) + ']'
-                    nm = (name[:_CELL - 3] + '..') if len(name) > _CELL - 1 else name
+                    nm = name if len(name) <= _CELL - 2 else name[:_CELL - 3] + '…'
                     col = _GR if is_dir else (_YL if _runnable(name) else _WH)
                     if gi == sel:
-                        glyph_line += _RV + _WH + '{:<{}}'.format(gl, _CELL) + _R
-                        name_line  += _RV + _WH + '{:<{}}'.format(nm, _CELL) + _R
+                        glyph_line += _RV + _WH + _BD + _center(gl, _CELL) + _R
+                        name_line  += _WH + _BD + _center(nm, _CELL) + _R
                     else:
-                        glyph_line += col + '{:<{}}'.format(gl, _CELL) + _R
-                        name_line  += col + '{:<{}}'.format(nm, _CELL) + _R
+                        glyph_line += col + _center(gl, _CELL) + _R
+                        name_line  += _DG + _center(nm, _CELL) + _R
                 else:
                     glyph_line += ' ' * _CELL
                     name_line  += ' ' * _CELL
-            _w('\x1b[K\r\n')
             _w(glyph_line + '\x1b[K\r\n')
             _w(name_line + '\x1b[K\r\n')
+            _w('\x1b[K\r\n')   # gap between icon rows
 
-    _w(_DG + ('=' * _W) + _R + '\x1b[K\r\n')
-    _w(_DG + ' ' + (status or 'Up/Down/Left/Right move   Enter open/run   e edit   n new   Bksp up   q quit') +
-       _R + '\x1b[K')
+    _w(_DG + ('─' * _W) + _R + '\x1b[K\r\n')
+    hint = status or 'arrows move   Enter open/run   e edit   x run   n new   Bksp up   q/Esc quit'
+    _w(_RV + _DG + _center(hint, _W) + _R + '\x1b[K')
 
 
 def desktop(args=None):
@@ -281,7 +299,7 @@ def desktop(args=None):
             status = ''
             key = _read_key()
 
-            if key == 'q':
+            if key in ('q', 'ESC'):
                 break
             elif key == 'RIGHT':
                 if items and sel < len(items) - 1:

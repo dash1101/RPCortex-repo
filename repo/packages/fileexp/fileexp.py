@@ -228,7 +228,7 @@ def _draw(cwd, entries, sel, top, status, total, flt):
     _w(_DG + ('-' * 60) + _R + '\x1b[K\r\n')
     _w(_DG + ' {} items  {} total'.format(len(entries), _fmt_size(total)) +
        _R + '\x1b[K\r\n')
-    _w(_DG + ' Up/Down  Enter open  v view  / find  d/Del del  n new file/dir  g goto  r  q quit' +
+    _w(_DG + ' Up/Down  Enter open  v view  / find  d/Del del  n new file/dir  g goto  r  q/Esc quit' +
        _R + '\x1b[K\r\n')
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
@@ -274,7 +274,7 @@ def files(args=None):
 
             key = _read_key()
 
-            if key == 'q':
+            if key in ('q', 'ESC'):
                 break
 
             elif key in ('UP', 'k'):

@@ -277,7 +277,7 @@ def _draw(cwd, items, sel, top, cfg, status):
         _w('\x1b[K\r\n')
 
     _w(_DG + ('-' * _W) + _R + '\x1b[K\r\n')
-    hint = 'Enter edit  r run  t test-pkg  n new  d del  o open  i info  q quit'
+    hint = 'Enter edit  r run  t test-pkg  n new  d del  o open  i info  q/Esc quit'
     _w(_DG + ' ' + hint + _R + '\x1b[K\r\n')
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
@@ -309,7 +309,7 @@ def ide(args=None):
             status = ''
             key = _read_key()
 
-            if key == 'q':
+            if key in ('q', 'ESC'):
                 break
             elif key in ('UP', 'k'):
                 if items:
