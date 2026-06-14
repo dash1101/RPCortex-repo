@@ -116,8 +116,8 @@
     },
     {
       "name": "HTTPd",
-      "ver": "0.2.0",
-      "desc": "Web server - dashboard, static-site hosting (httpd.cfg) + file browser/download over WiFi (httpd)",
+      "ver": "0.3.0",
+      "desc": "Web server with a control-panel TUI (config/logs/start) - dashboard / static site / file browser over WiFi, credential-safe (httpd)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/httpd.pkg"
     },
