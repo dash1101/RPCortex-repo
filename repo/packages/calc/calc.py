@@ -70,12 +70,12 @@ def _convert(base, value):
 
 
 def calc(args=None):
-    if not args or not args.strip():
+    args = (args or '').strip()
+    if not args or args.split(None, 1)[0].lower() in ('help', '-h', '--help', '?'):
         for line in _USAGE.split('\n'):
             multi("  " + line)
         return
 
-    args = args.strip()
     parts = args.split(None, 1)
     sub = parts[0].lower()
 

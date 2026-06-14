@@ -27,6 +27,53 @@ from RPCortex import ok, info, warn, error, multi
 _DIR_FLAG = 0x4000
 _DEFAULT_PORT = 8080
 
+_CTYPES = {'html': 'text/html', 'htm': 'text/html', 'css': 'text/css',
+           'js': 'application/javascript', 'json': 'application/json',
+           'txt': 'text/plain', 'png': 'image/png', 'jpg': 'image/jpeg',
+           'jpeg': 'image/jpeg', 'gif': 'image/gif', 'svg': 'image/svg+xml',
+           'ico': 'image/x-icon'}
+
+
+# -- config ----------------------------------------------------------------
+
+def _pkg_dir():
+    """This package's own dir (case-insensitive) — where httpd.cfg lives."""
+    try:
+        for e in uos.listdir('/Packages'):
+            if e.lower() == 'httpd':
+                return '/Packages/' + e
+    except OSError:
+        pass
+    return '/Packages/HTTPd'
+
+
+def _load_cfg():
+    """Read httpd.cfg (key: value lines) from the package dir. Keys:
+      port:      default listen port (8080)
+      title:     dashboard heading
+      serve_dir: a folder to host as a STATIC SITE (its index.html at '/');
+                 blank = show the built-in dashboard
+      browse:    'true' to expose the filesystem browser at /fs (default true)"""
+    cfg = {'port': _DEFAULT_PORT, 'title': '', 'serve_dir': '', 'browse': 'true'}
+    try:
+        with open(_pkg_dir() + '/httpd.cfg') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or ':' not in line:
+                    continue
+                k, v = line.split(':', 1)
+                k, v = k.strip().lower(), v.strip()
+                if k == 'port':
+                    try:
+                        cfg['port'] = int(v)
+                    except ValueError:
+                        pass
+                elif k in cfg:
+                    cfg[k] = v
+    except OSError:
+        pass
+    return cfg
+
 
 # -- helpers ---------------------------------------------------------------
 
@@ -86,7 +133,7 @@ _CSS = ("body{font-family:system-ui,sans-serif;background:#0e1116;color:#e6e6e6;
         ".dim{color:#8a93a0}")
 
 
-def _dashboard():
+def _dashboard(cfg):
     import gc
     try:
         import regedit
@@ -96,6 +143,7 @@ def _dashboard():
         build = regedit.read('System.Build') or 'source'
     except Exception:
         ver = dev = build = '?'; owner = ''
+    title = cfg.get('title') or dev
     gc.collect()
     free = gc.mem_free() // 1024
     rows = [
@@ -105,14 +153,16 @@ def _dashboard():
         ('Free RAM', str(free) + ' KB'),
         ('IP', _ip()),
     ]
-    body = ['<h1>RPCortex &mdash; ', _esc(dev), '</h1><div class="card"><table>']
+    body = ['<h1>', _esc(title), '</h1><div class="card"><table>']
     for k, v in rows:
         body.append('<tr><td class="dim">' + k + '</td><td><code>' + _esc(str(v)) + '</code></td></tr>')
     body.append('</table></div>')
-    body.append('<div class="card"><a href="/fs?path=/">&#128193; Browse files</a>'
-                ' &nbsp;&middot;&nbsp; <a href="/api">JSON status</a></div>')
+    links = '<a href="/api">JSON status</a>'
+    if cfg.get('browse', 'true') == 'true':
+        links = '<a href="/fs?path=/">&#128193; Browse files</a> &nbsp;&middot;&nbsp; ' + links
+    body.append('<div class="card">' + links + '</div>')
     return ('<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">'
-            '<title>RPCortex</title><style>' + _CSS + '</style>' + ''.join(body))
+            '<title>' + _esc(title) + '</title><style>' + _CSS + '</style>' + ''.join(body))
 
 
 def _browse(path):
@@ -192,7 +242,41 @@ def _send_file(conn, path):
         f.close()
 
 
-def _handle(conn):
+def _ctype(path):
+    ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
+    return _CTYPES.get(ext, 'application/octet-stream')
+
+
+def _send_static(conn, serve_dir, urlpath):
+    """Serve a file from serve_dir (static-site mode). '/' -> index.html."""
+    rel = urlpath.lstrip('/')
+    if '..' in rel.split('/'):                       # block path traversal
+        _send(conn, '403 Forbidden', 'text/plain', 'Forbidden')
+        return
+    full = serve_dir.rstrip('/') + ('/' + rel if rel else '')
+    if _is_dir(full):
+        full = full.rstrip('/') + '/index.html'
+    try:
+        sz = uos.stat(full)[6]
+        f = open(full, 'rb')
+    except OSError:
+        _send(conn, '404 Not Found', 'text/plain', 'Not found')
+        return
+    try:
+        conn.send(('HTTP/1.0 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n'
+                   'Connection: close\r\n\r\n').format(_ctype(full), sz).encode('utf-8'))
+        while True:
+            chunk = f.read(512)
+            if not chunk:
+                break
+            conn.send(chunk)
+    except Exception:
+        pass
+    finally:
+        f.close()
+
+
+def _handle(conn, cfg):
     try:
         conn.settimeout(2.0)
         req = conn.recv(1024)
@@ -204,18 +288,28 @@ def _handle(conn):
             _send(conn, '405 Method Not Allowed', 'text/plain', 'GET only')
             return
         path, q = _qs(parts[1])
-        if path == '/':
-            _send(conn, '200 OK', 'text/html', _dashboard())
-        elif path == '/api':
+        serve_dir = cfg.get('serve_dir', '')
+        browse = cfg.get('browse', 'true') == 'true'
+        if path == '/api':
             _send(conn, '200 OK', 'application/json', _api())
         elif path == '/fs':
-            html = _browse(q.get('path', '/'))
-            if html is None:
-                _send(conn, '404 Not Found', 'text/plain', 'No such folder')
+            if not browse:
+                _send(conn, '403 Forbidden', 'text/plain', 'File browsing is disabled')
             else:
-                _send(conn, '200 OK', 'text/html', html)
+                html = _browse(q.get('path', '/'))
+                if html is None:
+                    _send(conn, '404 Not Found', 'text/plain', 'No such folder')
+                else:
+                    _send(conn, '200 OK', 'text/html', html)
         elif path == '/dl':
-            _send_file(conn, q.get('path', ''))
+            if browse:
+                _send_file(conn, q.get('path', ''))
+            else:
+                _send(conn, '403 Forbidden', 'text/plain', 'Downloads are disabled')
+        elif serve_dir:
+            _send_static(conn, serve_dir, path)       # static-site mode
+        elif path == '/':
+            _send(conn, '200 OK', 'text/html', _dashboard(cfg))
         else:
             _send(conn, '404 Not Found', 'text/plain', 'Not found')
     except Exception:
@@ -227,7 +321,7 @@ def _handle(conn):
             pass
 
 
-def _serve(port):
+def _serve(port, cfg):
     import socket
     import select
     if not _online():
@@ -243,7 +337,10 @@ def _serve(port):
         error("Could not start server on port {}: {}".format(port, e))
         return
     ok("Serving on  http://{}:{}/   (press q or Ctrl+C to stop)".format(ip, port))
-    info("Routes: /  /api  /fs?path=/  /dl?path=<file>")
+    if cfg.get('serve_dir'):
+        info("Static site from: {}   (browse: {})".format(cfg['serve_dir'], cfg.get('browse')))
+    else:
+        info("Routes: /  /api" + ("  /fs?path=/  /dl?path=<file>" if cfg.get('browse') == 'true' else "  (file browser off)"))
     try:
         while True:
             r, _, _ = select.select([srv, sys.stdin], [], [], 0.4)
@@ -256,7 +353,7 @@ def _serve(port):
                     conn, client = srv.accept()
                 except OSError:
                     continue
-                _handle(conn)
+                _handle(conn, cfg)
     finally:
         try:
             srv.close()
@@ -267,27 +364,36 @@ def _serve(port):
 
 
 def httpd(args=None):
-    """Tiny web server: dashboard + file browser over WiFi."""
+    """Tiny web server: dashboard / static site + file browser over WiFi.
+    Configured by httpd.cfg in the package dir (port / title / serve_dir / browse)."""
+    cfg = _load_cfg()
     a = (args or '').strip().split()
-    if not a:
-        info("httpd — a tiny web server (dashboard + file browser)")
-        multi("  httpd start [port]   start serving (default {})".format(_DEFAULT_PORT))
+    if not a or a[0] in ('status', 'config', 'cfg'):
+        info("httpd — a tiny web server (config: {}/httpd.cfg)".format(_pkg_dir()))
+        multi("  httpd start [port]   start serving (config port {})".format(cfg['port']))
+        multi("  Config: port={}  title='{}'  browse={}  serve_dir='{}'".format(
+            cfg['port'], cfg.get('title', ''), cfg.get('browse'), cfg.get('serve_dir', '')))
+        if cfg.get('serve_dir'):
+            multi("  Hosting the static site in '{}' (put your index.html there).".format(cfg['serve_dir']))
+        else:
+            multi("  Serving the built-in dashboard + file browser. Set serve_dir in")
+            multi("  httpd.cfg to host your own site instead.")
         if _ip() != '0.0.0.0':
-            multi("  Your IP: {}  ->  it'll be at http://{}:{}/".format(_ip(), _ip(), _DEFAULT_PORT))
+            multi("  Your IP: {}  ->  http://{}:{}/".format(_ip(), _ip(), cfg['port']))
         else:
             multi("  Connect to WiFi first:  wifi connect")
         return
     if a[0] == 'start':
-        port = _DEFAULT_PORT
+        port = cfg['port']
         if len(a) > 1:
             try:
                 port = int(a[1])
             except ValueError:
                 warn("Invalid port '{}'.".format(a[1]))
                 return
-        _serve(port)
+        _serve(port, cfg)
     else:
-        warn("Usage: httpd start [port]")
+        warn("Usage: httpd start [port]   |   httpd config")
 
 
 if __name__ == '__main__':

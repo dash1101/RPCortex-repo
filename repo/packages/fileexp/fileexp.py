@@ -18,9 +18,13 @@
 #   d  or  Del               delete the selected entry (asks first)
 #   n                        new file (opens it in the editor), or a folder
 #                            if the name ends with '/'
+#   R                        rename the selected entry
+#   c                        copy a file to a path/folder
+#   m                        move the selected entry to a folder/path
+#   p                        install the selected .pkg file
 #   g                        go to a path (prompts)
 #   r                        refresh
-#   q                        quit
+#   q  or  Esc               quit
 #
 # MicroPython-safe: no f-strings, positional str.split(), .format() only.
 
@@ -178,6 +182,35 @@ def _open_in_editor(path):
         return False
 
 
+def _copy_file(src, dst):
+    """Stream-copy a file in 512-byte chunks (no whole-file RAM read)."""
+    with open(src, 'rb') as sf:
+        with open(dst, 'wb') as df:
+            while True:
+                b = sf.read(512)
+                if not b:
+                    break
+                df.write(b)
+
+
+def _run_and_pause(line):
+    """Clear, run a shell command via the live engine, wait for a key, restore."""
+    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+    _clear()
+    _w('\x1b[?25h')
+    if lp is None:
+        _w(_RD + 'Shell engine unavailable.' + _R)
+    else:
+        try:
+            lp._run_line(line)
+        except Exception as e:
+            _w(_RD + 'Error: {}'.format(e) + _R)
+    _w('\r\n' + _YL + 'Press any key to return...' + _R)
+    _read_key()
+    _w('\x1b[?25l')
+    _clear()
+
+
 def _view_file(path):
     """Quick-view: show up to 8 KB of a file, then wait for a key."""
     _clear()
@@ -228,7 +261,7 @@ def _draw(cwd, entries, sel, top, status, total, flt):
     _w(_DG + ('-' * 60) + _R + '\x1b[K\r\n')
     _w(_DG + ' {} items  {} total'.format(len(entries), _fmt_size(total)) +
        _R + '\x1b[K\r\n')
-    _w(_DG + ' Up/Down  Enter open  v view  / find  d/Del del  n new file/dir  g goto  r  q/Esc quit' +
+    _w(_DG + ' Enter open  n new  R rename  c copy  m move  d del  / find  p install.pkg  g goto  q/Esc' +
        _R + '\x1b[K\r\n')
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
@@ -381,6 +414,74 @@ def files(args=None):
                     except Exception as e:
                         status = 'create failed: {}'.format(e)
                 _clear()
+
+            elif key == 'R' and entries:        # rename in place
+                name, is_dir, _sz = entries[sel]
+                _w('\x1b[?25h')
+                new = _prompt("Rename '{}' to:".format(name))
+                _w('\x1b[?25l')
+                if new and new != name:
+                    try:
+                        uos.rename(_join(cwd, name), _join(cwd, new))
+                        all_entries, total = _reload(cwd); entries = _apply_filter()
+                        status = "Renamed to '{}'.".format(new)
+                    except Exception as e:
+                        status = 'Rename failed: {}'.format(e)
+                _clear()
+
+            elif key == 'c' and entries:        # copy a file to a path/folder
+                name, is_dir, _sz = entries[sel]
+                if is_dir:
+                    status = 'Copy is file-only (cp does not recurse).'
+                else:
+                    _w('\x1b[?25h')
+                    dest = _prompt("Copy '{}' to (path or folder):".format(name))
+                    _w('\x1b[?25l')
+                    if dest:
+                        if _is_dir(dest):
+                            dest = _join(dest, name)
+                        try:
+                            _copy_file(_join(cwd, name), dest)
+                            all_entries, total = _reload(cwd); entries = _apply_filter()
+                            status = "Copied to '{}'.".format(dest)
+                        except Exception as e:
+                            status = 'Copy failed: {}'.format(e)
+                    _clear()
+
+            elif key == 'm' and entries:        # move (rename across folders)
+                name, is_dir, _sz = entries[sel]
+                _w('\x1b[?25h')
+                dest = _prompt("Move '{}' to (folder or path):".format(name))
+                _w('\x1b[?25l')
+                if dest:
+                    target = _join(dest, name) if _is_dir(dest) else dest
+                    try:
+                        uos.rename(_join(cwd, name), target)
+                    except OSError:
+                        # cross-filesystem: copy then remove (files only)
+                        try:
+                            if is_dir:
+                                raise OSError('folder')
+                            _copy_file(_join(cwd, name), target)
+                            uos.remove(_join(cwd, name))
+                        except Exception as e:
+                            status = 'Move failed: {}'.format(e); target = None
+                    if target:
+                        all_entries, total = _reload(cwd); entries = _apply_filter()
+                        if sel >= len(entries):
+                            sel = max(0, len(entries) - 1)
+                        status = "Moved to '{}'.".format(target)
+                _clear()
+
+            elif key == 'p' and entries:        # package: install a .pkg here
+                name, is_dir, _sz = entries[sel]
+                if not is_dir and name.lower().endswith('.pkg'):
+                    _run_and_pause('pkg install ' + _join(cwd, name))
+                    all_entries, total = _reload(cwd); entries = _apply_filter()
+                elif is_dir and _exists(_join(_join(cwd, name), 'package.cfg')):
+                    status = "Folder is a package source — build it with 'mkpkg'."
+                else:
+                    status = 'Select a .pkg file to install (p).'
 
             elif key in ('d', 'DEL'):
                 if entries:

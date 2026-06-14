@@ -61,6 +61,12 @@ _KNOWN = {
 
 
 def i2cscan(args=None):
+    if args and args.strip() and args.split()[0].lower() in ('help', '-h', '--help', '?'):
+        info("i2cscan — find devices on the I2C bus")
+        multi("  i2cscan              scan using the board's default SCL/SDA pins")
+        multi("  i2cscan <scl> <sda>  scan a specific pin pair  (e.g. i2cscan 5 4)")
+        multi("  Reports each 0x address found and names common parts.")
+        return
     scl_n, sda_n = _default_pins()
 
     if args and args.strip():

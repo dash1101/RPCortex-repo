@@ -15,8 +15,10 @@
 #   Up/Down/Left/Right    move the icon cursor around the grid
 #   Enter                 open folder / run .rps|.py / edit other files
 #   e                     edit the selected file in the text editor
-#   x                     run the selected file (.rps or .py)
+#   x                     run the selected file (.rps / .py / .mpy)
 #   n                     new file (opens the editor); end name with / for a folder
+#   R                     rename     c  copy a file     m  move
+#   p                     install the selected .pkg file
 #   Del / d               delete the selected icon (asks first)
 #   Bksp / Left-at-edge   go up to the parent folder
 #   r                     refresh        q   quit
@@ -141,7 +143,7 @@ def _ext(name):
 
 
 def _runnable(name):
-    return _ext(name) in ('rps', 'py')
+    return _ext(name) in ('rps', 'py', 'mpy')
 
 
 def _glyph(name, is_dir):
@@ -187,6 +189,16 @@ def _open_editor(path):
         return True
     except Exception:
         return False
+
+
+def _copy_file(src, dst):
+    with open(src, 'rb') as sf:
+        with open(dst, 'wb') as df:
+            while True:
+                b = sf.read(512)
+                if not b:
+                    break
+                df.write(b)
 
 
 def _pause(msg='Press any key...'):
@@ -263,7 +275,7 @@ def _draw(cwd, items, sel, top, status):
             _w('\x1b[K\r\n')   # gap between icon rows
 
     _w(_DG + ('─' * _W) + _R + '\x1b[K\r\n')
-    hint = status or 'arrows move   Enter open/run   e edit   x run   n new   Bksp up   q/Esc quit'
+    hint = status or 'arrows  Enter open  e edit  x run  n new  R ren  c copy  m move  d del  q/Esc'
     _w(_RV + _DG + _center(hint, _W) + _R + '\x1b[K')
 
 
@@ -350,7 +362,72 @@ def desktop(args=None):
                     _run_file(_join(cwd, name))
                     _pause(); _w('\x1b[?25l'); _clear()
                 else:
-                    status = "'{}' is not runnable (.rps/.py).".format(name)
+                    status = "'{}' is not runnable (.rps/.py/.mpy).".format(name)
+
+            elif key == 'R' and items:           # rename in place
+                name, is_dir = items[sel]
+                _w('\x1b[?25h')
+                new = _prompt("Rename '{}' to:".format(name))
+                _w('\x1b[?25l')
+                if new and new != name:
+                    try:
+                        uos.rename(_join(cwd, name), _join(cwd, new))
+                        items = _reload(cwd)
+                        status = "Renamed to '{}'.".format(new)
+                    except Exception as e:
+                        status = 'Rename failed: {}'.format(e)
+                _clear()
+
+            elif key == 'c' and items:           # copy a file
+                name, is_dir = items[sel]
+                if is_dir:
+                    status = 'Copy is file-only.'
+                else:
+                    _w('\x1b[?25h')
+                    dest = _prompt("Copy '{}' to (path or folder):".format(name))
+                    _w('\x1b[?25l')
+                    if dest:
+                        if _is_dir(dest):
+                            dest = _join(dest, name)
+                        try:
+                            _copy_file(_join(cwd, name), dest)
+                            items = _reload(cwd)
+                            status = "Copied to '{}'.".format(dest)
+                        except Exception as e:
+                            status = 'Copy failed: {}'.format(e)
+                    _clear()
+
+            elif key == 'm' and items:           # move
+                name, is_dir = items[sel]
+                _w('\x1b[?25h')
+                dest = _prompt("Move '{}' to (folder or path):".format(name))
+                _w('\x1b[?25l')
+                if dest:
+                    target = _join(dest, name) if _is_dir(dest) else dest
+                    try:
+                        uos.rename(_join(cwd, name), target)
+                        items = _reload(cwd)
+                        if sel >= len(items):
+                            sel = max(0, len(items) - 1)
+                        status = "Moved to '{}'.".format(target)
+                    except Exception as e:
+                        status = 'Move failed: {}'.format(e)
+                _clear()
+
+            elif key == 'p' and items:           # install a .pkg
+                name, is_dir = items[sel]
+                if not is_dir and name.lower().endswith('.pkg'):
+                    _clear(); _w('\x1b[?25h')
+                    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+                    if lp:
+                        try:
+                            lp._run_line('pkg install ' + _join(cwd, name))
+                        except Exception as e:
+                            _w('Error: {}'.format(e))
+                    _pause(); _w('\x1b[?25l'); _clear()
+                    items = _reload(cwd)
+                else:
+                    status = 'Select a .pkg file to install (p).'
 
             elif key == 'n':
                 _w('\x1b[?25h')

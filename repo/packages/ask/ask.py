@@ -583,6 +583,14 @@ def ask(args=None):
     # Flag commands
     if args:
         flag = args.split(None, 1)[0].lower()
+        if flag in ('help', '-h', '--help', '?'):
+            info("ask — ask an AI a question from the shell")
+            multi('  ask "your question"   send a prompt to the configured backend')
+            multi("  ask --setup           pick a backend + key (Ollama/Groq/Claude/OpenAI)")
+            multi("  ask --settings        open the settings panel")
+            multi("  ask --status          show the current backend + model")
+            multi("  ask --reset           clear all Ask config")
+            return
         if flag == '--settings':
             _settings()
             return

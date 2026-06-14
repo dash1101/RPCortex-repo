@@ -32,7 +32,7 @@
     },
     {
       "name": "Ask",
-      "ver": "1.2.0",
+      "ver": "1.2.1",
       "desc": "Ask an AI a question \u2014 Ollama, Groq, Claude, OpenAI",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ask.pkg"
@@ -46,21 +46,21 @@
     },
     {
       "name": "Calc",
-      "ver": "1.2.0",
+      "ver": "1.2.1",
       "desc": "Offline shell calculator (math + base conversion)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/calc.pkg"
     },
     {
       "name": "Gpio",
-      "ver": "1.2.0",
+      "ver": "1.2.1",
       "desc": "Drive and read GPIO pins from the shell",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/gpio.pkg"
     },
     {
       "name": "I2CScan",
-      "ver": "1.0.0",
+      "ver": "1.0.1",
       "desc": "Scan the I2C bus and identify common devices",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/i2cscan.pkg"
@@ -74,36 +74,36 @@
     },
     {
       "name": "DHT",
-      "ver": "1.1.0",
+      "ver": "1.1.1",
       "desc": "Read DHT11/DHT22 temperature & humidity sensors from the shell",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/dht.pkg"
     },
     {
       "name": "SpeedTest",
-      "ver": "1.0.0",
+      "ver": "1.0.1",
       "desc": "Measure WiFi latency and download throughput",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/speedtest.pkg"
     },
     {
       "name": "Backup",
-      "ver": "1.0.0",
+      "ver": "1.0.1",
       "desc": "Snapshot and restore registry, users, WiFi, aliases and tasks",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/backup.pkg"
     },
     {
       "name": "FileExp",
-      "ver": "0.3.1",
-      "desc": "TUI file explorer - browse, edit, create files/folders, search, delete (files / fm)",
+      "ver": "0.4.0",
+      "desc": "TUI file explorer - browse/edit/create/rename/copy/move/delete + install .pkg (files / fm)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/fileexp.pkg"
     },
     {
       "name": "Desktop",
-      "ver": "0.1.1",
-      "desc": "A keyboard-driven icon desktop - move a cursor over file icons, Enter to open/run (desktop / dt)",
+      "ver": "0.2.0",
+      "desc": "Keyboard icon desktop - open/run files (.rps/.py/.mpy), rename/copy/move, install .pkg (desktop / dt)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/desktop.pkg"
     },
@@ -116,10 +116,17 @@
     },
     {
       "name": "HTTPd",
-      "ver": "0.1.0",
-      "desc": "Tiny web server - live dashboard + browsable/downloadable filesystem over WiFi (httpd)",
+      "ver": "0.2.0",
+      "desc": "Web server - dashboard, static-site hosting (httpd.cfg) + file browser/download over WiFi (httpd)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/httpd.pkg"
+    },
+    {
+      "name": "MkPkg",
+      "ver": "0.1.0",
+      "desc": "On-device package workshop - scaffold, validate and pack .pkg files (mkpkg / pkgbuild)",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/mkpkg.pkg"
     }
   ]
 }

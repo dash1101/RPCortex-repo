@@ -224,6 +224,9 @@ def _info():
 
 
 def backup(args=None):
+    if args and args.strip() and args.split()[0].lower() in ('help', '-h', '--help', '?'):
+        _info()
+        return
     if not args or not args.strip():
         _info()
         return

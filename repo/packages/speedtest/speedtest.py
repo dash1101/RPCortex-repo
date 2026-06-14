@@ -169,6 +169,9 @@ def _info():
 
 
 def speedtest(args=None):
+    if args and args.strip() and args.split()[0].lower() in ('help', '-h', '--help', '?'):
+        _info()
+        return
     sub = ''
     rest = ''
     if args and args.strip():
