@@ -1,21 +1,22 @@
-# Desc: Ask — AI assistant for RPCortex (multi-backend, conversation mode)
+# Desc: Ask - AI assistant for RPCortex (multi-backend, conversation mode)
 # File: /Packages/Ask/ask.py
-# Version: 1.2.0
+# Version: 1.3.0
 # Author: dash1101
 #
 # Backends:
-#   ollama  — self-hosted via Ollama, plain HTTP, no API key  (try this first)
-#   groq    — cloud, free tier  (console.groq.com)
-#   claude  — cloud, paid       (console.anthropic.com)
-#   openai  — cloud, paid       (platform.openai.com)
+#   ollama  - self-hosted via Ollama; plain HTTP on the LAN, or HTTPS to reach
+#             it off-LAN through Tailscale Funnel / a reverse proxy. No API key.
+#   groq    - cloud, free tier  (console.groq.com)
+#   claude  - cloud, paid       (console.anthropic.com)
+#   openai  - cloud, paid       (platform.openai.com)
 #
 # Commands:
-#   ask <question>    — single question, no history
-#   ask               — conversation mode (multi-turn, 'exit' or blank to quit)
-#   ask --settings    — settings menu (change model, key, backend, host)
-#   ask --setup       — run the first-time backend setup wizard
-#   ask --status      — show current config
-#   ask --reset       — wipe all Ask config from registry
+#   ask <question>    - single question, no history
+#   ask               - conversation mode (multi-turn, 'exit' or blank to quit)
+#   ask --settings    - arrow-key settings panel (backend, model, key, host)
+#   ask --setup       - run the first-time backend setup wizard
+#   ask --status      - show current config
+#   ask --reset       - wipe all Ask config from registry
 
 import sys
 import gc
@@ -39,6 +40,14 @@ _REG_OLLAMA_HOST = 'Apps.Ask_Ollama_Host'
 _REG_KEY_GROQ    = 'Apps.Ask_Key_Groq'
 _REG_KEY_CLAUDE  = 'Apps.Ask_Key_Claude'
 _REG_KEY_OPENAI  = 'Apps.Ask_Key_OpenAI'
+
+_BACKENDS = ('ollama', 'groq', 'claude', 'openai')
+_KEY_REG  = {'groq': _REG_KEY_GROQ, 'claude': _REG_KEY_CLAUDE, 'openai': _REG_KEY_OPENAI}
+
+# ANSI styling for the settings panel (mirrors Core settings.py).
+_CY = '\x1b[96m'; _GR = '\x1b[92m'; _YL = '\x1b[93m'
+_DG = '\x1b[90m'; _WH = '\x1b[97m'; _BD = '\x1b[1m'; _R = '\x1b[0m'
+_PW = 64          # panel width
 
 # Max conversation turns kept in history (each turn = 1 user + 1 assistant msg).
 # Keeps memory use predictable on Pico 1.
@@ -159,7 +168,7 @@ def _http_post(host, port, path, payload_bytes):
 # HTTPS POST  (Claude, Groq, OpenAI)
 # ---------------------------------------------------------------------------
 
-def _https_post(host, path, extra_headers, payload_bytes):
+def _https_post(host, path, extra_headers, payload_bytes, port=443):
     import socket
     gc.collect()
 
@@ -186,7 +195,7 @@ def _https_post(host, path, extra_headers, payload_bytes):
     request = headers_str.encode('utf-8') + payload_bytes
     del headers_str
 
-    addr = socket.getaddrinfo(host, 443, 0, socket.SOCK_STREAM)[0][-1]
+    addr = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)[0][-1]
     s = socket.socket()
     s.settimeout(20)
     s.connect(addr)
@@ -228,16 +237,29 @@ def _do_ollama(messages, model, host_port):
     except ImportError:
         import json
 
-    if ':' in host_port:
-        parts = host_port.rsplit(':', 1)
-        host = parts[0]
+    # The host may be a plain LAN address ('192.168.1.100:11434') OR a full
+    # URL. An https:// URL routes over TLS — that's how you reach an Ollama
+    # exposed off-LAN via Tailscale Funnel/Serve ('https://box.tailnet.ts.net')
+    # or any HTTPS reverse proxy, so 'ask' works when you're away.
+    use_https = False
+    h = host_port.strip()
+    if h.startswith('https://'):
+        use_https = True
+        h = h[8:]
+    elif h.startswith('http://'):
+        h = h[7:]
+    h = h.rstrip('/')
+    if '/' in h:                       # drop any path; we always POST /api/chat
+        h = h.split('/', 1)[0]
+    if ':' in h:
+        host, p = h.rsplit(':', 1)
         try:
-            port = int(parts[1])
+            port = int(p)
         except Exception:
-            port = 11434
+            port = 443 if use_https else 11434
     else:
-        host = host_port
-        port = 11434
+        host = h
+        port = 443 if use_https else 11434
 
     payload = json.dumps({
         'model': model,
@@ -245,7 +267,10 @@ def _do_ollama(messages, model, host_port):
         'stream': False,
     }).encode('utf-8')
 
-    status, data = _http_post(host, port, '/api/chat', payload)
+    if use_https:
+        status, data = _https_post(host, '/api/chat', {}, payload, port=port)
+    else:
+        status, data = _http_post(host, port, '/api/chat', payload)
 
     if status == 200:
         return data['message']['content']
@@ -406,11 +431,14 @@ def _setup():
         info('  Linux:    OLLAMA_HOST=0.0.0.0 ollama serve')
         info('Then pull a model:  ollama pull llama3.2')
         multi('')
-        host = inpt('  Server address (e.g. 192.168.1.100:11434): ').strip()
+        info('Reaching it from another network? Put Ollama behind Tailscale')
+        info('Funnel (or any HTTPS proxy) and enter the https:// URL below.')
+        multi('')
+        host = inpt('  Server (192.168.1.100:11434  or  https://box.ts.net): ').strip()
         if not host:
             error('No address entered.')
             return
-        if ':' not in host:
+        if '://' not in host and ':' not in host:
             host = host + ':11434'
         model = inpt('  Model name [llama3.2]: ').strip() or 'llama3.2'
         _rset(_REG_BACKEND, 'ollama')
@@ -473,84 +501,221 @@ def _setup():
 # Settings menu  (quick changes without re-running full wizard)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Settings panel  (arrow-key TUI, mirrors the Core 'settings' app)
+# ---------------------------------------------------------------------------
+
+_p_idx = {}
+_p_nlines = 0
+_p_sel = 'b'
+_P_PROMPT = 'Choice: '
+
+
+def _p_backend():
+    return _rget(_REG_BACKEND) or ''
+
+
+def _p_nav():
+    """Selectable row keys; the host/key row depends on the backend."""
+    b = _p_backend()
+    keys = ['b', 'm']
+    if b == 'ollama':
+        keys.append('h')
+    elif b in _KEY_REG:
+        keys.append('k')
+    keys += ['w', 'x']
+    return keys
+
+
+def _p_lead(key):
+    return (_CY + _BD + '> ' + _R) if key == _p_sel else '  '
+
+
+def _p_row(key, label, value, vcol=None, note=''):
+    vcol = vcol or _YL
+    ntxt = ('   ' + _DG + note + _R) if note else ''
+    return (_p_lead(key) + _WH + '[' + key + ']' + _R + ' ' +
+            '{:<14}'.format(label) + ' : ' + vcol + value + _R + ntxt)
+
+
+def _p_sec(title):
+    prefix = '== {} '.format(title)
+    return _CY + prefix + _DG + '=' * max(0, _PW - len(prefix)) + _R
+
+
+def _p_row_for(key):
+    b = _p_backend()
+    if key == 'b':
+        return _p_row('b', 'Backend', b or '(not set)',
+                      _GR if b else _DG, 'Enter cycles')
+    if key == 'm':
+        model = _rget(_REG_MODEL) or _DEFAULTS.get(b, '(default)')
+        return _p_row('m', 'Model', model)
+    if key == 'h':
+        host = _rget(_REG_OLLAMA_HOST) or '(not set)'
+        return _p_row('h', 'Ollama host', host, _YL if _rget(_REG_OLLAMA_HOST) else _DG,
+                      'https:// = remote/Tailscale')
+    if key == 'k':
+        keyset = _rget(_KEY_REG.get(b, '')) if b in _KEY_REG else None
+        return _p_row('k', 'API key', 'set' if keyset else '(not set)',
+                      _GR if keyset else _DG)
+    if key == 'w':
+        return _p_row('w', 'Setup wizard', 'run', _DG)
+    if key == 'x':
+        return _p_row('x', 'Clear config', '', _DG)
+    return ''
+
+
+def _p_build():
+    lines = []
+    idx = {}
+    b = _p_backend()
+    lines.append('  ' + _WH + _BD + 'Ask  -  AI settings' + _R)
+    lines.append(_DG + '=' * _PW + _R)
+    lines.append('')
+    lines.append(_p_sec('BACKEND'))
+    idx['b'] = len(lines); lines.append(_p_row_for('b'))
+    idx['m'] = len(lines); lines.append(_p_row_for('m'))
+    if b == 'ollama':
+        idx['h'] = len(lines); lines.append(_p_row_for('h'))
+    elif b in _KEY_REG:
+        idx['k'] = len(lines); lines.append(_p_row_for('k'))
+    lines.append('')
+    lines.append(_p_sec('ACTIONS'))
+    idx['w'] = len(lines); lines.append(_p_row_for('w'))
+    idx['x'] = len(lines); lines.append(_p_row_for('x'))
+    lines.append('')
+    lines.append(_DG + '=' * _PW + _R)
+    lines.append('  ' + _DG + 'Up/Down' + _R + ' move   ' + _DG + 'Enter' + _R +
+                 ' change   ' + _DG + 'letter' + _R + ' jump   ' + _DG + '[q]' + _R + ' quit')
+    return lines, idx
+
+
+def _p_full_draw():
+    global _p_idx, _p_nlines
+    lines, _p_idx = _p_build()
+    _p_nlines = len(lines)
+    out = ['\x1b[2J\x1b[H\x1b[?25h']
+    for ln in lines:
+        out.append(ln); out.append('\r\n')
+    out.append(_P_PROMPT)
+    sys.stdout.write(''.join(out))
+
+
+def _p_update(key):
+    i = _p_idx.get(key)
+    if i is None:
+        return
+    up = _p_nlines - i
+    sys.stdout.write('\x1b[{}A\r'.format(up))
+    sys.stdout.write(_p_row_for(key) + '\x1b[K')
+    sys.stdout.write('\x1b[{}B\r'.format(up))
+    sys.stdout.write(_P_PROMPT)
+
+
+def _p_edit(key):
+    """Edit a value via a full-screen prompt; returns True if rows may have changed."""
+    b = _p_backend()
+    if key == 'b':
+        # Cycle to the next backend (changes which extra row shows). No clear -
+        # the caller repaints, so cycling stays flicker-free.
+        try:
+            nxt = _BACKENDS[(_BACKENDS.index(b) + 1) % len(_BACKENDS)]
+        except ValueError:
+            nxt = _BACKENDS[0]
+        _rset(_REG_BACKEND, nxt)
+        return True
+    sys.stdout.write('\x1b[2J\x1b[H')
+    if key == 'm':
+        cur = _rget(_REG_MODEL) or _DEFAULTS.get(b, '')
+        info('Change model')
+        multi('  Current: ' + (cur or '(default)'))
+        val = inpt('New model (blank = keep)').strip()
+        if val:
+            _rset(_REG_MODEL, val)
+    elif key == 'h':
+        cur = _rget(_REG_OLLAMA_HOST) or ''
+        info('Ollama host')
+        multi('  LAN:     192.168.1.100:11434')
+        multi('  Remote:  https://box.tailnet.ts.net   (Tailscale Funnel / proxy)')
+        multi('  Current: ' + (cur or '(not set)'))
+        val = inpt('New host (blank = keep)').strip()
+        if val:
+            if '://' not in val and ':' not in val:
+                val = val + ':11434'         # bare IP -> default Ollama port
+            _rset(_REG_OLLAMA_HOST, val)
+    elif key == 'k':
+        info('Set API key for ' + (b or '?'))
+        val = inpt('New API key (blank = keep)').strip()
+        if val and b in _KEY_REG:
+            _rset(_KEY_REG[b], val)
+    elif key == 'w':
+        _setup()
+        return True
+    elif key == 'x':
+        warn('Clear ALL Ask config?')
+        if inpt('Type yes to confirm').strip().lower() in ('y', 'yes'):
+            for k in (_REG_BACKEND, _REG_MODEL, _REG_OLLAMA_HOST,
+                      _REG_KEY_GROQ, _REG_KEY_CLAUDE, _REG_KEY_OPENAI):
+                try:
+                    regedit.save(k, '')
+                except Exception:
+                    pass
+            ok('All Ask config cleared.')
+            sys.stdin.read(1)
+        return True
+    return False
+
+
 def _settings():
-    backend = _rget(_REG_BACKEND) or '(not set)'
-    model   = _rget(_REG_MODEL)   or _DEFAULTS.get(backend, '?')
-
+    """Arrow-key settings panel for the Ask package."""
+    global _p_sel
+    if _p_sel not in _p_nav():
+        _p_sel = 'b'
+    _p_full_draw()
     while True:
-        multi('')
-        multi('  Ask  —  settings')
-        multi('  ' + '-' * 38)
-        multi('  Backend : ' + backend)
-        multi('  Model   : ' + model)
-        if backend == 'ollama':
-            multi('  Host    : ' + (_rget(_REG_OLLAMA_HOST) or '(not set)'))
-        elif backend in ('groq', 'claude', 'openai'):
-            km = {'groq': _REG_KEY_GROQ, 'claude': _REG_KEY_CLAUDE, 'openai': _REG_KEY_OPENAI}
-            multi('  API key : ' + ('set' if _rget(km[backend]) else '(not set)'))
-        multi('')
-        multi('  [1] Switch backend')
-        multi('  [2] Change model')
-        if backend == 'ollama':
-            multi('  [3] Change Ollama host')
-        elif backend in ('groq', 'claude', 'openai'):
-            multi('  [3] Update API key')
-        else:
-            multi('  [3] Set API key / host')
-        multi('  [4] Clear all Ask settings')
-        multi('  [q] Back')
-        multi('')
-
-        choice = inpt('  Choose: ').strip().lower()
-
-        if not choice or choice == 'q':
+        try:
+            ch = sys.stdin.read(1)
+        except Exception:
             break
 
-        elif choice == '1':
-            _setup()
-            backend = _rget(_REG_BACKEND) or backend
-            model   = _rget(_REG_MODEL)   or model
+        if ch == '\x1b':                      # arrows / bare ESC quits
+            try:
+                if sys.stdin.read(1) == '[':
+                    a = sys.stdin.read(1)
+                    if a in ('A', 'B'):
+                        nav = _p_nav()
+                        old = _p_sel
+                        i = nav.index(_p_sel) if _p_sel in nav else 0
+                        i = (i - 1) % len(nav) if a == 'A' else (i + 1) % len(nav)
+                        _p_sel = nav[i]
+                        _p_update(old)
+                        _p_update(_p_sel)
+                else:
+                    break
+            except Exception:
+                pass
+            continue
 
-        elif choice == '2':
-            new_model = inpt('  New model name [{}]: '.format(model)).strip()
-            if new_model:
-                model = new_model
-                _rset(_REG_MODEL, model)
-                ok('Model set to: ' + model)
+        if ch in ('q', 'Q', '\x03'):
+            break
 
-        elif choice == '3':
-            if backend == 'ollama':
-                cur = _rget(_REG_OLLAMA_HOST) or ''
-                new_host = inpt('  Ollama host [{}]: '.format(cur or '192.168.1.x:11434')).strip()
-                if new_host:
-                    if ':' not in new_host:
-                        new_host = new_host + ':11434'
-                    _rset(_REG_OLLAMA_HOST, new_host)
-                    ok('Ollama host set to: ' + new_host)
-            elif backend in ('groq', 'claude', 'openai'):
-                km = {'groq': _REG_KEY_GROQ, 'claude': _REG_KEY_CLAUDE, 'openai': _REG_KEY_OPENAI}
-                new_key = inpt('  New API key: ').strip()
-                if new_key:
-                    _rset(km[backend], new_key)
-                    ok('API key updated.')
-            else:
-                warn('Configure a backend first with option [1].')
+        act = _p_sel if ch in ('\r', '\n') else ch.lower()
+        if act not in _p_nav():
+            if ch in ('r', 'R'):
+                _p_full_draw()
+            continue
+        old = _p_sel
+        _p_sel = act
+        if old != _p_sel:
+            _p_update(old)
+        _p_edit(act)                      # edits use a full-screen prompt...
+        if _p_sel not in _p_nav():        # backend change can drop the host/key row
+            _p_sel = 'b'
+        _p_full_draw()                    # ...so always repaint afterwards
 
-        elif choice == '4':
-            confirm = inpt('  Clear all Ask settings? [y/N]: ').strip().lower()
-            if confirm == 'y':
-                for k in (_REG_BACKEND, _REG_MODEL, _REG_OLLAMA_HOST,
-                          _REG_KEY_GROQ, _REG_KEY_CLAUDE, _REG_KEY_OPENAI):
-                    try:
-                        regedit.delete(k)
-                    except Exception:
-                        pass
-                ok('All Ask settings cleared.')
-                backend = '(not set)'
-                model   = '?'
-
-        else:
-            error('Unknown option.')
+    sys.stdout.write('\x1b[2J\x1b[H')
+    ok('Ask settings saved.')
 
 
 # ---------------------------------------------------------------------------
@@ -584,12 +749,16 @@ def ask(args=None):
     if args:
         flag = args.split(None, 1)[0].lower()
         if flag in ('help', '-h', '--help', '?'):
-            info("ask — ask an AI a question from the shell")
+            info("ask - ask an AI a question from the shell")
             multi('  ask "your question"   send a prompt to the configured backend')
+            multi("  ask                   conversation mode (multi-turn)")
             multi("  ask --setup           pick a backend + key (Ollama/Groq/Claude/OpenAI)")
-            multi("  ask --settings        open the settings panel")
+            multi("  ask --settings        open the settings panel (arrow keys)")
             multi("  ask --status          show the current backend + model")
             multi("  ask --reset           clear all Ask config")
+            multi('')
+            multi("  Ollama can be a LAN address (192.168.1.x:11434) or an")
+            multi("  https:// URL (Tailscale Funnel/proxy) to reach it when away.")
             return
         if flag == '--settings':
             _settings()

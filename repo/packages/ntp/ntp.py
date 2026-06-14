@@ -224,6 +224,14 @@ def ntp(args=None):
     sub  = parts[0].lower()
     rest = parts[1].strip() if len(parts) > 1 else ''
 
+    if sub in ('help', '-h', '--help', '?'):
+        info("ntp - set the clock from the internet (NTP)")
+        multi("  ntp                  sync time from the default server")
+        multi("  ntp sync [-s] [--auto]   sync; -s quiet; --auto sets timezone by IP")
+        multi("  ntp <host>           sync from a specific NTP server")
+        multi("  ntp server <host>    save a default NTP server")
+        multi("  ntp status           show the NTP server + last sync")
+        return
     if sub == 'sync':
         server, silent, auto = _parse_sync_flags(rest)
         _sync(server, silent, auto)

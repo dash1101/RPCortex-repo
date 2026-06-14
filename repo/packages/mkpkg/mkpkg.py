@@ -280,8 +280,8 @@ def _pack(d, out):
 def mkpkg(args=None):
     """On-device package builder."""
     a = (args or '').strip().split()
-    if not a:
-        info("mkpkg — build RPCortex packages on the device")
+    if not a or a[0].lower() in ('help', '-h', '--help', '?'):
+        info("mkpkg - build RPCortex packages on the device")
         multi("  mkpkg new <Name> [cmd]   scaffold a new package")
         multi("  mkpkg check [dir]        validate a package folder")
         multi("  mkpkg pack [dir] [out]   build an installable .pkg")

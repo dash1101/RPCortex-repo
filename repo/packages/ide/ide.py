@@ -285,6 +285,13 @@ def _draw(cwd, items, sel, top, cfg, status):
 def ide(args=None):
     """In-device IDE: browse, edit, run and live-test code."""
     cwd = (args or '').strip()
+    if cwd.lower() in ('help', '-h', '--help', '?'):
+        for _l in ('  ide / dev - in-device code IDE',
+                   '    ide [path]    browse, edit, run and live-test code',
+                   '    arrows move  Enter open  [e] edit  [x] run',
+                   '    [t] test a package command  [q] quit'):
+            sys.stdout.write(_l + '\r\n')
+        return
     if not cwd or not _is_dir(cwd):
         try:
             cwd = uos.getcwd()

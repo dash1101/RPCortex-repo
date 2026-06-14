@@ -282,6 +282,13 @@ def _draw(cwd, items, sel, top, status):
 def desktop(args=None):
     """Keyboard-driven icon desktop."""
     cwd = (args or '').strip()
+    if cwd.lower() in ('help', '-h', '--help', '?'):
+        for _l in ('  desktop / dt - keyboard-driven icon desktop',
+                   '    desktop [path]   open the desktop (default: current dir)',
+                   '    arrows move  Enter open/run  [n] new  [R] rename',
+                   '    [c] copy  [m] move  [p] install .pkg  [q] quit'):
+            sys.stdout.write(_l + '\r\n')
+        return
     if not cwd or not _is_dir(cwd):
         try:
             cwd = uos.getcwd()

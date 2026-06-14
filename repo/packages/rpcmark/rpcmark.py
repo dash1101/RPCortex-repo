@@ -208,7 +208,12 @@ def RPCMark():
 
 def bench(args=None):
     """Shell entry point: run the RPCMark benchmark."""
-    print('Starting RPCMark benchmark — this will take a while...')
+    if isinstance(args, str) and args.strip().lower() in ('help', '-h', '--help', '?'):
+        print('  bench - RPCMark CPU/RAM benchmark')
+        print('    bench        run the benchmark (takes a little while)')
+        print('    bench help   this help')
+        return
+    print('Starting RPCMark benchmark - this will take a while...')
     RPCMark()
 
 

@@ -1,6 +1,6 @@
 # Desc: httpd - a tiny web server for RPCortex - Pulsar OS
 # File: /Packages/HTTPd/httpd.py
-# Version: 0.3.0
+# Version: 0.4.0
 # Author: dash1101
 #
 # Serve a live status dashboard + a browsable/downloadable view of the device
@@ -495,50 +495,90 @@ def _row(key, label, value, vcol=None, note=''):
             '{:<18}'.format(label) + ' : ' + vcol + value + _R + ntxt)
 
 
-def _panel(cfg):
-    ip = _ip()
-    url = ('http://{}:{}/'.format(ip, cfg['port']) if ip != '0.0.0.0'
-           else '(connect WiFi first)')
-    serve = cfg.get('serve_dir') or '(built-in dashboard)'
-    browse_on = cfg.get('browse', 'true') == 'true'
-    title = cfg.get('title') or '(device name)'
-
-    left = '  RPCortex Web Server'
-    right = '{} KB free   {}'.format(_free_kb(), ip)
-    pad = max(1, _W - len(left) - len(right))
-    lines = [
-        '  ' + _WH + _BD + 'RPCortex Web Server' + _R + ' ' * pad + _DG + right + _R,
-        _DG + '=' * _W + _R,
-        '',
-        _sec('SERVER'),
-        _row('s', 'Start server', url, _GR),
-        '',
-        _sec('CONFIG'),
-        _row('p', 'Port', str(cfg['port'])),
-        _row('t', 'Title', title, _YL if cfg.get('title') else _DG),
-        _row('d', 'Serve directory', serve, _YL if cfg.get('serve_dir') else _DG),
-        _row('b', 'Browse files', 'ON' if browse_on else 'OFF',
-             _GR if browse_on else _DG,
-             'filesystem exposed read-only' if browse_on else 'dashboard / site only'),
-        '',
-        _sec('LOGS'),
-        _row('l', 'View request log', '{} request(s)'.format(len(_LOG))),
-        _row('c', 'Clear log', '', _DG),
-        '',
-        _DG + '=' * _W + _R,
-        ('  ' + _DG + 'Up/Down' + _R + ' move   ' + _DG + 'Enter' + _R +
-         ' select   ' + _DG + 'letter' + _R + ' jump   ' + _DG + '[r]' + _R +
-         ' refresh   ' + _DG + '[q]' + _R + ' quit'),
-    ]
-    return lines
+# In-place redraw engine (mirrors Core settings.py): the panel is painted once,
+# then navigation rewrites ONLY the affected row via relative cursor moves —
+# no full-screen clear per keystroke, so it doesn't flicker at 115200 baud.
+_idx = {}        # row key -> line index within the drawn panel
+_nlines = 0      # total content lines (the prompt sits on line _nlines)
+_PROMPT = 'Choice: '
 
 
-def _draw(cfg):
+def _row_for(key, cfg):
+    """Build one panel row from the current config."""
+    if key == 's':
+        ip = _ip()
+        url = ('http://{}:{}/'.format(ip, cfg['port']) if ip != '0.0.0.0'
+               else '(connect WiFi first)')
+        return _row('s', 'Start server', url, _GR)
+    if key == 'p':
+        return _row('p', 'Port', str(cfg['port']))
+    if key == 't':
+        return _row('t', 'Title', cfg.get('title') or '(device name)',
+                    _YL if cfg.get('title') else _DG)
+    if key == 'd':
+        return _row('d', 'Serve directory', cfg.get('serve_dir') or '(built-in dashboard)',
+                    _YL if cfg.get('serve_dir') else _DG)
+    if key == 'b':
+        on = cfg.get('browse', 'true') == 'true'
+        return _row('b', 'Browse files', 'ON' if on else 'OFF', _GR if on else _DG,
+                    'filesystem exposed read-only' if on else 'dashboard / site only')
+    if key == 'l':
+        return _row('l', 'View request log', '{} request(s)'.format(len(_LOG)))
+    if key == 'c':
+        return _row('c', 'Clear log', '', _DG)
+    return ''
+
+
+def _build_lines(cfg):
+    lines = []
+    idx = {}
+    left = 'RPCortex Web Server'
+    right = '{} KB free   {}'.format(_free_kb(), _ip())
+    pad = max(1, _W - 2 - len(left) - len(right))
+    lines.append('  ' + _WH + _BD + left + _R + ' ' * pad + _DG + right + _R)
+    lines.append(_DG + '=' * _W + _R)
+    lines.append('')
+    lines.append(_sec('SERVER'))
+    idx['s'] = len(lines); lines.append(_row_for('s', cfg))
+    lines.append('')
+    lines.append(_sec('CONFIG'))
+    idx['p'] = len(lines); lines.append(_row_for('p', cfg))
+    idx['t'] = len(lines); lines.append(_row_for('t', cfg))
+    idx['d'] = len(lines); lines.append(_row_for('d', cfg))
+    idx['b'] = len(lines); lines.append(_row_for('b', cfg))
+    lines.append('')
+    lines.append(_sec('LOGS'))
+    idx['l'] = len(lines); lines.append(_row_for('l', cfg))
+    idx['c'] = len(lines); lines.append(_row_for('c', cfg))
+    lines.append('')
+    lines.append(_DG + '=' * _W + _R)
+    lines.append('  ' + _DG + 'Up/Down' + _R + ' move   ' + _DG + 'Enter' + _R +
+                 ' select   ' + _DG + 'letter' + _R + ' jump   ' + _DG + '[r]' + _R +
+                 ' refresh   ' + _DG + '[q]' + _R + ' quit')
+    return lines, idx
+
+
+def _full_draw(cfg):
+    global _idx, _nlines
+    lines, _idx = _build_lines(cfg)
+    _nlines = len(lines)
     out = ['\x1b[2J\x1b[H\x1b[?25h']
-    for ln in _panel(cfg):
+    for ln in lines:
         out.append(ln); out.append('\r\n')
-    out.append('Choice: ')
+    out.append(_PROMPT)
     sys.stdout.write(''.join(out))
+
+
+def _update(key, cfg):
+    """Rewrite just one row in place, then return the cursor to the prompt."""
+    i = _idx.get(key)
+    if i is None:
+        return
+    up = _nlines - i
+    sys.stdout.write('\x1b[{}A\r'.format(up))
+    sys.stdout.write(_row_for(key, cfg) + '\x1b[K')
+    sys.stdout.write('\x1b[{}B\r'.format(up))
+    sys.stdout.write(_PROMPT)
 
 
 def _view_log():
@@ -607,7 +647,7 @@ def _edit(cfg, key):
 def _panel_loop(cfg):
     """Interactive control panel. Returns when the user quits."""
     global _sel
-    _draw(cfg)
+    _full_draw(cfg)
     while True:
         try:
             ch = sys.stdin.read(1)
@@ -619,10 +659,12 @@ def _panel_loop(cfg):
                 if sys.stdin.read(1) == '[':
                     a = sys.stdin.read(1)
                     if a in ('A', 'B'):
+                        old = _sel
                         i = _NAV.index(_sel) if _sel in _NAV else 0
                         i = (i - 1) % len(_NAV) if a == 'A' else (i + 1) % len(_NAV)
                         _sel = _NAV[i]
-                        _draw(cfg)
+                        _update(old, cfg)     # un-highlight old row
+                        _update(_sel, cfg)    # highlight new row
                 else:
                     break
             except Exception:
@@ -635,9 +677,12 @@ def _panel_loop(cfg):
         act = _sel if ch in ('\r', '\n') else ch.lower()
         if act not in _NAV:
             if ch in ('r', 'R'):
-                _draw(cfg)
+                _full_draw(cfg)
             continue
+        old = _sel
         _sel = act
+        if old != _sel:
+            _update(old, cfg)                 # move highlight to the chosen row
 
         if act == 's':
             sys.stdout.write('\x1b[2J\x1b[H')
@@ -647,20 +692,21 @@ def _panel_loop(cfg):
                 sys.stdin.read(1)
             except Exception:
                 pass
-            _draw(cfg)
+            _full_draw(cfg)
         elif act == 'b':
             cfg['browse'] = 'false' if cfg.get('browse', 'true') == 'true' else 'true'
             _save_cfg(cfg)
-            _draw(cfg)
+            _update('b', cfg)
         elif act in ('p', 't', 'd'):
             _edit(cfg, act)
-            _draw(cfg)
+            _full_draw(cfg)
         elif act == 'l':
             _view_log()
-            _draw(cfg)
+            _full_draw(cfg)
         elif act == 'c':
             del _LOG[:]
-            _draw(cfg)
+            _update('l', cfg)                 # the log-count row reflects the clear
+            _update('c', cfg)
 
     sys.stdout.write('\x1b[2J\x1b[H')
     ok("httpd panel closed.")
@@ -691,6 +737,13 @@ def httpd(args=None):
     Run 'httpd' for the control panel; 'httpd start [port]' to serve directly."""
     cfg = _load_cfg()
     a = (args or '').strip().split()
+    if a and a[0].lower() in ('help', '-h', '--help', '?'):
+        info("httpd - a tiny web server (dashboard / static site / file browser)")
+        multi("  httpd                 open the control panel (config, logs, start)")
+        multi("  httpd start [port]    start serving directly (for startup tasks)")
+        multi("  httpd status          print config + your URL as text")
+        multi("  Config lives in {}/httpd.cfg and is editable in the panel.".format(_pkg_dir()))
+        return
     if not a or a[0] in ('panel', 'config', 'cfg', 'tui'):
         _panel_loop(cfg)
     elif a[0] == 'status':
@@ -704,7 +757,7 @@ def httpd(args=None):
                 return
         _serve(cfg['port'], cfg)
     else:
-        warn("Usage: httpd [start [port] | status]")
+        warn("Usage: httpd [start [port] | status | help]")
 
 
 if __name__ == '__main__':

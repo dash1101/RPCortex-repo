@@ -269,6 +269,13 @@ def _draw(cwd, entries, sel, top, status, total, flt):
 def files(args=None):
     """TUI file explorer entry point."""
     cwd = (args or '').strip()
+    if cwd.lower() in ('help', '-h', '--help', '?'):
+        for _l in ('  files / fm / explorer - TUI file manager',
+                   '    files [path]    open the explorer (default: current dir)',
+                   '    arrows move  Enter open  [n] new  [R] rename  [c] copy',
+                   '    [m] move  [del] delete  [p] install .pkg  [/] search  [q] quit'):
+            sys.stdout.write(_l + '\r\n')
+        return
     if not cwd:
         try:
             cwd = uos.getcwd()

@@ -11,6 +11,10 @@ from RPCortex import ok, multi
 
 
 def hello(args=None):
+    if isinstance(args, str) and args.strip().lower() in ('help', '-h', '--help', '?'):
+        multi("  hello - the sample package")
+        multi("    hello [text]   prints a greeting (and echoes your text)")
+        return
     multi("")
     multi("  Hello from HelloWorld!")
     multi("  RPCortex package system is working correctly.")

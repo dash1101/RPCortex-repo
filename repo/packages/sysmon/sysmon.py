@@ -419,6 +419,13 @@ def _adjust(refresh_ms, faster):
 
 
 def htop(args=None):
+    if isinstance(args, str) and args.strip().lower() in ('help', '-h', '--help', '?'):
+        for _l in ('  sysmon / htop - live system monitor',
+                   '    sysmon          open the monitor',
+                   '    sysmon <secs>   set the refresh interval (e.g. sysmon 1)',
+                   '    in-app: [l] toggle logs  [n] net detail  [q]/ESC quit'):
+            sys.stdout.write(_l + '\r\n')
+        return
     show_log        = False
     show_net_detail = False
     first_draw      = True

@@ -230,15 +230,29 @@ def _color_swatches():
 # Main display function
 # ---------------------------------------------------------------------------
 
-def fetch(color='bright_cyan', show_ascii=True):
+def fetch(args=None, show_ascii=True):
     """
     Print RPCortex system info in neofetch style.
     Reads OS metadata from the registry when available.
 
-    Args:
-        color      : accent color name
-        show_ascii : show the RPCortex ASCII logo
+    The shell calls fetch(<args or None>):
+      fetch                 system info with the default cyan accent
+      fetch <color>         use a different accent (e.g. fetch magenta)
+      fetch help            this help
     """
+    color = 'bright_cyan'
+    if isinstance(args, str):
+        a = args.strip().lower()
+        if a in ('help', '-h', '--help', '?'):
+            _ln()
+            _ln('  fetch / neofetch - neofetch-style system info')
+            _ln('    fetch            system info (cyan accent)')
+            _ln('    fetch <color>    set the accent, e.g. fetch magenta / green / red')
+            _ln('    fetch help       this help')
+            _ln()
+            return
+        if a in _COLORS:
+            color = a            # 'fetch <colorname>' picks the accent
     accent = _c(color)
     bold   = _c('bold')
     dim    = _c('dim')
