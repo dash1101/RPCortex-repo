@@ -475,10 +475,17 @@ def _serve(port, cfg):
 # you keep using the prompt.  This coro NEVER writes to stdout (only the in-RAM
 # ring buffer + _BG stats) so it can't corrupt the shell line.  It wraps a
 # NON-BLOCKING accept(): on EAGAIN it yields to the event loop, keeping the shell
-# responsive.  The launchpad service manager (re)spawns it from a factory, so it
-# survives Ctrl+C by rebinding a fresh socket (SO_REUSEADDR).
+# responsive.  The launchpad service manager (re)spawns it from a factory.
+#
+# Surviving Ctrl+C: if an event loop is discarded (Ctrl+C tore it down), the old
+# _serve_async coroutine is orphaned with its listening socket still OPEN — and a
+# still-LISTENING socket blocks a rebind even with SO_REUSEADDR (that was the
+# 'EADDRINUSE on Ctrl+C' bug).  So we stash the socket in _BG['sock'] and CLOSE
+# any previous one before binding.  Closing a LISTEN socket on lwip is immediate
+# (no TIME_WAIT), so the respawn always rebinds cleanly and no PCB leaks.
 
-_BG = {'running': False, 'port': 0, 'started': 0, 'requests': 0, 'errors': 0}
+_BG = {'running': False, 'port': 0, 'started': 0, 'requests': 0, 'errors': 0,
+       'sock': None}
 
 
 def _lp():
@@ -511,6 +518,16 @@ async def _serve_async(port, cfg):
     """Background accept loop for the service manager (see note above)."""
     import asyncio
     import socket
+    # Close any socket a previous instance left bound (e.g. an orphaned coro from
+    # a Ctrl+C-discarded loop) BEFORE binding — a still-LISTENING socket would
+    # otherwise EADDRINUSE the rebind, SO_REUSEADDR notwithstanding.
+    old = _BG.get('sock')
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
+        _BG['sock'] = None
     srv = None
     try:
         addr = socket.getaddrinfo('0.0.0.0', port)[0][-1]
@@ -519,6 +536,7 @@ async def _serve_async(port, cfg):
         srv.bind(addr)
         srv.listen(2)
         srv.setblocking(False)
+        _BG['sock'] = srv
     except Exception:
         _BG['running'] = False
         if srv is not None:
@@ -556,6 +574,8 @@ async def _serve_async(port, cfg):
             srv.close()
         except Exception:
             pass
+        if _BG.get('sock') is srv:        # only clear if it's still ours
+            _BG['sock'] = None
         _log('---', 'background server stopped', 0)
 
 
