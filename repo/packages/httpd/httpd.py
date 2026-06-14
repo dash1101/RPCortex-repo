@@ -1,17 +1,23 @@
 # Desc: httpd - a tiny web server for RPCortex - Pulsar OS
 # File: /Packages/HTTPd/httpd.py
-# Version: 0.4.0
+# Version: 0.5.0
 # Author: dash1101
 #
 # Serve a live status dashboard + a browsable/downloadable view of the device
-# filesystem over WiFi, OR host a folder of your own as a static site. A
-# foreground server (RPCortex is single-threaded until the v0.9.5 uasyncio
-# work), so it runs until you press q or Ctrl+C.
+# filesystem over WiFi, OR host a folder of your own as a static site.
+#
+# Run it in the FOREGROUND (blocks until q / Ctrl+C) or — new in v0.9.5 — as a
+# BACKGROUND service in the async shell, so it keeps serving while you use the
+# prompt for other work. The background server is a supervised coroutine; check
+# it with 'httpd status', stop it with 'httpd stop', auto-start it at login with
+# 'service add "httpd start --bg"'.
 #
 # Shell command:
 #   httpd                 open the control panel (TUI: config, logs, start)
-#   httpd start [port]    start the server directly (for startup tasks)
-#   httpd status          print status as text (for scripts)
+#   httpd start [port]    serve in the foreground (q / Ctrl+C to stop)
+#   httpd start --bg      serve in the background (needs 'asyncmode on')
+#   httpd status          print background-server stats as text
+#   httpd stop            stop the background server
 #
 # Routes:  /  (dashboard)   /api (JSON status)   /fs?path=/  (file browser)
 #          /dl?path=<file>  (download a file)
@@ -464,6 +470,132 @@ def _serve(port, cfg):
         ok("httpd stopped.  ({} request(s) logged)".format(len(_LOG)))
 
 
+# -- background service (async, Track B / v0.9.5) --------------------------
+# Run the server as a supervised coroutine in the async shell so it serves WHILE
+# you keep using the prompt.  This coro NEVER writes to stdout (only the in-RAM
+# ring buffer + _BG stats) so it can't corrupt the shell line.  It wraps a
+# NON-BLOCKING accept(): on EAGAIN it yields to the event loop, keeping the shell
+# responsive.  The launchpad service manager (re)spawns it from a factory, so it
+# survives Ctrl+C by rebinding a fresh socket (SO_REUSEADDR).
+
+_BG = {'running': False, 'port': 0, 'started': 0, 'requests': 0, 'errors': 0}
+
+
+def _lp():
+    """The live launchpad module — the service manager lives there."""
+    try:
+        return sys.modules['Core.launchpad']
+    except Exception:
+        return None
+
+
+def _uptime_str():
+    if not _BG['started']:
+        return '-'
+    try:
+        import utime
+        secs = utime.ticks_diff(utime.ticks_ms(), _BG['started']) // 1000
+    except Exception:
+        return '-'
+    if secs < 0:
+        secs = 0
+    h = secs // 3600; m = (secs % 3600) // 60; s = secs % 60
+    if h:
+        return '{}h {}m {}s'.format(h, m, s)
+    if m:
+        return '{}m {}s'.format(m, s)
+    return '{}s'.format(s)
+
+
+async def _serve_async(port, cfg):
+    """Background accept loop for the service manager (see note above)."""
+    import asyncio
+    import socket
+    srv = None
+    try:
+        addr = socket.getaddrinfo('0.0.0.0', port)[0][-1]
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(addr)
+        srv.listen(2)
+        srv.setblocking(False)
+    except Exception:
+        _BG['running'] = False
+        if srv is not None:
+            try:
+                srv.close()
+            except Exception:
+                pass
+        raise
+    _BG['running'] = True
+    _BG['port'] = port
+    _BG['requests'] = 0
+    _BG['errors'] = 0
+    try:
+        import utime
+        _BG['started'] = utime.ticks_ms()
+    except Exception:
+        _BG['started'] = 0
+    _log('---', 'background server up on :{}'.format(port), 0)
+    try:
+        while True:
+            try:
+                conn, client = srv.accept()
+            except OSError:
+                await asyncio.sleep_ms(60)     # EAGAIN: nothing pending — yield
+                continue
+            try:
+                _handle(conn, cfg)
+                _BG['requests'] += 1
+            except Exception:
+                _BG['errors'] += 1
+            await asyncio.sleep_ms(0)          # let other coros run between hits
+    finally:
+        _BG['running'] = False
+        try:
+            srv.close()
+        except Exception:
+            pass
+        _log('---', 'background server stopped', 0)
+
+
+def _start_bg(cfg):
+    """Register httpd as a background service in the async shell."""
+    lp = _lp()
+    if lp is None or not hasattr(lp, 'register_service'):
+        error("Background services need the async shell. Enable it: asyncmode on")
+        return
+    if not _online():
+        return
+    port = cfg['port']
+
+    def _factory():
+        # Fresh coroutine + fresh cfg each (re)spawn, on the chosen port.
+        return _serve_async(port, _load_cfg())
+
+    lp.register_service('httpd', _factory)
+    if getattr(lp, '_async_active', False):
+        ok("httpd is serving in the background on port {}.".format(port))
+        if _ip() != '0.0.0.0':
+            info("  ->  http://{}:{}/".format(_ip(), port))
+        info("Check it: 'httpd status'.  Stop it: 'httpd stop'.")
+    else:
+        ok("httpd registered as a background service (port {}).".format(port))
+        info("It starts when the async shell opens. Enable it: asyncmode on")
+
+
+def _stop_bg():
+    lp = _lp()
+    if lp is None or not hasattr(lp, 'unregister_service'):
+        warn("No background service manager available (async shell only).")
+        return
+    if lp.unregister_service('httpd'):
+        _BG['running'] = False
+        ok("httpd background service stopped.")
+    else:
+        info("httpd wasn't running in the background.")
+
+
 # -- control panel (TUI) ---------------------------------------------------
 
 _sel = 's'
@@ -715,18 +847,34 @@ def _panel_loop(cfg):
 # -- status (text) ---------------------------------------------------------
 
 def _status(cfg):
-    info("httpd - a tiny web server (config: {}/httpd.cfg)".format(_pkg_dir()))
-    multi("  httpd                 control panel (config / logs / start)")
-    multi("  httpd start [port]    start serving (config port {})".format(cfg['port']))
+    lp = _lp()
+    live = False
+    if lp is not None and hasattr(lp, 'service_running'):
+        try:
+            live = lp.service_running('httpd')
+        except Exception:
+            live = False
+    live = live or _BG['running']
+    if live:
+        port = _BG['port'] or cfg['port']
+        ok("httpd: RUNNING in the background")
+        multi("  Port      : {}".format(port))
+        multi("  Uptime    : {}".format(_uptime_str()))
+        multi("  Requests  : {}   (errors: {})".format(_BG['requests'], _BG['errors']))
+        if _ip() != '0.0.0.0':
+            multi("  URL       : http://{}:{}/".format(_ip(), port))
+        multi("  Stop with : httpd stop")
+    else:
+        info("httpd: not running in the background.")
+        multi("  Background: httpd start --bg   (needs 'asyncmode on')")
+        multi("  Foreground: httpd start [port] (blocks until q / Ctrl+C)")
     multi("  Config: port={}  title='{}'  browse={}  serve_dir='{}'".format(
         cfg['port'], cfg.get('title', ''), cfg.get('browse'), cfg.get('serve_dir', '')))
     if cfg.get('serve_dir'):
         multi("  Hosting the static site in '{}' (put your index.html there).".format(cfg['serve_dir']))
     else:
         multi("  Serving the built-in dashboard + file browser.")
-    if _ip() != '0.0.0.0':
-        multi("  Your IP: {}  ->  http://{}:{}/".format(_ip(), _ip(), cfg['port']))
-    else:
+    if _ip() == '0.0.0.0':
         multi("  Connect to WiFi first:  wifi connect")
 
 
@@ -734,30 +882,44 @@ def _status(cfg):
 
 def httpd(args=None):
     """Tiny web server: dashboard / static site + file browser over WiFi.
-    Run 'httpd' for the control panel; 'httpd start [port]' to serve directly."""
+    Run 'httpd' for the control panel; 'httpd start [port]' to serve directly;
+    'httpd start --bg' to run it in the background (async shell); 'httpd status'
+    / 'httpd stop' to check or stop the background server."""
     cfg = _load_cfg()
     a = (args or '').strip().split()
-    if a and a[0].lower() in ('help', '-h', '--help', '?'):
+    sub = a[0].lower().lstrip('-') if a else ''   # accept 'status' or '--status'
+    if sub in ('help', 'h', '?'):
         info("httpd - a tiny web server (dashboard / static site / file browser)")
         multi("  httpd                 open the control panel (config, logs, start)")
-        multi("  httpd start [port]    start serving directly (for startup tasks)")
-        multi("  httpd status          print config + your URL as text")
+        multi("  httpd start [port]    serve in the FOREGROUND (q / Ctrl+C to stop)")
+        multi("  httpd start --bg      serve in the BACKGROUND (needs 'asyncmode on')")
+        multi("  httpd status          show the background server's stats")
+        multi("  httpd stop            stop the background server")
+        multi("  Auto-start at login:  service add \"httpd start --bg\"")
         multi("  Config lives in {}/httpd.cfg and is editable in the panel.".format(_pkg_dir()))
         return
-    if not a or a[0] in ('panel', 'config', 'cfg', 'tui'):
+    if not a or sub in ('panel', 'config', 'cfg', 'tui'):
         _panel_loop(cfg)
-    elif a[0] == 'status':
+    elif sub == 'status':
         _status(cfg)
-    elif a[0] == 'start':
-        if len(a) > 1:
-            try:
-                cfg['port'] = int(a[1])
-            except ValueError:
-                warn("Invalid port '{}'.".format(a[1]))
-                return
-        _serve(cfg['port'], cfg)
+    elif sub == 'stop':
+        _stop_bg()
+    elif sub == 'start':
+        bg = False
+        for x in a[1:]:
+            xl = x.lower()
+            if xl in ('--bg', '-b', 'bg', 'background'):
+                bg = True
+            elif x.isdigit():
+                cfg['port'] = int(x)
+            else:
+                warn("Ignoring unknown argument '{}'.".format(x))
+        if bg:
+            _start_bg(cfg)
+        else:
+            _serve(cfg['port'], cfg)
     else:
-        warn("Usage: httpd [start [port] | status | help]")
+        warn("Usage: httpd [start [port] [--bg] | status | stop | help]")
 
 
 if __name__ == '__main__':

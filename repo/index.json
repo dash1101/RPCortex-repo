@@ -116,8 +116,8 @@
     },
     {
       "name": "HTTPd",
-      "ver": "0.4.0",
-      "desc": "Web server with a settings-panel TUI (config/logs/start) - dashboard / static site / file browser over WiFi, credential-safe (httpd)",
+      "ver": "0.5.0",
+      "desc": "Web server you can run in the BACKGROUND (httpd start --bg / status / stop) or foreground - dashboard / static site / file browser over WiFi, credential-safe (httpd)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/httpd.pkg"
     },
