@@ -1,6 +1,6 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.4.0
+# Version: 2.6.0
 # Author: dash1101
 #
 # Full-screen live dashboard. Refresh interval is configurable (default 750ms),
@@ -495,3 +495,66 @@ def htop(args=None):
 
 
 sysmon = htop
+
+
+# ---------------------------------------------------------------------------
+# Cooperative (async) SysMon  —  v1.0 "Vela" multitasking
+# ---------------------------------------------------------------------------
+# Same UI as htop(), but built for the async shell: instead of a blocking
+# select() wait between frames, it `await`s appkit.read_key(refresh_ms), which
+# yields to the event loop — so background services (e.g. `httpd --bg`) keep
+# serving WHILE SysMon refreshes. The launchpad async dispatcher finds this via
+# the '<func>_async' name and runs it as a screen-owning foreground app
+# (appkit.run_foreground), so background tasks won't draw over it. The standard
+# (synchronous) shell still uses htop()/sysmon() — this entry is async-only.
+
+async def htop_async(args=None):
+    import appkit
+    if isinstance(args, str) and args.strip().lower() in ('help', '-h', '--help', '?'):
+        htop(args)
+        return
+    show_log        = False
+    show_net_detail = False
+    first_draw      = True
+
+    refresh_ms = _load_refresh()
+    if args and str(args).strip():
+        try:
+            v = int(str(args).strip())
+            refresh_ms = max(_MIN_REFRESH_MS, min(_MAX_REFRESH_MS, v))
+        except ValueError:
+            pass
+
+    try:
+        while True:
+            gc.collect()
+            d = _collect()
+            _draw(d, show_log, show_net_detail, first_draw, refresh_ms)
+            first_draw = False
+            del d
+            gc.collect()
+
+            # The cooperative wait: yields to the loop (httpd etc. run here) and
+            # returns '' on timeout (-> just redraw) or the key pressed.
+            ch = await appkit.read_key(timeout_ms=refresh_ms)
+            if ch in ('q', 'Q', '\x03', '\x04', '\x1b'):   # q / Ctrl+C / ESC
+                break
+            if ch in ('l', 'L'):
+                show_log = not show_log
+            if ch in ('n', 'N'):
+                show_net_detail = not show_net_detail
+            if ch in ('+', '='):
+                refresh_ms = _adjust(refresh_ms, True)
+            if ch in ('-', '_'):
+                refresh_ms = _adjust(refresh_ms, False)
+    finally:
+        sys.stdout.write('\x1b[?25h\x1b[0m\n')
+
+    try:
+        from RPCortex import ok
+        ok('sysmon exited.')
+    except Exception:
+        pass
+
+
+sysmon_async = htop_async
