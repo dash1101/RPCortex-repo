@@ -39,7 +39,7 @@
     },
     {
       "name": "SysMon",
-      "ver": "2.6.0",
+      "ver": "2.6.1",
       "desc": "Live system monitor (htop-style) — runs cooperatively in the async shell, alongside background services",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"

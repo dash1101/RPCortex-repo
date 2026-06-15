@@ -1,6 +1,6 @@
 # Desc: SysMon — Live system monitor for RPCortex
 # File: /Packages/SysMon/sysmon.py
-# Version: 2.6.0
+# Version: 2.6.1
 # Author: dash1101
 #
 # Full-screen live dashboard. Refresh interval is configurable (default 750ms),
@@ -87,30 +87,47 @@ def _uptime():
     return '{}s'.format(s)
 
 
-_cpu_cal = None   # fastest micro-benchmark time seen (µs) = idle baseline
+_cpu_cal = None    # fastest busy-loop rep ever seen (µs) = idle/uninterrupted cost
+_cpu_ema = 0.0     # exponential moving average of the load %, to cut frame jitter
 
 
 def _cpu_estimate():
     """Rough CPU-load estimate without a scheduler counter.
 
-    Times a tiny fixed busy-loop and compares it to the fastest run ever seen
-    (the idle baseline). On a cooperative single core nothing preempts Python,
-    so a slower run means C-level work (WiFi/USB/timer interrupts, GC) is
-    stealing cycles — i.e. the CPU is busier. Self-calibrating; ~0% when idle.
-    The benchmark is a few hundred µs, negligible against the refresh interval.
+    On a cooperative single core nothing preempts Python, so a busy-loop that
+    runs slower than its uninterrupted best means C-level work (WiFi/USB/timer
+    IRQs, GC) is stealing cycles. We run the loop a few times per call and use:
+      * baseline  = the FASTEST rep ever seen (the truly uninterrupted cost),
+      * current   = the AVERAGE of this call's reps (captures interrupt overhead),
+    so load = (avg - baseline) / baseline. Averaging several reps + smoothing the
+    result with an EMA makes it far steadier than the old single-sample reading
+    (which spiked whenever one sample happened to catch an interrupt). Still well
+    under a millisecond total — negligible against the refresh interval.
     """
-    global _cpu_cal
-    t0 = utime.ticks_us()
-    x = 0
-    for i in range(2000):
-        x += i
-    dt = utime.ticks_diff(utime.ticks_us(), t0)
-    if dt <= 0:
-        return 0
-    if _cpu_cal is None or dt < _cpu_cal:
-        _cpu_cal = dt
-    over = (dt - _cpu_cal) * 100 // _cpu_cal
-    return 0 if over < 0 else (100 if over > 100 else over)
+    global _cpu_cal, _cpu_ema
+    reps  = 4
+    iters = 3000
+    total = 0
+    fastest = None
+    for _ in range(reps):
+        t0 = utime.ticks_us()
+        x = 0
+        for i in range(iters):
+            x += i
+        dt = utime.ticks_diff(utime.ticks_us(), t0)
+        if dt > 0:
+            total += dt
+            if fastest is None or dt < fastest:
+                fastest = dt
+    if not fastest:
+        return int(_cpu_ema + 0.5)
+    if _cpu_cal is None or fastest < _cpu_cal:
+        _cpu_cal = fastest               # baseline = least-interrupted rep ever
+    avg  = total // reps
+    over = (avg - _cpu_cal) * 100 // _cpu_cal
+    over = 0 if over < 0 else (100 if over > 100 else over)
+    _cpu_ema = _cpu_ema * 0.6 + over * 0.4
+    return int(_cpu_ema + 0.5)
 
 
 def _get_temp():
@@ -239,11 +256,11 @@ def _collect():
 
     # Registry
     d['os_ver']   = _reg('Settings.Version')    or 'Unknown'
-    d['codename'] = _reg('System.Codename')     or 'Pulsar'
+    d['codename'] = _reg('System.Codename')     or 'Vela'
     d['user']     = _reg('Settings.Active_User') or '?'
     d['owner']    = _reg('System.Owner')         or None
     d['tz']       = _reg('System.TZ_Offset')     or '0'
-    d['device']   = _reg('System.Device_ID')     or 'pulsar'
+    d['device']   = _reg('System.Device_ID')     or 'vela'
 
     try:
         v = sys.implementation.version
