@@ -1,6 +1,6 @@
 # RPCortex Package Repository
 
-The official package repository for [RPCortex Pulsar](https://github.com/dash1101/RPCortex).
+The official package repository for [RPCortex Vela](https://github.com/dash1101/RPCortex).
 
 ---
 
