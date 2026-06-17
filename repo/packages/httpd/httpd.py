@@ -1,6 +1,6 @@
 # Desc: httpd - a tiny web server for RPCortex - Pulsar OS
 # File: /Packages/HTTPd/httpd.py
-# Version: 0.5.0
+# Version: 0.6.0
 # Author: dash1101
 #
 # Serve a live status dashboard + a browsable/downloadable view of the device
@@ -417,6 +417,142 @@ def _handle(conn, cfg):
         _log(method, path, st)
 
 
+# -- async request handling (background service only) ----------------------
+# The sync _handle/_send/_stream above stay as the foreground server. The
+# BACKGROUND server (_serve_async) uses these instead so a big file / slow client
+# streams through an asyncio Stream and YIELDS to the event loop between chunks,
+# instead of blocking it (which froze the foreground app + other services during a
+# download). Single-connection (no task-per-client) to stay RAM-safe on RP2040.
+
+async def _awr(stream, data):
+    """Async send-all via an asyncio Stream; await drain() yields on backpressure."""
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    stream.write(data)
+    await stream.drain()
+
+
+async def _asend(stream, status, ctype, body):
+    if isinstance(body, str):
+        body = body.encode('utf-8')
+    hdr = ('HTTP/1.0 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n'
+           'Connection: close\r\n\r\n').format(status, ctype, len(body))
+    await _awr(stream, hdr.encode('utf-8'))
+    await _awr(stream, body)
+    try:
+        return int(status.split(' ', 1)[0])
+    except (ValueError, IndexError):
+        return 0
+
+
+async def _astream(stream, path, ctype, download):
+    """Stream a file to the client in 512-byte chunks, awaiting drain() between each
+    so the event loop keeps running during a large transfer. Returns status code."""
+    try:
+        sz = uos.stat(path)[6]
+        f = open(path, 'rb')
+    except OSError:
+        return await _asend(stream, '404 Not Found', 'text/plain', 'Not found')
+    name = path.rsplit('/', 1)[-1]
+    disp = ('Content-Disposition: attachment; filename="{}"\r\n'.format(name)
+            if download else '')
+    hdr = ('HTTP/1.0 200 OK\r\nContent-Type: {}\r\n{}'
+           'Content-Length: {}\r\nConnection: close\r\n\r\n').format(ctype, disp, sz)
+    try:
+        await _awr(stream, hdr.encode('utf-8'))
+        while True:
+            chunk = f.read(512)
+            if not chunk:
+                break
+            await _awr(stream, chunk)
+    finally:
+        f.close()
+    return 200
+
+
+async def _asend_static(stream, serve_dir, urlpath):
+    rel = urlpath.lstrip('/')
+    if '..' in rel.split('/'):
+        return await _asend(stream, '403 Forbidden', 'text/plain', 'Forbidden')
+    full = serve_dir.rstrip('/') + ('/' + rel if rel else '')
+    if _is_dir(full):
+        full = full.rstrip('/') + '/index.html'
+    if _is_secret(full):
+        return await _asend(stream, '403 Forbidden', 'text/plain', 'Forbidden')
+    return await _astream(stream, full, _ctype(full), False)
+
+
+async def _handle_async(conn, cfg):
+    """Async per-connection handler for the background server. Wraps the accepted
+    socket in an asyncio Stream so recv + every send/stream yields to the loop. Same
+    routing as the sync _handle. Never raises out (logs + closes in finally)."""
+    import asyncio
+    method = '?'; path = '-'; st = 0
+    try:
+        conn.setblocking(False)
+    except Exception:
+        pass
+    try:
+        stream = asyncio.StreamReader(conn)     # Stream: read + write + drain
+    except Exception:
+        # Couldn't wrap (unexpected) — fall back to the sync handler so the request
+        # is still served (it just won't yield during this one transfer).
+        _handle(conn, cfg)
+        return
+    try:
+        try:
+            req = await asyncio.wait_for(stream.read(1024), 5)
+        except Exception:
+            req = b''
+        if not req:
+            return
+        line = req.split(b'\r\n', 1)[0].decode('utf-8')
+        parts = line.split(' ')
+        method = parts[0] if parts else '?'
+        if len(parts) < 2 or parts[0] != 'GET':
+            st = await _asend(stream, '405 Method Not Allowed', 'text/plain', 'GET only')
+            return
+        path, q = _qs(parts[1])
+        serve_dir = cfg.get('serve_dir', '')
+        browse = cfg.get('browse', 'true') == 'true'
+        if path == '/api':
+            st = await _asend(stream, '200 OK', 'application/json', _api())
+        elif path == '/fs':
+            if not browse:
+                st = await _asend(stream, '403 Forbidden', 'text/plain', 'File browsing is disabled')
+            else:
+                html = _browse(q.get('path', '/'))
+                if html is None:
+                    st = await _asend(stream, '404 Not Found', 'text/plain', 'No such folder')
+                else:
+                    st = await _asend(stream, '200 OK', 'text/html', html)
+        elif path == '/dl':
+            dlpath = q.get('path', '')
+            if not browse:
+                st = await _asend(stream, '403 Forbidden', 'text/plain', 'Downloads are disabled')
+            elif _is_secret(dlpath):
+                st = await _asend(stream, '403 Forbidden', 'text/plain', 'This file is protected')
+            else:
+                st = await _astream(stream, dlpath, 'application/octet-stream', True)
+        elif serve_dir:
+            st = await _asend_static(stream, serve_dir, path)
+        elif path == '/':
+            st = await _asend(stream, '200 OK', 'text/html', _dashboard(cfg))
+        else:
+            st = await _asend(stream, '404 Not Found', 'text/plain', 'Not found')
+    except Exception:
+        pass
+    finally:
+        try:
+            await stream.wait_closed()
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _log(method, path, st)
+
+
 def _serve(port, cfg):
     """Foreground accept loop. Polls stdin for q/Ctrl+C SEPARATELY from the
     socket — mixing a lwip socket and USB-CDC stdin in one select() is
@@ -563,8 +699,8 @@ async def _serve_async(port, cfg):
                 await asyncio.sleep_ms(60)     # EAGAIN: nothing pending — yield
                 continue
             try:
-                _handle(conn, cfg)
-                _BG['requests'] += 1
+                await _handle_async(conn, cfg)  # async: streams + yields during the
+                _BG['requests'] += 1            # transfer instead of blocking the loop
             except Exception:
                 _BG['errors'] += 1
             await asyncio.sleep_ms(0)          # let other coros run between hits
