@@ -20,4 +20,4 @@ Or browse and install packages from your browser — no WiFi, no REPL — at [rp
 ## Documentation
 A comprehensive guide and documentation on the package management system can be found here at [https://rpc.novalabs.app/PackageDev](https://rpc.novalabs.app/PackageDev)
 ---
-*RPCortex by [dash1101](https://github.com/dash1101). Licensed under [GPL-3.0](LICENSE).*
+*RPCortex by [dash1101](https://github.com/dash1101). Proprietary, source-available &mdash; &copy; 2026, all rights reserved. See [LICENSE](LICENSE).*
