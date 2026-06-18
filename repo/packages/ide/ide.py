@@ -1,4 +1,4 @@
-# Desc: IDE - a tiny in-device dev environment for RPCortex - Pulsar OS
+# Desc: IDE - a tiny in-device dev environment for RPCortex - Vela OS
 # File: /Packages/IDE/ide.py
 # Version: 0.1.0
 # Author: dash1101

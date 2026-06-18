@@ -1,4 +1,4 @@
-# Desc: Desktop - a keyboard-driven icon "desktop" for RPCortex - Pulsar OS
+# Desc: Desktop - a keyboard-driven icon "desktop" for RPCortex - Vela OS
 # File: /Packages/Desktop/desktop.py
 # Version: 0.1.0
 # Author: dash1101

@@ -31,7 +31,7 @@ if '/Core' not in sys.path:
 from RPCortex import error, info, ok, warn, multi
 
 _WRAP = 76          # wrap body text to this many columns for the terminal
-_UA = 'RPCortex-Pulsar/1.0'
+_UA = 'RPCortex-Vela/1.0'
 
 # Characters left as-is in a URL query; everything else is percent-encoded.
 _SAFE = ('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'

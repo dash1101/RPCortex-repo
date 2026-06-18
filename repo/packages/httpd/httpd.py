@@ -1,4 +1,4 @@
-# Desc: httpd - a tiny web server for RPCortex - Pulsar OS
+# Desc: httpd - a tiny web server for RPCortex - Vela OS
 # File: /Packages/HTTPd/httpd.py
 # Version: 0.6.0
 # Author: dash1101
@@ -215,7 +215,7 @@ def _dashboard(cfg):
     try:
         import regedit
         ver = regedit.read('Settings.Version') or '?'
-        dev = regedit.read('System.Device_ID') or 'pulsar'
+        dev = regedit.read('System.Device_ID') or 'vela'
         owner = regedit.read('System.Owner') or ''
         build = regedit.read('System.Build') or 'source'
     except Exception:
@@ -279,7 +279,7 @@ def _api():
     try:
         import regedit
         ver = regedit.read('Settings.Version') or '?'
-        dev = regedit.read('System.Device_ID') or 'pulsar'
+        dev = regedit.read('System.Device_ID') or 'vela'
     except Exception:
         ver = dev = '?'
     return ('{"os":"RPCortex","version":"' + ver + '","device":"' + dev +

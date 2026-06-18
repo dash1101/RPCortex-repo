@@ -1,4 +1,4 @@
-# Desc: mkpkg - build RPCortex packages on the device - Pulsar OS
+# Desc: mkpkg - build RPCortex packages on the device - Vela OS
 # File: /Packages/MkPkg/mkpkg.py
 # Version: 0.1.0
 # Author: dash1101

@@ -1,4 +1,4 @@
-# Desc: TUI file explorer for RPCortex - Pulsar OS
+# Desc: TUI file explorer for RPCortex - Vela OS
 # File: /Packages/FileExp/fileexp.py
 # Version: 0.3.0
 # Author: dash1101

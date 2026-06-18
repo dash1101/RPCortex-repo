@@ -197,9 +197,9 @@ def _now_str():
 
 
 def _log_tail(n=5):
-    """Return last n lines of /Pulsar/Logs/latest.log."""
+    """Return last n lines of /Vela/Logs/latest.log."""
     try:
-        with open('/Pulsar/Logs/latest.log', 'r') as f:
+        with open('/Vela/Logs/latest.log', 'r') as f:
             lines = f.readlines()
         return [l.rstrip() for l in lines[-n:]] if lines else []
     except Exception:
@@ -330,7 +330,7 @@ def _draw(d, show_log, show_net_detail, first_draw=False, refresh_ms=_DEFAULT_RE
 
     # ── Title bar ──────────────────────────────────────────────────────────
     ver      = d.get('os_ver', '?')
-    device   = d.get('device', 'pulsar')
+    device   = d.get('device', 'vela')
     owner    = d.get('owner')
     title_r  = '{} · {}'.format(device, owner) if owner else device
     left_vis = len('  RPCortex Monitor  ·  ') + len(ver) + 2 + len(title_r)

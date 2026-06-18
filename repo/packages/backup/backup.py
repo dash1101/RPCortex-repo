@@ -4,7 +4,7 @@
 # Author: dash1101
 #
 # Copies the device's registry and account/config files into a named snapshot
-# under /Pulsar/Backups/, so you can roll back after experimenting with
+# under /Vela/Backups/, so you can roll back after experimenting with
 # settings, users, WiFi, aliases, or startup/scheduled tasks. Fully offline.
 #
 # Usage:
@@ -25,8 +25,8 @@ if '/Core' not in sys.path:
 
 from RPCortex import error, info, ok, warn, multi
 
-_SRC_DIR = '/Pulsar/Registry'
-_BAK_DIR = '/Pulsar/Backups'
+_SRC_DIR = '/Vela/Registry'
+_BAK_DIR = '/Vela/Backups'
 _FILES = ('registry.cfg', 'user.cfg', 'networks.cfg',
           'aliases.cfg', 'startup.cfg', 'tasks.cfg')
 
