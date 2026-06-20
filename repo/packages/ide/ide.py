@@ -1,6 +1,6 @@
 # Desc: IDE - a tiny in-device dev environment for RPCortex - Vela OS
 # File: /Packages/IDE/ide.py
-# Version: 0.1.0
+# Version: 0.2.0
 # Author: dash1101
 #
 # Mixes the file explorer and the text editor into one workspace so you can
@@ -90,8 +90,27 @@ def _alpha(ch):
     return ('A' <= ch <= 'Z') or ('a' <= ch <= 'z')
 
 
+def _read1():
+    """Read one byte, waiting via select FIRST then read — the pattern that works
+    both in the classic sync shell AND inside the asyncio loop (a bare read(1)
+    there returns None and never delivers the byte, wedging the loop). Blocks the
+    loop while waiting (services pause during a run/test prompt — the cooperative
+    limit) but never hangs."""
+    import select as _sel
+    while True:
+        try:
+            if _sel.select([sys.stdin], [], [], 0.05)[0]:
+                c = sys.stdin.read(1)
+                if c is not None:
+                    return c
+        except Exception:
+            c = sys.stdin.read(1)
+            if c is not None:
+                return c
+
+
 def _read_key():
-    c = sys.stdin.read(1)
+    c = _read1()
     if c != '\x1b':
         if c in ('\r', '\n'):
             return 'ENTER'
@@ -100,11 +119,11 @@ def _read_key():
         if c == '\x03':
             return 'q'
         return c
-    if sys.stdin.read(1) != '[':
+    if _read1() != '[':
         return 'ESC'
     seq = ''
     while True:
-        ch = sys.stdin.read(1)
+        ch = _read1()
         seq += ch
         if _alpha(ch) or ch == '~':
             break
@@ -118,7 +137,7 @@ def _prompt(label):
     _w(_YL + label + _R + ' ')
     buf = ''
     while True:
-        c = sys.stdin.read(1)
+        c = _read1()
         if c in ('\r', '\n'):
             break
         if c in ('\x7f', '\x08'):
@@ -157,6 +176,50 @@ def _pause(msg='-- press any key to return to the IDE --'):
     _read_key()
 
 
+# -- cooperative (async) input: yields to the loop so background services run --
+async def _aread_key():
+    import appkit
+    c = await appkit.read_key()
+    if c != '\x1b':
+        if c in ('\r', '\n'):
+            return 'ENTER'
+        if c in ('\x7f', '\x08'):
+            return 'BKSP'
+        if c == '\x03':
+            return 'q'
+        return c
+    seq = await appkit.read_escape()
+    if len(seq) < 3 or seq[1] not in ('[', 'O'):
+        return 'ESC'
+    return {'A': 'UP', 'B': 'DOWN', 'C': 'RIGHT', 'D': 'LEFT',
+            '3~': 'DEL'}.get(seq[2:], 'ESC')
+
+
+async def _aprompt(label):
+    import appkit
+    _w('\x1b[{};1H\x1b[K'.format(_PAGE + 7))
+    _w(_YL + label + _R + ' ')
+    buf = ''
+    while True:
+        c = await appkit.read_key()
+        if c in ('\r', '\n'):
+            break
+        if c in ('\x7f', '\x08'):
+            if buf:
+                buf = buf[:-1]
+                _w('\x08 \x08')
+            continue
+        if c == '\x03':
+            return ''
+        if c == '\x1b':
+            await appkit.read_escape()
+            continue
+        if ord(c) >= 32:
+            buf += c
+            _w(c)
+    return buf.strip()
+
+
 def _open_editor(path):
     try:
         if '/Packages/Editor' not in sys.path:
@@ -166,6 +229,22 @@ def _open_editor(path):
         return True
     except Exception as e:
         _w(_RD + 'Editor unavailable: {}'.format(e) + _R)
+        return False
+
+
+async def _aopen_editor(path):
+    """Open a file in the cooperative editor (edit_async) so background services
+    keep running while you edit; falls back to the sync editor if unavailable."""
+    try:
+        if '/Packages/Editor' not in sys.path:
+            sys.path.append('/Packages/Editor')
+        import editor
+        if hasattr(editor, 'edit_async'):
+            await editor.edit_async(path)
+        else:
+            editor.edit(path)
+        return True
+    except Exception:
         return False
 
 
@@ -282,8 +361,9 @@ def _draw(cwd, items, sel, top, cfg, status):
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
 
-def ide(args=None):
-    """In-device IDE: browse, edit, run and live-test code."""
+async def ide_async(args=None):
+    """In-device IDE — cooperative entry (runs on the async loop, so background
+    services keep running while you browse/edit code)."""
     cwd = (args or '').strip()
     if cwd.lower() in ('help', '-h', '--help', '?'):
         for _l in ('  ide / dev - in-device code IDE',
@@ -314,7 +394,7 @@ def ide(args=None):
                 top = sel - _PAGE + 1
             _draw(cwd, items, sel, top, cfg, status)
             status = ''
-            key = _read_key()
+            key = await _aread_key()
 
             if key in ('q', 'ESC'):
                 break
@@ -335,7 +415,7 @@ def ide(args=None):
                 if is_dir and key != 'e':
                     cwd = target; items, cfg = _reload(target); sel = top = 0
                 elif not is_dir:
-                    _open_editor(target)
+                    await _aopen_editor(target)
                     items, cfg = _reload(cwd); _clear()
 
             elif key == 'r' and items:
@@ -360,7 +440,7 @@ def ide(args=None):
 
             elif key == 'o':
                 _w('\x1b[?25h')
-                dest = _prompt('Open code space (folder path):')
+                dest = await _aprompt('Open code space (folder path):')
                 _w('\x1b[?25l')
                 if dest and _is_dir(dest):
                     cwd = dest; items, cfg = _reload(dest); sel = top = 0
@@ -370,7 +450,7 @@ def ide(args=None):
 
             elif key == 'n':
                 _w('\x1b[?25h')
-                nm = _prompt('New (end with / for a folder):')
+                nm = await _aprompt('New (end with / for a folder):')
                 _w('\x1b[?25l')
                 if nm:
                     tg = _join(cwd, nm.rstrip('/'))
@@ -381,7 +461,7 @@ def ide(args=None):
                             if not _exists(tg):
                                 with open(tg, 'w'):
                                     pass
-                            _open_editor(tg)
+                            await _aopen_editor(tg)
                         items, cfg = _reload(cwd)
                     except Exception as e:
                         status = 'create failed: {}'.format(e)
@@ -390,7 +470,7 @@ def ide(args=None):
             elif key in ('d', 'DEL') and items:
                 name, is_dir = items[sel]
                 _w('\x1b[?25h')
-                ans = _prompt("Delete '{}'? (y/N):".format(name))
+                ans = await _aprompt("Delete '{}'? (y/N):".format(name))
                 _w('\x1b[?25l')
                 if ans.lower() == 'y':
                     try:
@@ -411,6 +491,16 @@ def ide(args=None):
     finally:
         _w('\x1b[?25h'); _clear()
         _w(_DG + 'IDE closed.' + _R + '\r\n')
+
+
+def ide(args=None):
+    """Classic-shell entry: run the cooperative IDE on a one-shot loop. The async
+    shell dispatches ide_async directly; this path is only for `asyncmode off`."""
+    try:
+        import asyncio
+    except ImportError:
+        import uasyncio as asyncio
+    asyncio.run(ide_async(args))
 
 
 if __name__ == '__main__':

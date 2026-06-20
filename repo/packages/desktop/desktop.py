@@ -1,6 +1,6 @@
 # Desc: Desktop - a keyboard-driven icon "desktop" for RPCortex - Vela OS
 # File: /Packages/Desktop/desktop.py
-# Version: 0.1.0
+# Version: 0.3.0
 # Author: dash1101
 #
 # A nod to early desktop operating systems: your files are laid out as a grid
@@ -191,6 +191,22 @@ def _open_editor(path):
         return False
 
 
+async def _aopen_editor(path):
+    """Open a file in the cooperative editor (edit_async) so background services
+    keep running while you edit; falls back to the sync editor if unavailable."""
+    try:
+        if '/Packages/Editor' not in sys.path:
+            sys.path.append('/Packages/Editor')
+        import editor
+        if hasattr(editor, 'edit_async'):
+            await editor.edit_async(path)
+        else:
+            editor.edit(path)
+        return True
+    except Exception:
+        return False
+
+
 def _copy_file(src, dst):
     with open(src, 'rb') as sf:
         with open(dst, 'wb') as df:
@@ -204,6 +220,56 @@ def _copy_file(src, dst):
 def _pause(msg='Press any key...'):
     _w('\r\n' + _YL + msg + _R)
     _read_key()
+
+
+# -- cooperative (async) input: yields to the loop so background services run --
+async def _aread_key():
+    import appkit
+    c = await appkit.read_key()
+    if c != '\x1b':
+        if c in ('\r', '\n'):
+            return 'ENTER'
+        if c in ('\x7f', '\x08'):
+            return 'BKSP'
+        if c == '\x03':
+            return 'q'
+        return c
+    seq = await appkit.read_escape()
+    if len(seq) < 3 or seq[1] not in ('[', 'O'):
+        return 'ESC'
+    return {'A': 'UP', 'B': 'DOWN', 'C': 'RIGHT', 'D': 'LEFT',
+            '3~': 'DEL'}.get(seq[2:], 'ESC')
+
+
+async def _aprompt(label):
+    import appkit
+    _w('\x1b[{};1H\x1b[K'.format(_ROWS * 3 + 7))
+    _w(_YL + label + _R + ' ')
+    buf = ''
+    while True:
+        c = await appkit.read_key()
+        if c in ('\r', '\n'):
+            break
+        if c in ('\x7f', '\x08'):
+            if buf:
+                buf = buf[:-1]
+                _w('\x08 \x08')
+            continue
+        if c == '\x03':
+            return ''
+        if c == '\x1b':
+            await appkit.read_escape()
+            continue
+        if ord(c) >= 32:
+            buf += c
+            _w(c)
+    return buf.strip()
+
+
+async def _apause(msg='Press any key...'):
+    import appkit
+    _w('\r\n' + _YL + msg + _R)
+    await appkit.read_key()
 
 
 # -- drawing ---------------------------------------------------------------
@@ -279,8 +345,9 @@ def _draw(cwd, items, sel, top, status):
     _w(_RV + _DG + _center(hint, _W) + _R + '\x1b[K')
 
 
-def desktop(args=None):
-    """Keyboard-driven icon desktop."""
+async def desktop_async(args=None):
+    """Keyboard-driven icon desktop — cooperative entry (runs on the async loop,
+    so background services keep running while the desktop is open)."""
     cwd = (args or '').strip()
     if cwd.lower() in ('help', '-h', '--help', '?'):
         for _l in ('  desktop / dt - keyboard-driven icon desktop',
@@ -316,7 +383,7 @@ def desktop(args=None):
                 top = 0
             _draw(cwd, items, sel, top, status)
             status = ''
-            key = _read_key()
+            key = await _aread_key()
 
             if key in ('q', 'ESC'):
                 break
@@ -349,15 +416,15 @@ def desktop(args=None):
                     _clear(); _w('\x1b[?25h')
                     _w(_CY + 'Running ' + name + ' ...' + _R + '\r\n\r\n')
                     _run_file(target)
-                    _pause(); _w('\x1b[?25l'); _clear()
+                    await _apause(); _w('\x1b[?25l'); _clear()
                 else:
-                    _open_editor(target)
+                    await _aopen_editor(target)
                     items = _reload(cwd); _clear()
 
             elif key == 'e' and items:
                 name, is_dir = items[sel]
                 if not is_dir:
-                    _open_editor(_join(cwd, name))
+                    await _aopen_editor(_join(cwd, name))
                     items = _reload(cwd); _clear()
 
             elif key == 'x' and items:
@@ -367,14 +434,14 @@ def desktop(args=None):
                 elif _runnable(name):
                     _clear(); _w('\x1b[?25h')
                     _run_file(_join(cwd, name))
-                    _pause(); _w('\x1b[?25l'); _clear()
+                    await _apause(); _w('\x1b[?25l'); _clear()
                 else:
                     status = "'{}' is not runnable (.rps/.py/.mpy).".format(name)
 
             elif key == 'R' and items:           # rename in place
                 name, is_dir = items[sel]
                 _w('\x1b[?25h')
-                new = _prompt("Rename '{}' to:".format(name))
+                new = await _aprompt("Rename '{}' to:".format(name))
                 _w('\x1b[?25l')
                 if new and new != name:
                     try:
@@ -391,7 +458,7 @@ def desktop(args=None):
                     status = 'Copy is file-only.'
                 else:
                     _w('\x1b[?25h')
-                    dest = _prompt("Copy '{}' to (path or folder):".format(name))
+                    dest = await _aprompt("Copy '{}' to (path or folder):".format(name))
                     _w('\x1b[?25l')
                     if dest:
                         if _is_dir(dest):
@@ -407,7 +474,7 @@ def desktop(args=None):
             elif key == 'm' and items:           # move
                 name, is_dir = items[sel]
                 _w('\x1b[?25h')
-                dest = _prompt("Move '{}' to (folder or path):".format(name))
+                dest = await _aprompt("Move '{}' to (folder or path):".format(name))
                 _w('\x1b[?25l')
                 if dest:
                     target = _join(dest, name) if _is_dir(dest) else dest
@@ -431,14 +498,14 @@ def desktop(args=None):
                             lp._run_line('pkg install ' + _join(cwd, name))
                         except Exception as e:
                             _w('Error: {}'.format(e))
-                    _pause(); _w('\x1b[?25l'); _clear()
+                    await _apause(); _w('\x1b[?25l'); _clear()
                     items = _reload(cwd)
                 else:
                     status = 'Select a .pkg file to install (p).'
 
             elif key == 'n':
                 _w('\x1b[?25h')
-                nm = _prompt('New (end with / for a folder):')
+                nm = await _aprompt('New (end with / for a folder):')
                 _w('\x1b[?25l')
                 if nm:
                     tg = _join(cwd, nm.rstrip('/'))
@@ -450,7 +517,7 @@ def desktop(args=None):
                             if not _exists(tg):
                                 with open(tg, 'w'):
                                     pass
-                            _open_editor(tg)
+                            await _aopen_editor(tg)
                         items = _reload(cwd)
                     except Exception as e:
                         status = 'create failed: {}'.format(e)
@@ -459,7 +526,7 @@ def desktop(args=None):
             elif key in ('d', 'DEL') and items:
                 name, is_dir = items[sel]
                 _w('\x1b[?25h')
-                ans = _prompt("Delete '{}'? (y/N):".format(name))
+                ans = await _aprompt("Delete '{}'? (y/N):".format(name))
                 _w('\x1b[?25l')
                 if ans.lower() == 'y':
                     try:
@@ -484,6 +551,17 @@ def desktop(args=None):
         _w('\x1b[?25h')
         _clear()
         _w(_DG + 'Desktop closed.' + _R + '\r\n')
+
+
+def desktop(args=None):
+    """Classic-shell entry: run the cooperative desktop on a one-shot loop.
+    The async shell dispatches desktop_async directly (background services keep
+    running); this path is only used by `asyncmode off`."""
+    try:
+        import asyncio
+    except ImportError:
+        import uasyncio as asyncio
+    asyncio.run(desktop_async(args))
 
 
 if __name__ == '__main__':

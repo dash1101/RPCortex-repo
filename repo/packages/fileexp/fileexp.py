@@ -1,6 +1,6 @@
 # Desc: TUI file explorer for RPCortex - Vela OS
 # File: /Packages/FileExp/fileexp.py
-# Version: 0.3.0
+# Version: 0.5.0
 # Author: dash1101
 #
 # A nano-style terminal file browser. Arrow-key navigation, open files in the
@@ -8,6 +8,12 @@
 # Needs a real serial terminal (PuTTY); arrow keys are flaky in the Thonny REPL.
 #
 # Shell command:  files [path]      (also: fm, explorer)
+#
+# v0.5.0 — COOPERATIVE MULTITASKING. The explorer now runs on the async shell's
+# event loop (entry point files_async, dispatched by launchpad), so background
+# services (httpd --bg, scheduled tasks) keep running while you browse. There is
+# ONE implementation: files_async. The classic sync shell runs it via
+# asyncio.run, so there is no second copy of the loop to drift out of sync.
 #
 # Keys:
 #   Up / Down   (or k / j)   move the selection
@@ -116,67 +122,31 @@ def _listing(d):
     return dirs + files, total
 
 
-def _alpha(ch):
-    return ('A' <= ch <= 'Z') or ('a' <= ch <= 'z')
-
-
-def _read_key():
-    """Blocking read of one logical key. Decodes arrows + Home/End/Del."""
-    c = sys.stdin.read(1)
-    if c != '\x1b':
-        if c in ('\r', '\n'):
-            return 'ENTER'
-        if c in ('\x7f', '\x08'):
-            return 'BKSP'
-        if c == '\x03':
-            return 'q'           # Ctrl+C exits cleanly
-        return c
-    if sys.stdin.read(1) != '[':
-        return 'ESC'
-    seq = ''
-    while True:
-        ch = sys.stdin.read(1)
-        seq += ch
-        if _alpha(ch) or ch == '~':
-            break
-        if len(seq) > 6:
-            break
-    return {
-        'A': 'UP', 'B': 'DOWN', 'C': 'RIGHT', 'D': 'LEFT',
-        'H': 'HOME', 'F': 'END', '1~': 'HOME', '7~': 'HOME',
-        '4~': 'END', '8~': 'END', '3~': 'DEL',
-    }.get(seq, 'ESC')
-
-
-def _prompt(label):
-    """Single-line input at the bottom of the screen."""
-    _w('\x1b[{};1H\x1b[K'.format(_PAGE + 6))
-    _w(_YL + label + _R + ' ')
-    buf = ''
-    while True:
-        c = sys.stdin.read(1)
-        if c in ('\r', '\n'):
-            break
-        if c in ('\x7f', '\x08'):
-            if buf:
-                buf = buf[:-1]
-                _w('\x08 \x08')
-            continue
-        if c == '\x03':
-            return ''
-        buf += c
-        _w(c)
-    return buf.strip()
-
-
 def _open_in_editor(path):
     """Open a file in the RPCortex text editor (now the Editor package).
-    Returns True if it ran."""
+    Returns True if it ran. (Sync path — used only by the classic shell.)"""
     try:
         if '/Packages/Editor' not in sys.path:
             sys.path.append('/Packages/Editor')
         import editor
         editor.edit(path)
+        return True
+    except Exception:
+        return False
+
+
+async def _aopen_in_editor(path):
+    """Open a file in the cooperative editor (edit_async) so background services
+    keep running while you edit. Falls back to the sync editor if the package is
+    older and has no edit_async."""
+    try:
+        if '/Packages/Editor' not in sys.path:
+            sys.path.append('/Packages/Editor')
+        import editor
+        if hasattr(editor, 'edit_async'):
+            await editor.edit_async(path)
+        else:
+            editor.edit(path)
         return True
     except Exception:
         return False
@@ -191,42 +161,6 @@ def _copy_file(src, dst):
                 if not b:
                     break
                 df.write(b)
-
-
-def _run_and_pause(line):
-    """Clear, run a shell command via the live engine, wait for a key, restore."""
-    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
-    _clear()
-    _w('\x1b[?25h')
-    if lp is None:
-        _w(_RD + 'Shell engine unavailable.' + _R)
-    else:
-        try:
-            lp._run_line(line)
-        except Exception as e:
-            _w(_RD + 'Error: {}'.format(e) + _R)
-    _w('\r\n' + _YL + 'Press any key to return...' + _R)
-    _read_key()
-    _w('\x1b[?25l')
-    _clear()
-
-
-def _view_file(path):
-    """Quick-view: show up to 8 KB of a file, then wait for a key."""
-    _clear()
-    _w(_CY + _BD + 'VIEW  ' + _R + _WH + path + _R + '\r\n')
-    _w(_DG + ('-' * 60) + _R + '\r\n')
-    try:
-        with open(path, 'r') as f:
-            data = f.read(8192)
-        _w(data.replace('\n', '\r\n'))
-        if len(data) == 8192:
-            _w('\r\n' + _DG + '... (truncated at 8 KB)' + _R)
-    except Exception as e:
-        _w(_RD + 'Cannot read: {}'.format(e) + _R)
-    _w('\r\n' + _DG + ('-' * 60) + _R + '\r\n')
-    _w(_YL + 'Press any key to return...' + _R)
-    _read_key()
 
 
 def _draw(cwd, entries, sel, top, status, total, flt):
@@ -266,8 +200,100 @@ def _draw(cwd, entries, sel, top, status, total, flt):
     _w(_YL + ' ' + (status or '') + _R + '\x1b[K')
 
 
-def files(args=None):
-    """TUI file explorer entry point."""
+# -- cooperative (async) input: yields to the event loop between keys --------
+async def _aread_key():
+    """Async read of one logical key. Decodes arrows + Home/End/Del. Yields to
+    the loop while waiting, so background services keep running."""
+    import appkit
+    c = await appkit.read_key()
+    if c != '\x1b':
+        if c in ('\r', '\n'):
+            return 'ENTER'
+        if c in ('\x7f', '\x08'):
+            return 'BKSP'
+        if c == '\x03':
+            return 'q'           # Ctrl+C exits cleanly
+        return c
+    seq = await appkit.read_escape()               # full CSI/SS3 sequence or bare ESC
+    if len(seq) < 3 or seq[1] not in ('[', 'O'):
+        return 'ESC'
+    tail = seq[2:]
+    return {
+        'A': 'UP', 'B': 'DOWN', 'C': 'RIGHT', 'D': 'LEFT',
+        'H': 'HOME', 'F': 'END', '1~': 'HOME', '7~': 'HOME',
+        '4~': 'END', '8~': 'END', '3~': 'DEL',
+    }.get(tail, 'ESC')
+
+
+async def _aprompt(label):
+    """Single-line input at the bottom of the screen (cooperative)."""
+    import appkit
+    _w('\x1b[{};1H\x1b[K'.format(_PAGE + 6))
+    _w(_YL + label + _R + ' ')
+    buf = ''
+    while True:
+        c = await appkit.read_key()
+        if c in ('\r', '\n'):
+            break
+        if c in ('\x7f', '\x08'):
+            if buf:
+                buf = buf[:-1]
+                _w('\x08 \x08')
+            continue
+        if c == '\x03':
+            return ''
+        if c == '\x1b':
+            await appkit.read_escape()
+            continue
+        if ord(c) >= 32:
+            buf += c
+            _w(c)
+    return buf.strip()
+
+
+async def _apause():
+    import appkit
+    await appkit.read_key()
+
+
+async def _aview_file(path):
+    """Quick-view: show up to 8 KB of a file, then wait for a key (cooperative)."""
+    _clear()
+    _w(_CY + _BD + 'VIEW  ' + _R + _WH + path + _R + '\r\n')
+    _w(_DG + ('-' * 60) + _R + '\r\n')
+    try:
+        with open(path, 'r') as f:
+            data = f.read(8192)
+        _w(data.replace('\n', '\r\n'))
+        if len(data) == 8192:
+            _w('\r\n' + _DG + '... (truncated at 8 KB)' + _R)
+    except Exception as e:
+        _w(_RD + 'Cannot read: {}'.format(e) + _R)
+    _w('\r\n' + _DG + ('-' * 60) + _R + '\r\n')
+    _w(_YL + 'Press any key to return...' + _R)
+    await _apause()
+
+
+async def _arun_and_pause(line):
+    """Clear, run a shell command via the live engine, wait for a key, restore."""
+    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+    _clear()
+    _w('\x1b[?25h')
+    if lp is None:
+        _w(_RD + 'Shell engine unavailable.' + _R)
+    else:
+        try:
+            lp._run_line(line)
+        except Exception as e:
+            _w(_RD + 'Error: {}'.format(e) + _R)
+    _w('\r\n' + _YL + 'Press any key to return...' + _R)
+    await _apause()
+    _w('\x1b[?25l')
+    _clear()
+
+
+async def files_async(args=None):
+    """TUI file explorer — cooperative entry point (runs on the async loop)."""
     cwd = (args or '').strip()
     if cwd.lower() in ('help', '-h', '--help', '?'):
         for _l in ('  files / fm / explorer - TUI file manager',
@@ -299,10 +325,6 @@ def files(args=None):
         f = flt.lower()
         return [e for e in all_entries if f in e[0].lower()]
 
-    def _reload(path):
-        a, t = _listing(path)
-        return a, t
-
     try:
         while True:
             if sel < top:
@@ -312,7 +334,7 @@ def files(args=None):
             _draw(cwd, entries, sel, top, status, total, flt)
             status = ''
 
-            key = _read_key()
+            key = await _aread_key()
 
             if key in ('q', 'ESC'):
                 break
@@ -334,7 +356,7 @@ def files(args=None):
                 newd = _parent(cwd)
                 if newd != cwd:
                     cwd = newd
-                    all_entries, total = _reload(cwd)
+                    all_entries, total = _listing(cwd)
                     flt = ''
                     entries = all_entries
                     sel = 0
@@ -346,16 +368,16 @@ def files(args=None):
                     target = _join(cwd, name)
                     if is_dir:
                         cwd = target
-                        all_entries, total = _reload(cwd)
+                        all_entries, total = _listing(cwd)
                         flt = ''
                         entries = all_entries
                         sel = 0
                         top = 0
                     else:
-                        if not _open_in_editor(target):
-                            _view_file(target)
+                        if not await _aopen_in_editor(target):
+                            await _aview_file(target)
                         _clear()
-                        all_entries, total = _reload(cwd)   # size may have changed
+                        all_entries, total = _listing(cwd)   # size may have changed
                         entries = _apply_filter()
                         if sel >= len(entries):
                             sel = max(0, len(entries) - 1)
@@ -364,12 +386,12 @@ def files(args=None):
                 if entries:
                     name, is_dir, _sz = entries[sel]
                     if not is_dir:
-                        _view_file(_join(cwd, name))
+                        await _aview_file(_join(cwd, name))
                         _clear()
 
             elif key == '/':                        # search / filter
                 _w('\x1b[?25h')
-                flt = _prompt('Search (blank clears):')
+                flt = await _aprompt('Search (blank clears):')
                 _w('\x1b[?25l')
                 entries = _apply_filter()
                 sel = 0
@@ -378,7 +400,7 @@ def files(args=None):
                 _clear()
 
             elif key == 'r':
-                all_entries, total = _reload(cwd)
+                all_entries, total = _listing(cwd)
                 entries = _apply_filter()
                 if sel >= len(entries):
                     sel = max(0, len(entries) - 1)
@@ -386,11 +408,11 @@ def files(args=None):
 
             elif key == 'g':
                 _w('\x1b[?25h')
-                dest = _prompt('Go to path:')
+                dest = await _aprompt('Go to path:')
                 _w('\x1b[?25l')
                 if dest and _is_dir(dest):
                     cwd = dest
-                    all_entries, total = _reload(cwd)
+                    all_entries, total = _listing(cwd)
                     flt = ''
                     entries = all_entries
                     sel = 0
@@ -401,7 +423,7 @@ def files(args=None):
 
             elif key == 'n':
                 _w('\x1b[?25h')
-                name = _prompt('New (end name with / for a folder):')
+                name = await _aprompt('New (end name with / for a folder):')
                 _w('\x1b[?25l')
                 if name:
                     target = _join(cwd, name.rstrip('/'))
@@ -414,9 +436,9 @@ def files(args=None):
                             if not _exists(target):
                                 with open(target, 'w'):
                                     pass
-                            _open_in_editor(target)
+                            await _aopen_in_editor(target)
                             status = "Created '{}'.".format(name)
-                        all_entries, total = _reload(cwd)
+                        all_entries, total = _listing(cwd)
                         entries = _apply_filter()
                     except Exception as e:
                         status = 'create failed: {}'.format(e)
@@ -425,12 +447,12 @@ def files(args=None):
             elif key == 'R' and entries:        # rename in place
                 name, is_dir, _sz = entries[sel]
                 _w('\x1b[?25h')
-                new = _prompt("Rename '{}' to:".format(name))
+                new = await _aprompt("Rename '{}' to:".format(name))
                 _w('\x1b[?25l')
                 if new and new != name:
                     try:
                         uos.rename(_join(cwd, name), _join(cwd, new))
-                        all_entries, total = _reload(cwd); entries = _apply_filter()
+                        all_entries, total = _listing(cwd); entries = _apply_filter()
                         status = "Renamed to '{}'.".format(new)
                     except Exception as e:
                         status = 'Rename failed: {}'.format(e)
@@ -442,14 +464,14 @@ def files(args=None):
                     status = 'Copy is file-only (cp does not recurse).'
                 else:
                     _w('\x1b[?25h')
-                    dest = _prompt("Copy '{}' to (path or folder):".format(name))
+                    dest = await _aprompt("Copy '{}' to (path or folder):".format(name))
                     _w('\x1b[?25l')
                     if dest:
                         if _is_dir(dest):
                             dest = _join(dest, name)
                         try:
                             _copy_file(_join(cwd, name), dest)
-                            all_entries, total = _reload(cwd); entries = _apply_filter()
+                            all_entries, total = _listing(cwd); entries = _apply_filter()
                             status = "Copied to '{}'.".format(dest)
                         except Exception as e:
                             status = 'Copy failed: {}'.format(e)
@@ -458,7 +480,7 @@ def files(args=None):
             elif key == 'm' and entries:        # move (rename across folders)
                 name, is_dir, _sz = entries[sel]
                 _w('\x1b[?25h')
-                dest = _prompt("Move '{}' to (folder or path):".format(name))
+                dest = await _aprompt("Move '{}' to (folder or path):".format(name))
                 _w('\x1b[?25l')
                 if dest:
                     target = _join(dest, name) if _is_dir(dest) else dest
@@ -474,7 +496,7 @@ def files(args=None):
                         except Exception as e:
                             status = 'Move failed: {}'.format(e); target = None
                     if target:
-                        all_entries, total = _reload(cwd); entries = _apply_filter()
+                        all_entries, total = _listing(cwd); entries = _apply_filter()
                         if sel >= len(entries):
                             sel = max(0, len(entries) - 1)
                         status = "Moved to '{}'.".format(target)
@@ -483,8 +505,8 @@ def files(args=None):
             elif key == 'p' and entries:        # package: install a .pkg here
                 name, is_dir, _sz = entries[sel]
                 if not is_dir and name.lower().endswith('.pkg'):
-                    _run_and_pause('pkg install ' + _join(cwd, name))
-                    all_entries, total = _reload(cwd); entries = _apply_filter()
+                    await _arun_and_pause('pkg install ' + _join(cwd, name))
+                    all_entries, total = _listing(cwd); entries = _apply_filter()
                 elif is_dir and _exists(_join(_join(cwd, name), 'package.cfg')):
                     status = "Folder is a package source — build it with 'mkpkg'."
                 else:
@@ -495,7 +517,7 @@ def files(args=None):
                     name, is_dir, _sz = entries[sel]
                     target = _join(cwd, name)
                     _w('\x1b[?25h')
-                    ans = _prompt("Delete '{}'? (y/N):".format(name))
+                    ans = await _aprompt("Delete '{}'? (y/N):".format(name))
                     _w('\x1b[?25l')
                     if ans.lower() == 'y':
                         try:
@@ -503,7 +525,7 @@ def files(args=None):
                                 uos.rmdir(target)     # only removes empty dirs
                             else:
                                 uos.remove(target)
-                            all_entries, total = _reload(cwd)
+                            all_entries, total = _listing(cwd)
                             entries = _apply_filter()
                             if sel >= len(entries):
                                 sel = max(0, len(entries) - 1)
@@ -517,6 +539,17 @@ def files(args=None):
         _w('\x1b[?25h')                            # restore cursor
         _clear()
         _w(_DG + 'Closed file explorer.' + _R + '\r\n')
+
+
+def files(args=None):
+    """Classic-shell entry: run the cooperative explorer on a one-shot loop.
+    In the async shell, launchpad dispatches files_async directly (so background
+    services keep running); this path is only used by `asyncmode off`."""
+    try:
+        import asyncio
+    except ImportError:
+        import uasyncio as asyncio
+    asyncio.run(files_async(args))
 
 
 if __name__ == '__main__':
