@@ -40,7 +40,7 @@
     {
       "name": "SysMon",
       "ver": "2.6.1",
-      "desc": "Live system monitor (htop-style) — runs cooperatively in the async shell, alongside background services",
+      "desc": "Live system monitor (htop-style) \u2014 runs cooperatively in the async shell, alongside background services",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/sysmon.pkg"
     },
@@ -134,6 +134,13 @@
       "desc": "Find information from the shell - DuckDuckGo instant answers + Wikipedia summaries (search / wiki)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/websearch.pkg"
+    },
+    {
+      "name": "NovaD1",
+      "ver": "0.1.0",
+      "desc": "Nova D1 multi-tool wrapper \u2014 turns RPCortex into the Nova D1 (scan / setup / GUI). Stage 0.",
+      "author": "dash1101",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }
   ]
 }
