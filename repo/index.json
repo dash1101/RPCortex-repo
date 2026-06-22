@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.1.0",
-      "desc": "Nova D1 multi-tool wrapper \u2014 turns RPCortex into the Nova D1 (scan / setup / GUI). Stage 0.",
+      "ver": "0.2.0",
+      "desc": "Nova D1 multi-tool wrapper \u2014 modular OLED UI (SH1106/SSD1306) + scan/setup/GUI. Stage 1 concept.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }
