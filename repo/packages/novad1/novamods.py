@@ -135,23 +135,31 @@ def test_ir_tx(cfg, cancel=None):
 
 
 def test_sdcard(cfg, cancel=None):
-    m = _machine()
     import uos
+    # Prefer the OS core mount (one mount point, shared with `sd` + boot).
+    try:
+        import sdmgr
+        okk, msg = sdmgr.mount()
+        if not okk:
+            return False, ['SD card', msg[:16], 'check wiring']
+        files = uos.listdir('/sd')
+        return True, ['SD card OK', '{} entries'.format(len(files)),
+                      files[0][:16] if files else '(empty)']
+    except ImportError:
+        pass            # older OS without sdmgr — fall back to a direct mount
+    m = _machine()
     try:
         sd = m.SDCard(slot=2, sck=m.Pin(_pin('spi_sck', 12)),
                       mosi=m.Pin(_pin('spi_mosi', 11)),
                       miso=m.Pin(_pin('spi_miso', 13)),
                       cs=m.Pin(_pin('sd_cs', 15)))
-    except Exception as e:
-        return False, ['SD card', 'init failed', str(e)[:16]]
-    try:
         uos.mount(sd, '/sd')
         files = uos.listdir('/sd')
         uos.umount('/sd')
         return True, ['SD card OK', '{} entries'.format(len(files)),
                       files[0][:16] if files else '(empty)']
     except Exception as e:
-        return False, ['SD card', 'mount failed', str(e)[:16]]
+        return False, ['SD card', 'init failed', str(e)[:16]]
 
 
 def test_cc1101(cfg, cancel=None):
@@ -495,3 +503,68 @@ def run_test(key, cancel=None):
             yield (False, [label, 'error', str(e)[:16]])
         return
     yield res                                  # plain (ok, lines)
+
+
+# --- fast presence check (boot loading-bar + the System Check app) -----------
+# Only BUS devices can be auto-detected (I2C scan / SPI id / UART bytes). GPIO
+# actuators (LED/buzzer/vibration/IR/iButton) can't be probed without firing
+# them, so they're 'manual', never a FAIL.
+_MANUAL = ('Status LED', 'Buzzer', 'Vibration', 'IR Send', 'IR Recv',
+           'iButton', 'SD Card', 'Battery')
+
+
+def _gps_has_data(ms=500):
+    m = _machine()
+    import utime
+    u = m.UART(1, baudrate=9600, tx=m.Pin(_pin('gps_tx', 17)), rx=m.Pin(_pin('gps_rx', 18)))
+    try:
+        t0 = utime.ticks_ms()
+        while utime.ticks_diff(utime.ticks_ms(), t0) < ms:
+            if u.any():
+                return True
+            utime.sleep_ms(20)
+        return False
+    finally:
+        try:
+            u.deinit()
+        except Exception:
+            pass
+
+
+def quickcheck(cancel=None):
+    """Generator yielding (done, total, label, status, results) per probe.
+    status: 'ok' | '--' (not found) | 'na' (manual). Fast (no long waits)."""
+    cancel = cancel or (lambda: False)
+    try:
+        addrs = set(_i2c().scan())
+    except Exception:
+        addrs = set()
+    bus = [('Display', 0x3c), ('NFC', 0x24), ('RTC', 0x68)]
+    spi = [('Sub-GHz', test_cc1101), ('LoRa', test_sx1276)]
+    total = len(bus) + len(spi) + 1
+    results = []
+    i = 0
+    for label, addr in bus:
+        if cancel():
+            return
+        st = 'ok' if addr in addrs else '--'
+        results.append((label, st)); i += 1
+        yield (i, total, label, st, results)
+    for label, fn in spi:
+        if cancel():
+            return
+        try:
+            ok, _ = fn(None)
+            st = 'ok' if ok else '--'
+        except Exception:
+            st = '--'
+        results.append((label, st)); i += 1
+        yield (i, total, label, st, results)
+    if not cancel():
+        try:
+            ok = _gps_has_data(500)
+        except Exception:
+            ok = False
+        st = 'ok' if ok else '--'
+        results.append(('GPS', st)); i += 1
+        yield (i, total, 'GPS', st, results)

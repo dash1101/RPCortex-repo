@@ -139,11 +139,19 @@ def _gear(c, cx, cy, r):              # settings
         c.line(cx + (a[0] * 2) // 3, cy + (a[1] * 2) // 3, cx + a[0], cy + a[1], 1)
 
 
+def _check(c, cx, cy, r):             # System Check — clipboard + tick
+    c.rect(cx - r + 1, cy - r, 2 * r - 2, 2 * r, 1)
+    c.fill_rect(cx - 3, cy - r - 2, 6, 3, 1)         # clip
+    c.line(cx - r + 3, cy + 1, cx - 1, cy + r - 3, 1)  # check mark
+    c.line(cx - 1, cy + r - 3, cx + r - 3, cy - r + 4, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
-    'wifi': _wifi, 'scripts': _doc, 'settings': _gear,
+    'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
+    'check': _check,
 }
 
 

@@ -34,6 +34,10 @@ _DEF_I2C = {'sda': 8, 'scl': 9}
 # 3 buttons total (encoder SW + 2). btn2=16 keeps GPIO15 free for the SD CS.
 _DEF_PINS = {'enc_a': 4, 'enc_b': 5, 'enc_sw': 6, 'btn1': 7, 'btn2': 16}
 
+# Splash + boot-check play ONCE per boot (module globals persist across service
+# respawns in the same session, reset on a real reboot — exactly what we want).
+_booted = False
+
 
 def _w(s):
     sys.stdout.write(s)
@@ -55,6 +59,34 @@ def _reg(key, default=None):
         return v if v else default
     except Exception:
         return default
+
+
+def _ensure_dir(p):
+    import uos
+    try:
+        uos.mkdir(p)
+    except OSError:
+        pass
+
+
+def _nova_base():
+    """Nova's data root: the SD card if mounted, else flash under the OS root."""
+    try:
+        import sdmgr
+        if sdmgr.is_mounted():
+            _ensure_dir('/sd/nova')
+            return '/sd/nova'
+    except Exception:
+        pass
+    _ensure_dir('/Vela/nova')
+    return '/Vela/nova'
+
+
+def scripts_dir():
+    """Where Nova scripts live (SD if present). Created on demand."""
+    d = _nova_base() + '/scripts'
+    _ensure_dir(d)
+    return d
 
 
 def _i2c_pins():
@@ -296,6 +328,36 @@ def _save_err(msg):
         pass
 
 
+def _clear_err():
+    try:
+        import regedit
+        regedit.save('Apps.NovaD1_LastError', '')
+    except Exception:
+        pass
+
+
+def _nlog(msg):
+    try:
+        import novalog
+        novalog.log(msg)
+    except Exception:
+        pass
+
+
+def _boot_or_recover(ui, novagui):
+    """Set up the initial screen stack: recovered-error flash, or the once-per-boot
+    splash + system check, or just home."""
+    global _booted
+    last = _reg('Apps.NovaD1_LastError')
+    if last:
+        _clear_err()
+        ui.stack.append(novagui.ErrorScreen(last))
+    elif not _booted:
+        _booted = True
+        ui.stack = novagui.make_boot_stack(ui.stack[0])
+        _nlog('Nova D1 GUI started')
+
+
 async def _gui_service():
     """Self-healing background GUI: rebuilds + relaunches on crash (with backoff),
     stores the error and flashes it on the next start. Catches everything itself
@@ -306,21 +368,16 @@ async def _gui_service():
         ui, err = _build_ui()
         if err:
             _save_err('start: ' + err)        # unrecoverable (no display) -> stop
+            _nlog('GUI start failed: ' + err)
             return
-        last = _reg('Apps.NovaD1_LastError')
-        if last:
-            try:
-                import regedit
-                regedit.save('Apps.NovaD1_LastError', '')
-            except Exception:
-                pass
-            ui.stack.append(novagui.ErrorScreen(last))
+        _boot_or_recover(ui, novagui)
         try:
             await ui.run_async()
             if getattr(ui, '_stop', False):
                 return                        # intentional stop -> done, no respawn
         except Exception as e:
             _save_err('{}: {}'.format(type(e).__name__, e))
+            _nlog('GUI crash: {}'.format(e))
             try:
                 sys.print_exception(e)
             except Exception:
@@ -329,6 +386,22 @@ async def _gui_service():
                 await asyncio.sleep_ms(2000)  # backoff, then rebuild + relaunch
             except Exception:
                 pass
+
+
+def _logs(info, ok, warn, error, multi, rest=''):
+    import novalog
+    r = rest.strip().lower()
+    if r == 'clear':
+        novalog.clear()
+        ok("Nova log cleared.", p="NovaD1")
+        return
+    n = int(r) if r.isdigit() else 40
+    lines = novalog.tail(n)
+    info("=== Nova D1 — event log (last {}) ===".format(n), p="NovaD1")
+    if not lines:
+        multi("  (empty)")
+    for l in lines:
+        multi("  " + l)
 
 
 def _gui(info, ok, warn, error, multi, bg=False):
@@ -347,6 +420,8 @@ def _gui(info, ok, warn, error, multi, bg=False):
         warn("Nova GUI: " + err)
         multi("  (Concept UI renders on the PC mock; on-panel needs the SH1106.)")
         return
+    import novagui
+    _boot_or_recover(ui, novagui)
     info("Nova GUI — BACK from home exits.", p="NovaD1")
     ui.run()
 
@@ -364,6 +439,7 @@ def novad1(args=None):
         multi("  novad1 status      Show what's configured")
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
+        multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
         multi("  Tips: LED is WS2812 on GPIO48 by default — reg set")
@@ -379,6 +455,9 @@ def novad1(args=None):
         # keep original case for keys
         rest_cs = (args or '').strip().split(None, 1)
         _apps(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'logs':
+        rest_cs = (args or '').strip().split(None, 1)
+        _logs(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'style':
         st = 'menu' if rest.startswith('m') else ('gallery' if rest.startswith('g') else None)
         if st is None:

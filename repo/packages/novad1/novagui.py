@@ -323,15 +323,32 @@ class ModuleTestScreen(Screen):
         self.ok = None
         self._gen = None
         self._cancel = False
+        self.top = 0
 
     def _running(self):
         return self._gen is not None
 
+    def _wrapped(self, c):
+        cols = (c.w - 3) // _ADV
+        out = []
+        for ln in self.lines:
+            out.extend(_wrap(ln, cols))
+        return out
+
     def draw(self, c):
-        y = _TOP
-        for ln in self.lines[:4]:
-            c.text(2, y, ln[:16], 1)
-            y += _ROWH
+        wl = self._wrapped(c)
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self._running():
+            self.top = 0                       # pin to top so progress doesn't fight scroll
+        if self.top > max(0, len(wl) - rows):
+            self.top = max(0, len(wl) - rows)
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(wl):
+                break
+            c.text(2, _TOP + i * _ROWH, wl[idx], 1)
+        if len(wl) > rows and not self._running():
+            c.text(c.w - _ADV, _TOP, '^' if self.top else 'v', 1)
         if self._running():
             foot = 'BACK = stop'
         else:
@@ -368,11 +385,18 @@ class ModuleTestScreen(Screen):
             return True
 
     def on_event(self, e):
+        if e == ev.ROT_CW and not self._running():
+            self.top += 1
+            return None
+        if e == ev.ROT_CCW and not self._running():
+            self.top = max(0, self.top - 1)
+            return None
         if e == ev.SELECT:
             if self._gen is None:
                 import novamods
                 self._cancel = False
                 self.ok = None
+                self.top = 0
                 self.lines = ['Testing...']
                 self._gen = novamods.run_test(self.key, lambda: self._cancel)
             return None
@@ -543,6 +567,177 @@ class ManageAppsScreen(Menu):
         return None
 
 
+class SplashScreen(Screen):
+    """Animated RPCortex / Nova D1 boot reveal. Auto-advances; any key skips."""
+    fullscreen = True
+    DUR = 1500
+
+    def __init__(self):
+        self.title = 'Nova D1'
+        self.t = 0.0
+        self.next = None
+
+    def draw(self, c):
+        import novasplash
+        novasplash.draw(c, self.t if self.t < 1 else 1.0)
+
+    def tick(self, dt_ms=0):
+        if self.t >= 1.0:
+            self.next = 'back'
+            return False
+        self.t += (dt_ms or 16) / float(self.DUR)
+        return True
+
+    def on_event(self, e):
+        self.next = 'back'                 # any key skips the splash
+        return None
+
+
+class BootCheckScreen(Screen):
+    """Loading-bar module check after the splash. Auto-advances when done."""
+    fullscreen = True
+
+    def __init__(self):
+        self.title = 'Checks'
+        self.next = None
+        self._gen = None
+        self._started = False
+        self.results = []
+        self.done = 0
+        self.total = 1
+        self._hold = 0
+        self._cancel = False
+
+    def draw(self, c):
+        w = c.w
+        t = 'System Check'
+        c.text((w - len(t) * _ADV) // 2, 1, t, 1)
+        bx, by, bw = 6, 14, w - 12
+        c.rect(bx, by, bw, 9, 1)
+        frac = self.done / float(self.total) if self.total else 0
+        c.fill_rect(bx + 1, by + 1, int((bw - 2) * frac), 7, 1)
+        y = 28
+        for label, st in self.results[-3:]:
+            mark = 'OK' if st == 'ok' else ('--' if st == '--' else 'na')
+            c.text(4, y, label[:11], 1)
+            c.text(w - 2 * _ADV - 2, y, mark, 1)
+            y += _ROWH
+
+    def tick(self, dt_ms=0):
+        if not self._started:
+            self._started = True
+            import novamods
+            self._gen = novamods.quickcheck(lambda: self._cancel)
+            return True
+        if self._gen is None:
+            self._hold += dt_ms or 16
+            if self._hold > 700:
+                self.next = 'back'
+            return False
+        try:
+            i, total, label, st, results = next(self._gen)
+            self.done = i; self.total = total; self.results = results
+            return True
+        except StopIteration:
+            self._gen = None
+            try:
+                import novalog
+                ok = sum(1 for _l, s in self.results if s == 'ok')
+                novalog.log('boot check: {}/{} present'.format(ok, len(self.results)))
+            except Exception:
+                pass
+            return True
+        except Exception:
+            self._gen = None
+            return True
+
+    def on_event(self, e):
+        self._cancel = True
+        self.next = 'back'                 # any key skips
+        return None
+
+
+class SystemCheckScreen(Screen):
+    """On-demand module check (same probes), scrollable, Select re-runs."""
+    def __init__(self):
+        self.title = 'Sys Check'
+        self.results = []
+        self.top = 0
+        self._gen = None
+        self._cancel = False
+        self.done = 0
+        self.total = 1
+        self._auto = True                  # run once on open
+
+    def _start(self):
+        import novamods
+        self._cancel = False
+        self.results = []
+        self.top = 0
+        self._gen = novamods.quickcheck(lambda: self._cancel)
+
+    def draw(self, c):
+        if self._gen is not None:
+            bx, by, bw = 6, _TOP, c.w - 12
+            c.rect(bx, by, bw, 9, 1)
+            frac = self.done / float(self.total) if self.total else 0
+            c.fill_rect(bx + 1, by + 1, int((bw - 2) * frac), 7, 1)
+            c.text(2, by + 12, 'checking...', 1)
+            return
+        rows = (c.h - _TOP - _FH) // _ROWH
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.results):
+                break
+            label, st = self.results[idx]
+            mark = 'OK' if st == 'ok' else ('--' if st == '--' else 'na')
+            c.text(2, _TOP + i * _ROWH, label[:11], 1)
+            c.text(c.w - 2 * _ADV - 2, _TOP + i * _ROWH, mark, 1)
+        c.text(2, c.h - _FH, 'Select=rerun', 1)
+
+    def tick(self, dt_ms=0):
+        if self._auto:
+            self._auto = False
+            self._start()
+            return True
+        if self._gen is None:
+            return False
+        try:
+            i, total, label, st, results = next(self._gen)
+            self.done = i; self.total = total; self.results = results
+            return True
+        except StopIteration:
+            self._gen = None
+            try:
+                import novalog
+                ok = sum(1 for _l, s in self.results if s == 'ok')
+                novalog.log('sys check: {}/{} present'.format(ok, len(self.results)))
+            except Exception:
+                pass
+            return True
+        except Exception:
+            self._gen = None
+            return True
+
+    def on_event(self, e):
+        if e == ev.SELECT and self._gen is None:
+            self._start()
+            return None
+        if e == ev.ROT_CW and self._gen is None:
+            self.top += 1
+            return None
+        if e == ev.ROT_CCW and self._gen is None:
+            self.top = max(0, self.top - 1)
+            return None
+        if e == ev.BACK:
+            self._cancel = True
+            return 'back'
+        if e == ev.HOME:
+            self._cancel = True
+            return 'home'
+        return None
+
+
 class ErrorScreen(Screen):
     """Shown on startup after the GUI recovered from a crash. Any key dismisses."""
     def __init__(self, msg):
@@ -594,17 +789,16 @@ class NovaUI:
             now = self._now()
         c = self.canvas
         c.clear(0)
-        st = self._get_state(now)
-        st['title'] = self.stack[-1].title
-        draw_status_bar(c, st)
-        self.stack[-1].draw(c)
+        scr = self.stack[-1]
+        if not getattr(scr, 'fullscreen', False):
+            st = self._get_state(now)
+            st['title'] = scr.title
+            draw_status_bar(c, st)
+        scr.draw(c)
         self.display.show(c)
         self._last_render = now
 
-    def handle(self, e):
-        if e is None:
-            return False
-        r = self.stack[-1].on_event(e)
+    def _apply(self, r):
         if r == 'back':
             if len(self.stack) > 1:
                 self.stack.pop()
@@ -612,6 +806,11 @@ class NovaUI:
             del self.stack[1:]
         elif isinstance(r, Screen):
             self.stack.append(r)
+
+    def handle(self, e):
+        if e is None:
+            return False
+        self._apply(self.stack[-1].on_event(e))
         return True
 
     def _loop_once(self, prev, sleep_ms):
@@ -623,6 +822,11 @@ class NovaUI:
             dirty = self.handle(e) or dirty
         scr = self.stack[-1]
         if scr.tick(dt):
+            dirty = True
+        nx = getattr(scr, 'next', None)          # a screen can auto-advance itself
+        if nx is not None:
+            scr.next = None
+            self._apply(nx)
             dirty = True
         if (now - self._last_render) >= 1000:    # keep the clock/signal live
             dirty = True
@@ -666,14 +870,44 @@ def _mk_test(key, label):
     return lambda: ModuleTestScreen(key, label)
 
 
+def _logs_screen():
+    try:
+        import novalog
+        lines = novalog.tail(40)
+    except Exception:
+        lines = []
+    return TextScreen('Nova Logs', lines or ['(no log yet)'])
+
+
+def _scripts_screen():
+    # Lists scripts from the Nova store (SD if mounted, else flash). Running them
+    # comes with the scripting feature; for now it's a browsable list.
+    try:
+        import novad1
+        path = novad1.scripts_dir()
+        import uos
+        files = [f for f in uos.listdir(path)]
+    except Exception:
+        files = []
+    items = [(f, None) for f in files] or [('(no scripts)', None)]
+    return Menu('Scripts', items)
+
+
 def _all_apps():
     """Every possible home app: (key, label, factory). Modules + built-in apps."""
     import novamods
     apps = [(k, l, _mk_test(k, l)) for k, l, _fn in novamods.MODULES]
     apps.append(('wifi', 'WiFi', WiFiScreen))
-    apps.append(('scripts', 'Scripts',
-                 lambda: Menu('Scripts', [('hello.rps', None), ('blink.py', None)])))
+    apps.append(('check', 'Sys Check', SystemCheckScreen))
+    apps.append(('logs', 'Logs', _logs_screen))
+    apps.append(('scripts', 'Scripts', _scripts_screen))
     return apps
+
+
+def make_boot_stack(home):
+    """Boot order: home at the bottom, then the check, then the splash on top —
+    splash plays -> pops to check -> check runs -> pops to home."""
+    return [home, BootCheckScreen(), SplashScreen()]
 
 
 def _home_keys():

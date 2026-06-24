@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.5.0",
-      "desc": "Nova D1 multi-tool \u2014 animated icon-gallery OLED UI (font8x8), cancel-anything tests, auto-relaunch, WiFi/BT + modular drivers for every peripheral.",
+      "ver": "0.6.0",
+      "desc": "Nova D1 multi-tool \u2014 animated OLED UI (splash, icon gallery, boot self-check, logs), cancel-anything tests, SD storage + modular drivers for every peripheral.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }
