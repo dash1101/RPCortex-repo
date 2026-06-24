@@ -43,13 +43,75 @@ class Canvas:
         for i in range(n):
             self.pixel(x, y + i, c)
 
+    def line(self, x0, y0, x1, y1, c=1):
+        dx = abs(x1 - x0); dy = -abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+        while True:
+            self.pixel(x0, y0, c)
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy; x0 += sx
+            if e2 <= dx:
+                err += dx; y0 += sy
+
     def rect(self, x, y, w, h, c=1):
         self.hline(x, y, w, c); self.hline(x, y + h - 1, w, c)
         self.vline(x, y, h, c); self.vline(x + w - 1, y, h, c)
 
     def fill_rect(self, x, y, w, h, c=1):
-        for j in range(h):
-            self.hline(x, y + j, w, c)
+        # Byte-level fill (per page band), not per-pixel — ~8x fewer ops, which
+        # keeps full-screen UI redraws fast enough to animate smoothly.
+        if w <= 0 or h <= 0:
+            return
+        x0 = 0 if x < 0 else x
+        x1 = self.w if x + w > self.w else x + w
+        y0 = 0 if y < 0 else y
+        y1 = self.h if y + h > self.h else y + h
+        if x0 >= x1 or y0 >= y1:
+            return
+        buf = self.buf
+        W = self.w
+        yy = y0
+        while yy < y1:
+            page = yy >> 3
+            ptop = page << 3
+            rtop = yy - ptop
+            rbot = (y1 if y1 < ptop + 8 else ptop + 8) - ptop
+            mask = 0
+            for r in range(rtop, rbot):
+                mask |= (1 << r)
+            base = page * W
+            if c:
+                for xx in range(x0, x1):
+                    buf[base + xx] |= mask
+            else:
+                inv = (~mask) & 0xff
+                for xx in range(x0, x1):
+                    buf[base + xx] &= inv
+            yy = ptop + 8
+
+    def circle(self, cx, cy, r, c=1):
+        x = r; y = 0; err = 1 - r
+        while x >= y:
+            self.pixel(cx + x, cy + y, c); self.pixel(cx + y, cy + x, c)
+            self.pixel(cx - x, cy + y, c); self.pixel(cx - y, cy + x, c)
+            self.pixel(cx - x, cy - y, c); self.pixel(cx - y, cy - x, c)
+            self.pixel(cx + x, cy - y, c); self.pixel(cx + y, cy - x, c)
+            y += 1
+            if err < 0:
+                err += 2 * y + 1
+            else:
+                x -= 1
+                err += 2 * (y - x) + 1
+
+    def fill_circle(self, cx, cy, r, c=1):
+        for dy in range(-r, r + 1):
+            dx = int((r * r - dy * dy) ** 0.5)
+            self.hline(cx - dx, cy + dy, 2 * dx + 1, c)
 
     def char(self, x, y, code, c=1, scale=1):
         if code < _f.FIRST or code > _f.FIRST + 0x5e:

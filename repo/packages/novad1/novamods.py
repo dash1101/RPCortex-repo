@@ -1,12 +1,16 @@
 # Desc: Nova D1 module drivers + test functions (one per peripheral).
 # File: /Packages/NovaD1/novamods.py
 #
-# Each module exposes test(cfg) -> (ok_bool, [lines]) doing the minimal
-# demonstrable thing for the GUI test app. Drivers are deliberately thin + config-
-# driven (pins from the registry, see novad1-wiring.md). FIRST CUT — written
-# without the panel; the simple GPIO/sensor ones are high-confidence, the SPI/I2C
-# RF + NFC ones are detect-first and may need on-wire iteration.
+# Two kinds of test, both driven by run_test():
+#   * quick tests  -> def test_x(cfg, cancel=None): return (ok_bool, [lines])
+#   * long tests   -> generators: yield (None, [lines]) for progress, then a final
+#                     yield (ok_bool, [lines]). They check cancel() in their loops
+#                     and clean up hardware in finally, so BACK cuts them off the
+#                     moment it's pressed (the GUI closes the generator).
+# A single blocking C call (uos.mount, dht.measure, a TLS handshake) can't be
+# cooperatively cancelled — only the polling loops are truly cancel-anytime.
 #
+# Drivers are thin + config-driven (pins from the registry, see novad1-wiring.md).
 # MicroPython-safe: no f-strings, positional split, .format() only.
 
 import sys
@@ -16,7 +20,7 @@ def _reg(key, default=None):
     try:
         import regedit
         v = regedit.read(key)
-        return v if v else default
+        return v if v not in (None, '') else default
     except Exception:
         return default
 
@@ -44,20 +48,21 @@ def _spi(cfg):
 def _i2c():
     m = _machine()
     return m.I2C(0, scl=m.Pin(int(_reg('Apps.NovaD1_SCL', 9))),
-                 sda=m.Pin(int(_reg('Apps.NovaD1_SDA', 8))))
+                 sda=m.Pin(int(_reg('Apps.NovaD1_SDA', 8))), freq=400000)
 
 
-# --- simple GPIO / sensor modules (high confidence) -------------------------
-def test_led(cfg):
-    m = _machine()
-    p = m.Pin(_pin('led', 42), m.Pin.OUT)
+def _ms():
     import utime
-    for _ in range(6):
-        p.value(1); utime.sleep_ms(120); p.value(0); utime.sleep_ms(120)
-    return True, ['Status LED', 'blinked 6x OK']
+    return utime.ticks_ms()
 
 
-def test_buzzer(cfg):
+def _since(t0):
+    import utime
+    return utime.ticks_diff(utime.ticks_ms(), t0)
+
+
+# --- simple GPIO / sensor modules (quick, tuple-returning) -------------------
+def test_buzzer(cfg, cancel=None):
     m = _machine()
     import utime
     pwm = m.PWM(m.Pin(_pin('buzzer', 40)))
@@ -70,7 +75,7 @@ def test_buzzer(cfg):
     return True, ['Buzzer', 'played 3 tones']
 
 
-def test_vibration(cfg):
+def test_vibration(cfg, cancel=None):
     m = _machine()
     import utime
     p = m.Pin(_pin('vibe', 41), m.Pin.OUT)
@@ -79,16 +84,16 @@ def test_vibration(cfg):
     return True, ['Vibration', 'pulsed 2x']
 
 
-def test_dht11(cfg):
+def test_dht11(cfg, cancel=None):
     m = _machine()
     import dht
     d = dht.DHT11(m.Pin(_pin('dht', 2)))
     d.measure()
     return True, ['DHT11', 'Temp: {} C'.format(d.temperature()),
-                  'Humidity: {} %'.format(d.humidity())]
+                  'Humid: {} %'.format(d.humidity())]
 
 
-def test_battery(cfg):
+def test_battery(cfg, cancel=None):
     m = _machine()
     adc = m.ADC(m.Pin(_pin('battery', 1)))
     try:
@@ -104,55 +109,32 @@ def test_battery(cfg):
     return True, ['Battery', '{:.2f} V'.format(vbat), '~{} %'.format(pct)]
 
 
-def test_ibutton(cfg):
+def test_ibutton(cfg, cancel=None):
     m = _machine()
     import onewire
     ow = onewire.OneWire(m.Pin(_pin('ibutton', 1)))
     roms = ow.scan()
     if not roms:
-        return False, ['iButton', 'no device', '(touch one to read)']
-    r = roms[0]
-    return True, ['iButton', 'ID:', ' '.join('{:02x}'.format(b) for b in r)]
+        return False, ['iButton', 'no device', '(touch one)']
+    return True, ['iButton', 'ID:', ' '.join('{:02x}'.format(b) for b in roms[0])]
 
 
-# --- IR ---------------------------------------------------------------------
-def test_ir_rx(cfg):
-    m = _machine()
-    import utime
-    p = m.Pin(_pin('ir_rx', 38), m.Pin.IN)
-    # wait up to ~4s for activity (idle is high on most receivers)
-    t0 = utime.ticks_ms()
-    edges = 0
-    last = p.value()
-    while utime.ticks_diff(utime.ticks_ms(), t0) < 4000:
-        v = p.value()
-        if v != last:
-            edges += 1
-            last = v
-        if edges > 12:
-            return True, ['IR receiver', 'signal received!', '{} edges'.format(edges)]
-    if edges:
-        return True, ['IR receiver', 'weak signal', '{} edges'.format(edges)]
-    return False, ['IR receiver', 'point a remote', 'and press a key']
-
-
-def test_ir_tx(cfg):
+def test_ir_tx(cfg, cancel=None):
     m = _machine()
     import utime
     pwm = m.PWM(m.Pin(_pin('ir_tx', 39)))
     try:
         pwm.freq(38000)
-        for _ in range(10):                 # a crude 38kHz burst train
+        for _ in range(10):
             pwm.duty_u16(32768); utime.sleep_us(560)
             pwm.duty_u16(0); utime.sleep_us(560)
         pwm.duty_u16(0)
     finally:
         pwm.deinit()
-    return True, ['IR emitter', 'sent a 38kHz burst', '(use the RX app to test)']
+    return True, ['IR emitter', 'sent 38kHz burst', 'use RX to verify']
 
 
-# --- SD card (SPI) ----------------------------------------------------------
-def test_sdcard(cfg):
+def test_sdcard(cfg, cancel=None):
     m = _machine()
     import uos
     try:
@@ -161,105 +143,18 @@ def test_sdcard(cfg):
                       miso=m.Pin(_pin('spi_miso', 13)),
                       cs=m.Pin(_pin('sd_cs', 15)))
     except Exception as e:
-        return False, ['SD card', 'init failed:', str(e)[:18]]
+        return False, ['SD card', 'init failed', str(e)[:16]]
     try:
         uos.mount(sd, '/sd')
         files = uos.listdir('/sd')
         uos.umount('/sd')
-        return True, ['SD card', '{} entries'.format(len(files)),
-                      files[0][:18] if files else '(empty)']
+        return True, ['SD card OK', '{} entries'.format(len(files)),
+                      files[0][:16] if files else '(empty)']
     except Exception as e:
-        return False, ['SD card', 'mount failed:', str(e)[:18]]
+        return False, ['SD card', 'mount failed', str(e)[:16]]
 
 
-# --- GPS (UART) -------------------------------------------------------------
-def test_gps(cfg):
-    m = _machine()
-    import utime
-    u = m.UART(1, baudrate=9600, tx=m.Pin(_pin('gps_tx', 17)),
-               rx=m.Pin(_pin('gps_rx', 18)))
-    t0 = utime.ticks_ms()
-    buf = b''
-    fix = None
-    sats = '0'
-    while utime.ticks_diff(utime.ticks_ms(), t0) < 5000:
-        if u.any():
-            buf += u.read()
-            while b'\n' in buf:
-                line, buf = buf.split(b'\n', 1)
-                try:
-                    s = line.decode('ascii', 'ignore')
-                except Exception:
-                    continue
-                if 'GGA' in s:
-                    f = s.split(',')
-                    if len(f) > 7:
-                        if f[6] not in ('', '0'):
-                            fix = (f[2], f[4])     # lat, lon (raw NMEA)
-                        sats = f[7] or '0'
-        if fix:
-            return True, ['GPS', 'FIX  sats: ' + sats,
-                          'lat ' + fix[0][:9], 'lon ' + fix[1][:9]]
-        utime.sleep_ms(50)
-    return False, ['GPS', 'no fix yet', 'sats seen: ' + sats, '(needs sky view)']
-
-
-# --- PN532 NFC (I2C) — detect + read tag UID --------------------------------
-_PN532_ADDR = 0x24
-
-
-def _pn532_cmd(i2c, body):
-    import utime
-    ln = len(body)
-    frame = bytearray([0x00, 0x00, 0xFF, ln, (0x100 - ln) & 0xFF])
-    frame += bytes(body)
-    chk = 0
-    for b in body:
-        chk += b
-    frame += bytes([(0x100 - (chk & 0xFF)) & 0xFF, 0x00])
-    i2c.writeto(_PN532_ADDR, frame)
-    utime.sleep_ms(50)
-
-
-def _pn532_read(i2c, n):
-    import utime
-    utime.sleep_ms(20)
-    return i2c.readfrom(_PN532_ADDR, n)
-
-
-def test_pn532(cfg):
-    i2c = _i2c()
-    try:
-        _pn532_cmd(i2c, [0xD4, 0x02])                 # GetFirmwareVersion
-        r = _pn532_read(i2c, 13)
-        # find the firmware byte after the response code 0xD5 0x03
-        ver = '?'
-        for i in range(len(r) - 2):
-            if r[i] == 0xD5 and r[i + 1] == 0x03:
-                ver = '{}.{}'.format(r[i + 3], r[i + 4])
-                break
-        # try one InListPassiveTarget (106kbps type A)
-        _pn532_cmd(i2c, [0xD4, 0x4A, 0x01, 0x00])
-        import utime
-        utime.sleep_ms(120)
-        t = _pn532_read(i2c, 24)
-        uid = None
-        for i in range(len(t) - 6):
-            if t[i] == 0xD5 and t[i + 1] == 0x4B and t[i + 2] >= 1:
-                ulen = t[i + 7] if (i + 7) < len(t) else 0
-                if 0 < ulen <= 10 and (i + 8 + ulen) <= len(t):
-                    uid = t[i + 8:i + 8 + ulen]
-                break
-        if uid:
-            return True, ['PN532 v' + ver, 'Tag UID:',
-                          ' '.join('{:02x}'.format(b) for b in uid)]
-        return True, ['PN532 v' + ver, 'detected OK', '(no tag present)']
-    except Exception as e:
-        return False, ['PN532', 'no response', str(e)[:18]]
-
-
-# --- CC1101 sub-GHz (SPI) — detect via version register ---------------------
-def test_cc1101(cfg):
+def test_cc1101(cfg, cancel=None):
     m = _machine()
     import utime
     spi = _spi(cfg)
@@ -270,16 +165,15 @@ def test_cc1101(cfg):
         utime.sleep_ms(2)
         cs.value(1); utime.sleep_us(40)
         cs.value(0)
-        spi.write(bytes([0x31 | 0xC0]))               # VERSION (burst/status read)
-        ver = spi.read(1)[0]
-        spi.write(bytes([0x30 | 0xC0]))               # PARTNUM
-        part = spi.read(1)[0]
+        spi.write(bytes([0x31 | 0xC0])); ver = spi.read(1)[0]    # VERSION
+        spi.write(bytes([0x30 | 0xC0])); part = spi.read(1)[0]   # PARTNUM
         cs.value(1)
         if ver in (0x04, 0x14, 0x17):
-            return True, ['CC1101', 'detected!', 'ver 0x{:02x} part 0x{:02x}'.format(ver, part)]
+            return True, ['CC1101 detected', 'ver 0x{:02x}'.format(ver),
+                          'part 0x{:02x}'.format(part)]
         return False, ['CC1101', 'unexpected id', 'ver 0x{:02x}'.format(ver)]
     except Exception as e:
-        return False, ['CC1101', 'SPI error', str(e)[:18]]
+        return False, ['CC1101', 'SPI error', str(e)[:16]]
     finally:
         try:
             spi.deinit()
@@ -287,8 +181,7 @@ def test_cc1101(cfg):
             pass
 
 
-# --- SX1276 LoRa (SPI) — detect via RegVersion (expect 0x12) ----------------
-def test_sx1276(cfg):
+def test_sx1276(cfg, cancel=None):
     m = _machine()
     import utime
     spi = _spi(cfg)
@@ -297,14 +190,13 @@ def test_sx1276(cfg):
     try:
         rst.value(0); utime.sleep_ms(2); rst.value(1); utime.sleep_ms(10)
         cs.value(0)
-        spi.write(bytes([0x42 & 0x7F]))               # RegVersion read
-        ver = spi.read(1)[0]
+        spi.write(bytes([0x42 & 0x7F])); ver = spi.read(1)[0]    # RegVersion
         cs.value(1)
         if ver == 0x12:
-            return True, ['SX1276', 'detected!', 'RegVersion 0x12']
+            return True, ['SX1276 detected', 'RegVersion 0x12']
         return False, ['SX1276', 'unexpected id', 'ver 0x{:02x}'.format(ver)]
     except Exception as e:
-        return False, ['SX1276', 'SPI error', str(e)[:18]]
+        return False, ['SX1276', 'SPI error', str(e)[:16]]
     finally:
         try:
             spi.deinit()
@@ -312,47 +204,253 @@ def test_sx1276(cfg):
             pass
 
 
-# --- Bluetooth (BLE scan) — ESP32 only --------------------------------------
-def test_bt(cfg):
+# --- status LED — WS2812/NeoPixel (default) or plain GPIO (generator) --------
+def test_led(cfg, cancel=None):
+    cancel = cancel or (lambda: False)
+    m = _machine()
+    pin = _pin('led', 48)               # most ESP32-S3 devkits: onboard RGB on 48
+    mode = _reg('Apps.NovaD1_LED_Mode', 'rgb')
+    if mode == 'rgb':
+        try:
+            import neopixel
+            np = neopixel.NeoPixel(m.Pin(pin, m.Pin.OUT), 1)
+        except Exception as e:
+            yield (False, ['Status LED', 'no NeoPixel', 'try LED_Mode gpio'])
+            return
+        cols = [(60, 0, 0), (0, 60, 0), (0, 0, 60), (60, 60, 0), (0, 60, 60), (60, 0, 60)]
+        try:
+            steps = 0
+            while steps < len(cols) * 7:
+                if cancel():
+                    break
+                if steps % 7 == 0:
+                    np[0] = cols[(steps // 7) % len(cols)]; np.write()
+                yield (None, ['Status LED', 'RGB pin ' + str(pin), 'cycling colors'])
+                steps += 1
+            yield (True, ['Status LED OK', 'RGB pin ' + str(pin), 'if dark: wrong pin'])
+        finally:
+            try:
+                np[0] = (0, 0, 0); np.write()
+            except Exception:
+                pass
+        return
+    # plain GPIO
+    p = m.Pin(pin, m.Pin.OUT)
+    try:
+        for i in range(12):
+            if cancel():
+                break
+            p.value(i % 2)
+            yield (None, ['Status LED', 'GPIO pin ' + str(pin), 'blinking'])
+        yield (True, ['Status LED OK', 'GPIO pin ' + str(pin)])
+    finally:
+        try:
+            p.value(0)
+        except Exception:
+            pass
+
+
+# --- IR receive (generator, cancel-anytime) ---------------------------------
+def test_ir_rx(cfg, cancel=None):
+    cancel = cancel or (lambda: False)
+    m = _machine()
+    import utime
+    p = m.Pin(_pin('ir_rx', 38), m.Pin.IN)
+    t0 = _ms(); edges = 0; last = p.value()
+    while _since(t0) < 6000:
+        if cancel():
+            return
+        tb = utime.ticks_ms()                 # sample a short burst (<=18ms)
+        while utime.ticks_diff(utime.ticks_ms(), tb) < 18:
+            v = p.value()
+            if v != last:
+                edges += 1; last = v
+        if edges > 16:
+            yield (True, ['IR receiver', 'SIGNAL!', '{} edges'.format(edges)])
+            return
+        yield (None, ['IR receiver', 'point a remote', 'edges {}  {}s'.format(edges, _since(t0) // 1000)])
+    if edges:
+        yield (True, ['IR receiver', 'weak signal', '{} edges'.format(edges)])
+    else:
+        yield (False, ['IR receiver', 'no signal', 'check wiring'])
+
+
+# --- GPS (generator) — prove RX even without a fix --------------------------
+def test_gps(cfg, cancel=None):
+    cancel = cancel or (lambda: False)
+    m = _machine()
+    u = m.UART(1, baudrate=9600, tx=m.Pin(_pin('gps_tx', 17)), rx=m.Pin(_pin('gps_rx', 18)))
+    try:
+        t0 = _ms(); buf = b''; nbytes = 0; sats = '0'; fix = None
+        while _since(t0) < 10000:
+            if cancel():
+                return
+            while u.any():                    # drain the FIFO this step (no loss)
+                d = u.read()
+                if not d:
+                    break
+                buf += d; nbytes += len(d)
+                while b'\n' in buf:
+                    line, buf = buf.split(b'\n', 1)
+                    try:
+                        s = line.decode('ascii', 'ignore')
+                    except Exception:
+                        continue
+                    if 'GGA' in s:
+                        f = s.split(',')
+                        if len(f) > 7:
+                            if f[6] not in ('', '0'):
+                                fix = (f[2], f[4])
+                            sats = f[7] or '0'
+            if fix:
+                yield (True, ['GPS FIX', 'sats: ' + sats, 'lat ' + fix[0][:9], 'lon ' + fix[1][:9]])
+                return
+            secs = _since(t0) // 1000
+            if nbytes == 0:
+                yield (None, ['GPS: no data ' + str(secs) + 's', 'check TX<->RX', 'swap if still 0', 'at ~5s'])
+            else:
+                yield (None, ['GPS RX ok', 'bytes ' + str(nbytes), 'sats ' + sats, 'no fix yet ' + str(secs) + 's'])
+        if nbytes == 0:
+            yield (False, ['GPS: NO DATA', 'swap TX/RX?', 'check baud/wiring'])
+        else:
+            yield (False, ['GPS RX ok', 'no fix (needs sky)', 'bytes ' + str(nbytes), 'sats ' + sats])
+    finally:
+        try:
+            u.deinit()
+        except Exception:
+            pass
+
+
+# --- PN532 NFC (I2C) — scan-first, then proper ready-poll handshake ----------
+_PN532_ADDR = 0x24
+
+
+def _pn532_frame(body):
+    ln = len(body)
+    fr = bytearray([0x00, 0x00, 0xFF, ln, (0x100 - ln) & 0xFF])
+    fr += bytes(body)
+    chk = 0
+    for b in body:
+        chk += b
+    fr += bytes([(0x100 - (chk & 0xFF)) & 0xFF, 0x00])
+    return fr
+
+
+def _pn532_ready(i2c, cancel, tries=40):
+    import utime
+    for _ in range(tries):
+        if cancel():
+            return False
+        try:
+            if i2c.readfrom(_PN532_ADDR, 1)[0] == 0x01:
+                return True
+        except Exception:
+            pass
+        utime.sleep_ms(5)
+    return False
+
+
+def test_pn532(cfg, cancel=None):
+    cancel = cancel or (lambda: False)
+    import utime
+    i2c = _i2c()
+    try:
+        addrs = i2c.scan()
+    except Exception as e:
+        yield (False, ['PN532', 'I2C bus error', str(e)[:16]])
+        return
+    if _PN532_ADDR not in addrs:
+        yield (False, ['PN532 not found', 'set DIPs to I2C', '0x24 not on bus', 'check wiring'])
+        return
+    yield (None, ['PN532', 'found 0x24', 'reading fw...'])
+    try:
+        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x02]))   # GetFirmwareVersion
+        if not _pn532_ready(i2c, cancel):
+            yield (False, ['PN532 0x24', 'no ACK', 'wrong mode?'])
+            return
+        i2c.readfrom(_PN532_ADDR, 7)                            # consume ACK
+        if not _pn532_ready(i2c, cancel):
+            yield (False, ['PN532 0x24', 'no response', 'after ACK'])
+            return
+        r = i2c.readfrom(_PN532_ADDR, 13)
+        ver = '?'
+        for i in range(len(r) - 4):
+            if r[i] == 0xD5 and r[i + 1] == 0x03:
+                ver = '{}.{}'.format(r[i + 3], r[i + 4]); break
+        # poll for a tag for ~5s
+        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+        t0 = _ms()
+        while _since(t0) < 5000:
+            if cancel():
+                return
+            try:
+                if i2c.readfrom(_PN532_ADDR, 1)[0] == 0x01:
+                    i2c.readfrom(_PN532_ADDR, 7)               # ACK
+                    if _pn532_ready(i2c, cancel, 8):
+                        t = i2c.readfrom(_PN532_ADDR, 25)
+                        uid = _pn532_uid(t)
+                        if uid:
+                            yield (True, ['PN532 v' + ver, 'Tag UID:', uid])
+                            return
+                    # re-arm a poll
+                    i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+            except Exception:
+                pass
+            yield (None, ['PN532 v' + ver, 'tap a tag...', str(_since(t0) // 1000) + 's'])
+        yield (True, ['PN532 v' + ver, 'detected OK', '(no tag tapped)'])
+    except Exception as e:
+        yield (False, ['PN532', 'error', str(e)[:16]])
+
+
+def _pn532_uid(t):
+    for i in range(len(t) - 6):
+        if t[i] == 0xD5 and t[i + 1] == 0x4B and t[i + 2] >= 1:
+            ulen = t[i + 7] if (i + 7) < len(t) else 0
+            if 0 < ulen <= 10 and (i + 8 + ulen) <= len(t):
+                return ' '.join('{:02x}'.format(b) for b in t[i + 8:i + 8 + ulen])
+    return None
+
+
+# --- Bluetooth (BLE scan, generator) — ESP32 only ---------------------------
+def test_bt(cfg, cancel=None):
+    cancel = cancel or (lambda: False)
     try:
         import bluetooth
         import utime
     except ImportError:
-        return False, ['Bluetooth', 'no BLE here', '(needs ESP32)']
+        yield (False, ['Bluetooth', 'no BLE here', '(needs ESP32)'])
+        return
     found = {}
 
     def _irq(event, data):
         if event == 5:                         # _IRQ_SCAN_RESULT
-            addr = bytes(data[1])
-            if addr not in found:
-                found[addr] = data[3]          # rssi
+            a = bytes(data[1])
+            if a not in found:
+                found[a] = data[3]
     ble = bluetooth.BLE()
     try:
         ble.active(True)
         ble.irq(_irq)
-        ble.gap_scan(3000, 30000, 30000)       # ~3s active scan
-        t0 = utime.ticks_ms()
-        while utime.ticks_diff(utime.ticks_ms(), t0) < 3400:
-            utime.sleep_ms(100)
+        ble.gap_scan(5000, 30000, 30000)
+        t0 = _ms()
+        while _since(t0) < 5000:
+            if cancel():
+                break
+            yield (None, ['Bluetooth', 'scanning...', '{} found'.format(len(found))])
         try:
             ble.gap_scan(None)
         except Exception:
             pass
-    except Exception as e:
+        yield (True, ['Bluetooth', '{} BLE devices'.format(len(found)), 'scan OK'])
+    finally:
         try:
             ble.active(False)
         except Exception:
             pass
-        return False, ['Bluetooth', 'scan err', str(e)[:18]]
-    try:
-        ble.active(False)
-    except Exception:
-        pass
-    return True, ['Bluetooth', '{} BLE devices'.format(len(found)), 'scan OK']
 
 
 # --- the registry the GUI builds apps from ----------------------------------
-# (key, label, test_fn). Order = home-menu order.
+# (key, label, test_fn). Order = home order.
 MODULES = [
     ('dht11',     'DHT11 Temp',   test_dht11),
     ('gps',       'GPS',          test_gps),
@@ -371,11 +469,29 @@ MODULES = [
 ]
 
 
-def run_test(key):
-    for k, label, fn in MODULES:
+def run_test(key, cancel=None):
+    """Generator yielding (status, lines): status None=in progress, True/False=
+    final. Drives both generator tests and plain (ok, lines) ones uniformly."""
+    if cancel is None:
+        cancel = lambda: False
+    fn = None
+    label = '?'
+    for k, l, f in MODULES:
         if k == key:
-            try:
-                return fn(None)
-            except Exception as e:
-                return False, [label, 'error:', str(e)[:18]]
-    return False, ['?', 'unknown module']
+            fn = f; label = l; break
+    if fn is None:
+        yield (False, ['?', 'unknown module'])
+        return
+    try:
+        res = fn(None, cancel)
+    except Exception as e:
+        yield (False, [label, 'error', str(e)[:16]])
+        return
+    if hasattr(res, '__next__'):               # a generator test
+        try:
+            for item in res:
+                yield item
+        except Exception as e:
+            yield (False, [label, 'error', str(e)[:16]])
+        return
+    yield res                                  # plain (ok, lines)

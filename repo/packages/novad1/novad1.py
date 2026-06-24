@@ -83,9 +83,12 @@ def _open_i2c():
         if cls is None:
             continue
         try:
+            # 1 MHz: the SH1106 handles it, and the framebuffer push (~1 KB/frame)
+            # at 1 MHz is ~10ms vs ~100ms at the 100 kHz default — this is what
+            # actually makes the UI animate smoothly. SoftI2C is the slow fallback.
             if ctor == 'I2C':
-                return cls(0, scl=machine.Pin(scl), sda=machine.Pin(sda))
-            return cls(scl=machine.Pin(scl), sda=machine.Pin(sda))
+                return cls(0, scl=machine.Pin(scl), sda=machine.Pin(sda), freq=1000000)
+            return cls(scl=machine.Pin(scl), sda=machine.Pin(sda), freq=1000000)
         except Exception:
             pass
     return None
@@ -285,23 +288,66 @@ def _apps(info, ok, warn, error, multi, rest=''):
     multi("  novad1 apps show <key> | hide <key> | reset")
 
 
+def _save_err(msg):
+    try:
+        import regedit
+        regedit.save('Apps.NovaD1_LastError', str(msg)[:80])
+    except Exception:
+        pass
+
+
+async def _gui_service():
+    """Self-healing background GUI: rebuilds + relaunches on crash (with backoff),
+    stores the error and flashes it on the next start. Catches everything itself
+    so it's the SINGLE respawn source (the OS service guard never sees a crash)."""
+    import asyncio
+    import novagui
+    while True:
+        ui, err = _build_ui()
+        if err:
+            _save_err('start: ' + err)        # unrecoverable (no display) -> stop
+            return
+        last = _reg('Apps.NovaD1_LastError')
+        if last:
+            try:
+                import regedit
+                regedit.save('Apps.NovaD1_LastError', '')
+            except Exception:
+                pass
+            ui.stack.append(novagui.ErrorScreen(last))
+        try:
+            await ui.run_async()
+            if getattr(ui, '_stop', False):
+                return                        # intentional stop -> done, no respawn
+        except Exception as e:
+            _save_err('{}: {}'.format(type(e).__name__, e))
+            try:
+                sys.print_exception(e)
+            except Exception:
+                pass
+            try:
+                await asyncio.sleep_ms(2000)  # backoff, then rebuild + relaunch
+            except Exception:
+                pass
+
+
 def _gui(info, ok, warn, error, multi, bg=False):
+    if bg:
+        try:
+            lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+            if lp and hasattr(lp, 'register_service'):
+                lp.register_service('novad1', _gui_service)
+                ok("Nova GUI started in the background (auto-relaunch on crash).", p="NovaD1")
+                return
+            warn("Async shell not active; running foreground instead.")
+        except Exception as e:
+            warn("Background start failed ({}); running foreground.".format(e))
     ui, err = _build_ui()
     if err:
         warn("Nova GUI: " + err)
         multi("  (Concept UI renders on the PC mock; on-panel needs the SH1106.)")
         return
-    if bg:
-        # Run as a background service via the async loop (shell stays free).
-        try:
-            lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
-            if lp and hasattr(lp, 'register_service'):
-                lp.register_service('novad1', lambda: ui.run_async())
-                ok("Nova GUI started in the background.", p="NovaD1")
-                return
-        except Exception as e:
-            warn("Background start failed ({}); running foreground.".format(e))
-    info("Nova GUI — press BACK+HOME to exit.", p="NovaD1")
+    info("Nova GUI — BACK from home exits.", p="NovaD1")
     ui.run()
 
 
@@ -316,8 +362,12 @@ def novad1(args=None):
         multi("  novad1 scan        Probe the I2C bus for Nova D1 modules")
         multi("  novad1 setup       Headless boot + register the GUI as a service")
         multi("  novad1 status      Show what's configured")
-        multi("  novad1 apps ...    Choose which apps show on the home shelf")
+        multi("  novad1 apps ...    Choose which apps show on the home")
+        multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
+        multi("")
+        multi("  Tips: LED is WS2812 on GPIO48 by default — reg set")
+        multi("  Apps.NovaD1_PIN_led <pin> / Apps.NovaD1_LED_Mode gpio if needed.")
         return
     if cmd == 'scan':
         _scan(info, ok, warn, error, multi)
@@ -329,6 +379,18 @@ def novad1(args=None):
         # keep original case for keys
         rest_cs = (args or '').strip().split(None, 1)
         _apps(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'style':
+        st = 'menu' if rest.startswith('m') else ('gallery' if rest.startswith('g') else None)
+        if st is None:
+            multi("  Home style: {}".format(_reg('Apps.NovaD1_HomeStyle', 'gallery')))
+            multi("  novad1 style gallery | menu")
+        else:
+            try:
+                import regedit
+                regedit.save('Apps.NovaD1_HomeStyle', st)
+                ok("Home style set to '{}'. Re-open the GUI.".format(st), p="NovaD1")
+            except Exception as e:
+                error("Could not save: {}".format(e))
     elif cmd == 'gui':
         _gui(info, ok, warn, error, multi, bg=('--bg' in rest or 'bg' == rest))
     else:

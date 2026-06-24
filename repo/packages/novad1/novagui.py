@@ -13,6 +13,7 @@
 
 import novainput as ev
 import novafont as _f
+import novaicons
 import novacanvas  # noqa  (kept for symmetry; canvas is passed in)
 
 _ADV = _f.ADVANCE          # px per character cell (incl. spacing)
@@ -164,14 +165,16 @@ class Menu(Screen):
         return None
 
 
-class Shelf(Screen):
-    """Animated horizontal carousel — the home screen. Cards slide smoothly when
-    you rotate; the centered card is highlighted. Slide duration is wall-clock
-    constant (eased by dt), so it stays consistent at any framerate (and snaps if
-    the loop is slow). Renders the same (label, factory) item list as Menu."""
-    PITCH = 92          # px between card centers
-    CW = 78             # card width
-    SLIDE_MS = 140      # time for a one-step slide
+class IconGallery(Screen):
+    """Animated icon gallery — the home screen. Small neighbour icons on the
+    sides, a bigger highlighted one in the centre, the app name underneath. Icons
+    slide + grow/shrink smoothly when you rotate; the slide is wall-clock constant
+    (eased by dt) so it's consistent at any framerate and snaps if the loop is
+    slow. Items are (key, label, factory) triples (key drives the icon)."""
+    PITCH = 42          # px between icon centres
+    RBIG = 13           # centred icon half-size
+    RSML = 6            # neighbour icon half-size
+    SLIDE_MS = 130
 
     def __init__(self, title, items):
         self.title = title
@@ -188,7 +191,6 @@ class Shelf(Screen):
                 self.sel_f = float(self.sel)
                 return True
             return False
-        # move sel_f toward sel at PITCH/SLIDE_MS, framerate-independent
         step = (dt_ms or 16) / float(self.SLIDE_MS)
         d = self.sel - self.sel_f
         if abs(d) <= step:
@@ -197,42 +199,32 @@ class Shelf(Screen):
             self.sel_f += step if d > 0 else -step
         return True
 
-    def _card(self, c, cx, label, selected):
-        cw = self.CW
-        x = int(cx - cw // 2)
-        top = _TOP + 1
-        ch = c.h - top - 1
-        if x + cw < 0 or x > c.w:
-            return
-        if selected:
-            c.fill_rect(x, top, cw, ch, 1)        # solid highlight
-            c.rect(x, top, cw, ch, 0)
-            tc = 0
-        else:
-            c.rect(x, top, cw, ch, 1)
-            tc = 1
-        lines = _wrap(label, (cw - 6) // _ADV)[:2]
-        ty = top + (ch - len(lines) * _ROWH) // 2
-        for ln in lines:
-            tw = len(ln) * _ADV
-            c.text(x + (cw - tw) // 2, ty, ln, tc)
-            ty += _ROWH
-
     def draw(self, c):
         cx0 = c.w // 2
+        icy = _TOP + (c.h - _TOP) // 2 - 3
         n = len(self.items)
-        for i in range(n):
-            cx = cx0 + (i - self.sel_f) * self.PITCH
-            if cx < -self.CW or cx > c.w + self.CW:
+        # draw neighbours first, centre last (so the big one overlaps cleanly)
+        order = sorted(range(n), key=lambda i: -abs(i - self.sel_f))
+        for i in order:
+            off = i - self.sel_f
+            if abs(off) > 1.7:
                 continue
-            self._card(c, cx, self.items[i][0], i == self.sel)
-        # chevrons + position
-        if self.sel > 0:
-            c.text(0, c.h // 2, '<', 1)
-        if self.sel < n - 1:
-            c.text(c.w - _ADV, c.h // 2, '>', 1)
+            cx = int(cx0 + off * self.PITCH)
+            r = int(self.RSML + (self.RBIG - self.RSML) * max(0.0, 1.0 - abs(off)))
+            key, label = self.items[i][0], self.items[i][1]
+            novaicons.draw(c, key, cx, icy, r, label)
+        # name of the centred app
+        lbl = self.items[self.sel][1]
+        maxc = c.w // _ADV
+        lbl = lbl[:maxc]
+        c.text((c.w - len(lbl) * _ADV) // 2, c.h - _FH, lbl, 1)
+        # position + edge chevrons
         pos = '{}/{}'.format(self.sel + 1, n)
-        c.text(c.w - len(pos) * _ADV - 1, c.h - _FH, pos, 1)
+        c.text(c.w - len(pos) * _ADV, _TOP - 1, pos, 1)
+        if self.sel > 0:
+            c.text(0, icy - _FH // 2, '<', 1)
+        if self.sel < n - 1:
+            c.text(c.w - _ADV, icy - _FH // 2, '>', 1)
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -242,7 +234,7 @@ class Shelf(Screen):
             if self.sel > 0:
                 self.sel -= 1
         elif e == ev.SELECT:
-            fac = self.items[self.sel][1]
+            fac = self.items[self.sel][2]
             return fac() if fac else None
         elif e == ev.BACK:
             return 'back'
@@ -321,39 +313,78 @@ class RunningScreen(Screen):
 
 
 class ModuleTestScreen(Screen):
-    """Runs a module's test (novamods) and shows the result lines. OK re-tests."""
+    """Runs a module's test cooperatively (novamods generator). Progress updates
+    live; BACK cancels instantly (closes the generator -> the test's `finally`
+    frees the hardware). Select runs/re-runs."""
     def __init__(self, key, label):
         self.title = label
         self.key = key
-        self.lines = ['OK = run test']
+        self.lines = ['Select = run', 'BACK = exit']
         self.ok = None
-        self._pending = False
+        self._gen = None
+        self._cancel = False
+
+    def _running(self):
+        return self._gen is not None
 
     def draw(self, c):
         y = _TOP
         for ln in self.lines[:4]:
-            c.text(4, y, ln[:21], 1)
+            c.text(2, y, ln[:16], 1)
             y += _ROWH
-        tag = '' if self.ok is None else ('  [OK]' if self.ok else '  [--]')
-        c.text(4, c.h - _FH, 'OK=test BACK=exit' + tag, 1)
+        if self._running():
+            foot = 'BACK = stop'
+        else:
+            tag = '' if self.ok is None else (' [OK]' if self.ok else ' [X]')
+            foot = 'Select=run' + tag
+        c.text(2, c.h - _FH, foot[:16], 1)
+
+    def _stop_gen(self):
+        self._cancel = True
+        if self._gen is not None:
+            try:
+                self._gen.close()
+            except Exception:
+                pass
+            self._gen = None
 
     def tick(self, dt_ms=0):
-        if self._pending:
-            self._pending = False
-            import novamods
-            self.ok, self.lines = novamods.run_test(self.key)
+        if self._gen is None:
+            return False
+        try:
+            status, lines = next(self._gen)
+            self.lines = lines
+            if status is not None:
+                self.ok = status
+                self._gen = None
             return True
-        return False
+        except StopIteration:
+            self._gen = None
+            return True
+        except Exception as e:
+            self.lines = [self.title, 'error', str(e)[:16]]
+            self.ok = False
+            self._gen = None
+            return True
 
     def on_event(self, e):
-        if e == ev.SELECT or e == ev.ACTION:
-            self.lines = ['Testing ' + self.title + '...']
-            self.ok = None
-            self._pending = True       # run in tick() so this frame paints first
+        if e == ev.SELECT:
+            if self._gen is None:
+                import novamods
+                self._cancel = False
+                self.ok = None
+                self.lines = ['Testing...']
+                self._gen = novamods.run_test(self.key, lambda: self._cancel)
             return None
         if e == ev.BACK:
+            if self._running():
+                self._stop_gen()
+                self.lines = [self.title, 'Cancelled']
+                self.ok = False
+                return None                 # stay; BACK again exits
             return 'back'
         if e == ev.HOME:
+            self._stop_gen()
             return 'home'
         return None
 
@@ -512,6 +543,23 @@ class ManageAppsScreen(Menu):
         return None
 
 
+class ErrorScreen(Screen):
+    """Shown on startup after the GUI recovered from a crash. Any key dismisses."""
+    def __init__(self, msg):
+        self.title = 'Recovered'
+        self.lines = _wrap('Crashed: ' + str(msg), 16)[:4]
+
+    def draw(self, c):
+        y = _TOP
+        for ln in self.lines:
+            c.text(2, y, ln[:16], 1)
+            y += _ROWH
+        c.text(2, c.h - _FH, 'any key = ok', 1)
+
+    def on_event(self, e):
+        return 'back'                      # any event pops back to home
+
+
 # --- the runner -------------------------------------------------------------
 class NovaUI:
     def __init__(self, display, canvas, source, state_provider, home):
@@ -637,29 +685,33 @@ def _home_keys():
     return keys or None
 
 
-def build_home(modules=None, use_shelf=True):
-    """Home = a card per enabled app + Settings. `modules` (key->present) greys
-    out auto-undetected ones; homepage config (Apps.NovaD1_Home) picks/orders."""
+def _settings_menu():
+    all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
+    cur = _home_keys() or [k for k, _l in all_for_cfg]
+    return Menu('Settings', [
+        ('Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
+        ('Display', None),
+        ('Time', None),
+    ])
+
+
+def build_home(modules=None, style=None):
+    """Home = an icon per enabled app + Settings. `modules` (key->present) greys
+    out auto-undetected ones; homepage config (Apps.NovaD1_Home) picks/orders;
+    Apps.NovaD1_HomeStyle = 'gallery' (default) | 'menu' picks the layout."""
     modules = modules or {}
-    apps = _all_apps()
+    apps = _all_apps()                       # (key, label, factory) triples
     enabled = _home_keys()
     if enabled is not None:
         order = {k: i for i, k in enumerate(enabled)}
         apps = sorted([a for a in apps if a[0] in order], key=lambda a: order[a[0]])
-    items = []
+    triples = []
     for key, label, fac in apps:
         present = modules.get(key, True)
-        items.append((label, fac if present else None))
-
-    def _settings():
-        all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
-        cur = _home_keys() or [k for k, _l in all_for_cfg]
-        return Menu('Settings', [
-            ('Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
-            ('Display', None),
-            ('Time', None),
-        ])
-    items.append(('Settings', _settings))
-    if use_shelf:
-        return Shelf('Nova D1', items)
-    return Menu('Nova D1', items)
+        triples.append((key, label, fac if present else None))
+    triples.append(('settings', 'Settings', _settings_menu))
+    if style is None:
+        style = _reg('Apps.NovaD1_HomeStyle', 'gallery')
+    if style == 'menu':
+        return Menu('Nova D1', [(l, f) for _k, l, f in triples])
+    return IconGallery('Nova D1', triples)
