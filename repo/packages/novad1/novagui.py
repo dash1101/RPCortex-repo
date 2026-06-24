@@ -152,6 +152,34 @@ class RunningScreen(Screen):
         return None
 
 
+class ModuleTestScreen(Screen):
+    """Runs a module's test (novamods) and shows the result lines. OK re-tests."""
+    def __init__(self, key, label):
+        self.title = label
+        self.key = key
+        self.lines = ['OK = run test']
+        self.ok = None
+
+    def draw(self, c):
+        y = _TOP + 2
+        for ln in self.lines[:4]:
+            c.text(4, y, ln[:20], 1)
+            y += 9
+        tag = '' if self.ok is None else ('  [OK]' if self.ok else '  [--]')
+        c.text(4, c.h - 8, 'OK=test BACK=exit' + tag, 1)
+
+    def on_event(self, e):
+        if e == ev.SELECT or e == ev.ACTION:
+            import novamods
+            self.ok, self.lines = novamods.run_test(self.key)
+            return None
+        if e == ev.BACK:
+            return 'back'
+        if e == ev.HOME:
+            return 'home'
+        return None
+
+
 # --- the runner -------------------------------------------------------------
 class NovaUI:
     def __init__(self, display, canvas, source, state_provider, home):
@@ -220,24 +248,20 @@ class NovaUI:
         self._stop = True
 
 
-# --- home screen (apps appear per present module; greyed when absent) --------
+# --- home screen — a test app per module (from the novamods registry) --------
+def _mk(key, label):
+    return lambda: ModuleTestScreen(key, label)
+
+
 def build_home(modules=None):
-    """modules: dict name->present(bool). Absent ones show greyed (no drill)."""
+    """One menu entry per module in novamods.MODULES, each opening its test app.
+    `modules` (optional dict key->present) greys out absent ones."""
+    import novamods
     modules = modules or {}
-
-    def present(name):
-        return modules.get(name, True)
-
-    def scan_screen():
-        return RunningScreen('Sub-GHz: scanning', total=100)
-
-    items = [
-        ('NFC / RFID',  (lambda: Menu('NFC / RFID', [('Read tag', None), ('Emulate', None), ('Back', None)])) if present('nfc') else None),
-        ('Sub-GHz',     scan_screen if present('subghz') else None),
-        ('Infrared',    (lambda: Menu('Infrared', [('Send', None), ('Receive', None)])) if present('ir') else None),
-        ('LoRa',        (lambda: Menu('LoRa', [('Send', None), ('Listen', None)])) if present('lora') else None),
-        ('GPS',         (lambda: Menu('GPS', [('Fix', None), ('Wardrive', None)])) if present('gps') else None),
-        ('Scripts',     lambda: Menu('Scripts', [('hello.rps', None), ('blink.py', None)])),
-        ('Settings',    lambda: Menu('Settings', [('Brightness', None), ('WiFi', None), ('Time', None), ('Modules', None)])),
-    ]
+    items = []
+    for key, label, _fn in novamods.MODULES:
+        present = modules.get(key, True)
+        items.append((label, _mk(key, label) if present else None))
+    items.append(('Scripts', lambda: Menu('Scripts', [('hello.rps', None), ('blink.py', None)])))
+    items.append(('Settings', lambda: Menu('Settings', [('Brightness', None), ('WiFi', None), ('Time', None), ('Modules', None)])))
     return Menu('Nova D1', items)
