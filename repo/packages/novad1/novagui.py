@@ -41,6 +41,14 @@ def _save_reg(key, value):
         return False
 
 
+# The running UI, so screens (Display/Time) can reach the live display/hardware.
+_active_ui = None
+
+
+def _disp():
+    return _active_ui.display if _active_ui is not None else None
+
+
 # --- status-bar icons (primitives — no bitmap blobs to maintain) ------------
 def _wifi(c, x, y, connected):
     for i in range(3):
@@ -562,7 +570,88 @@ class ManageAppsScreen(Menu):
             order = [k for k, _l in self._all if k in self._on]
             _save_reg('Apps.NovaD1_Home', ','.join(order))
             return None
+        return Menu.on_event(self, e)       # rotation/scroll + BACK/HOME
+
+
+class DisplayScreen(Screen):
+    """Adjust the OLED brightness/contrast live; persisted to the registry."""
+    def __init__(self):
+        self.title = 'Display'
+        try:
+            self.val = int(_reg('Apps.NovaD1_Contrast', 255))
+        except Exception:
+            self.val = 255
+
+    def draw(self, c):
+        c.text(2, _TOP, 'Brightness', 1)
+        bx, by, bw = 6, _TOP + _ROWH, c.w - 12
+        c.rect(bx, by, bw, 9, 1)
+        c.fill_rect(bx + 1, by + 1, int((bw - 2) * self.val / 255), 7, 1)
+        c.text(2, by + 12, '{}'.format(self.val), 1)
+        c.text(2, c.h - _FH, 'turn=adj BACK=save', 1)
+
+    def _apply(self):
+        d = _disp()
+        if d is not None:
+            try:
+                d.contrast(self.val)
+            except Exception:
+                pass
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.val = min(255, self.val + 15); self._apply()
+        elif e == ev.ROT_CCW:
+            self.val = max(1, self.val - 15); self._apply()
+        elif e in (ev.BACK, ev.HOME):
+            _save_reg('Apps.NovaD1_Contrast', str(self.val))
+            return e
+        return None
+
+
+class TimeScreen(Screen):
+    """Set the hardware clock (hour/minute). Select switches field, turn adjusts."""
+    def __init__(self):
+        self.title = 'Set Time'
+        self.field = 0
+        try:
+            import utime
+            t = utime.localtime()
+            self.h, self.m = t[3], t[4]
+        except Exception:
+            self.h, self.m = 0, 0
+
+    def draw(self, c):
+        s = '{:02d}:{:02d}'.format(self.h, self.m)
+        sc = 2
+        tw = len(s) * _ADV * sc
+        x = (c.w - tw) // 2
+        y = _TOP + 4
+        c.text(x, y, s, 1, sc)
+        # underline the active field
+        ux = x if self.field == 0 else x + 3 * _ADV * sc
+        c.hline(ux, y + _FH * sc + 1, 2 * _ADV * sc, 1)
+        c.text(2, c.h - _FH, 'Sel=field BACK=set', 1)
+
+    def on_event(self, e):
+        d = 1 if e == ev.ROT_CW else (-1 if e == ev.ROT_CCW else 0)
+        if d:
+            if self.field == 0:
+                self.h = (self.h + d) % 24
+            else:
+                self.m = (self.m + d) % 60
+            return None
+        if e == ev.SELECT:
+            self.field ^= 1
+            return None
         if e in (ev.BACK, ev.HOME):
+            try:
+                import machine
+                import utime
+                t = utime.localtime()
+                machine.RTC().datetime((t[0], t[1], t[2], t[6], self.h, self.m, 0, 0))
+            except Exception:
+                pass
             return e
         return None
 
@@ -837,6 +926,8 @@ class NovaUI:
         return now, nap
 
     def run(self, sleep_ms=40):
+        global _active_ui
+        _active_ui = self
         try:
             import utime as _t
             _sleep = _t.sleep_ms
@@ -854,6 +945,8 @@ class NovaUI:
         # Cooperative loop — runs as a BACKGROUND SERVICE so the serial shell
         # stays free (OLED and shell are separate surfaces). Yields every tick.
         import asyncio
+        global _active_ui
+        _active_ui = self
         self._stop = False
         self.render()
         prev = self._now()
@@ -924,8 +1017,8 @@ def _settings_menu():
     cur = _home_keys() or [k for k, _l in all_for_cfg]
     return Menu('Settings', [
         ('Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
-        ('Display', None),
-        ('Time', None),
+        ('Display', DisplayScreen),
+        ('Set Time', TimeScreen),
     ])
 
 

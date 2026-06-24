@@ -190,6 +190,10 @@ def _build_ui(kind=None):
     dk = kind or _reg('Apps.NovaD1_Display', 'sh1106')
     disp = display.open_display(bus, kind=dk)
     try:
+        disp.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))   # saved brightness
+    except Exception:
+        pass
+    try:
         src = novainput.GpioSource(_input_pins())
     except Exception as e:
         return None, 'input pins: {}'.format(e)
@@ -354,6 +358,11 @@ def _boot_or_recover(ui, novagui):
         ui.stack.append(novagui.ErrorScreen(last))
     elif not _booted:
         _booted = True
+        try:
+            import novasound
+            novasound.chime()          # boot chime (gated + try-excepted inside)
+        except Exception:
+            pass
         ui.stack = novagui.make_boot_stack(ui.stack[0])
         _nlog('Nova D1 GUI started')
 
@@ -361,27 +370,46 @@ def _boot_or_recover(ui, novagui):
 async def _gui_service():
     """Self-healing background GUI: rebuilds + relaunches on crash (with backoff),
     stores the error and flashes it on the next start. Catches everything itself
-    so it's the SINGLE respawn source (the OS service guard never sees a crash)."""
+    so it's the SINGLE respawn source (the OS service guard never sees a crash).
+
+    Runs as a BACKGROUND service sharing the event loop with the serial shell, so
+    it must NEVER write to stdout/serial (that would flood the shell) — all
+    diagnostics go to the Nova flash log. It also waits a short, configurable
+    settle delay on first start so the shell + USB-CDC come up first."""
     import asyncio
     import novagui
+    first = True
+    crashes = 0
     while True:
         ui, err = _build_ui()
         if err:
             _save_err('start: ' + err)        # unrecoverable (no display) -> stop
             _nlog('GUI start failed: ' + err)
             return
+        if first:
+            first = False
+            if not _booted and not _reg('Apps.NovaD1_LastError'):
+                try:
+                    d = int(_reg('Apps.NovaD1_Boot_Delay', 1200))
+                except (TypeError, ValueError):
+                    d = 1200
+                if d > 0:
+                    try:
+                        await asyncio.sleep_ms(d)   # let the shell/USB settle first
+                    except Exception:
+                        pass
         _boot_or_recover(ui, novagui)
         try:
             await ui.run_async()
             if getattr(ui, '_stop', False):
                 return                        # intentional stop -> done, no respawn
         except Exception as e:
+            crashes += 1
             _save_err('{}: {}'.format(type(e).__name__, e))
-            _nlog('GUI crash: {}'.format(e))
-            try:
-                sys.print_exception(e)
-            except Exception:
-                pass
+            _nlog('GUI crash #{}: {}'.format(crashes, e))   # log only — never serial
+            if crashes >= 5:
+                _nlog('GUI gave up after 5 crashes')
+                return                        # stop respawning -> can't flood/spin
             try:
                 await asyncio.sleep_ms(2000)  # backoff, then rebuild + relaunch
             except Exception:
