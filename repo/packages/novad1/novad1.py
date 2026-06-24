@@ -158,13 +158,19 @@ def _detect_modules():
 
 def _state_provider():
     """Live status for the bar: wifi / battery / time."""
-    wifi = False
+    wifi = 'off'
     try:
-        import net
-        st = net.status()
-        wifi = bool(st.get('connected'))
+        import novawifi
+        wifi = novawifi.state()
     except Exception:
         pass
+    if wifi != 'connected':                 # reflect OS autoconnect (existing installs)
+        try:
+            import net
+            if net.status().get('connected'):
+                wifi = 'connected'
+        except Exception:
+            pass
     tstr = '--:--'
     try:
         import utime
@@ -242,6 +248,13 @@ def _setup(info, ok, warn, error, multi):
     except Exception as e:
         error("Could not enable autonomy: {}".format(e))
         return
+    # Turn OFF the OS boot autoconnect — it blocks boot ~15s when no AP is found
+    # (UI won't come up). Nova connects in the BACKGROUND instead (novawifi).
+    try:
+        regedit.save('Settings.Network_Autoconnect', 'false')
+        ok("OS WiFi autoconnect off — Nova connects in the background.", p="NovaD1")
+    except Exception:
+        pass
     # Register the GUI as a BACKGROUND service so the shell stays free.
     try:
         path = '/Vela/Registry/services.cfg'
@@ -348,6 +361,23 @@ def _nlog(msg):
         pass
 
 
+def set_web(on):
+    """Start/stop the web control panel as a background service (async shell)."""
+    try:
+        lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+        if lp is None:
+            return
+        if on and hasattr(lp, 'register_service'):
+            import novaweb
+            lp.register_service('novaweb', novaweb.serve)
+            _nlog('web panel enabled')
+        elif not on and hasattr(lp, 'unregister_service'):
+            lp.unregister_service('novaweb')
+            _nlog('web panel disabled')
+    except Exception:
+        pass
+
+
 def _boot_or_recover(ui, novagui):
     """Set up the initial screen stack: recovered-error flash, or the once-per-boot
     splash + system check, or just home."""
@@ -386,16 +416,35 @@ async def _gui_service():
             _save_err('start: ' + err)        # unrecoverable (no display) -> stop
             _nlog('GUI start failed: ' + err)
             return
+        try:                                  # background WiFi manager (once)
+            import novawifi
+            if not novawifi._started:
+                asyncio.create_task(novawifi.manager())
+        except Exception:
+            pass
+        if first and _reg('Apps.NovaD1_Web', 'off') == 'on':
+            set_web(True)                     # auto-host the control panel
         if first:
             first = False
             if not _booted and not _reg('Apps.NovaD1_LastError'):
+                # Screen ON immediately — paint the splash before any settle/boot
+                # work so the user sees it ASAP (hides the Nova-side boot time; the
+                # OS POST happens before this service starts, OLED dark then).
                 try:
-                    d = int(_reg('Apps.NovaD1_Boot_Delay', 1200))
+                    import novasplash
+                    novasplash.draw(ui.canvas, 0.5)
+                    ui.display.show(ui.canvas)
+                except Exception:
+                    pass
+                # Optional extra settle hold (default 0 — the animated splash already
+                # gives ~1.5s of light loop activity before any heavy probe).
+                try:
+                    d = int(_reg('Apps.NovaD1_Boot_Delay', 0))
                 except (TypeError, ValueError):
-                    d = 1200
+                    d = 0
                 if d > 0:
                     try:
-                        await asyncio.sleep_ms(d)   # let the shell/USB settle first
+                        await asyncio.sleep_ms(d)
                     except Exception:
                         pass
         _boot_or_recover(ui, novagui)
@@ -414,6 +463,33 @@ async def _gui_service():
                 await asyncio.sleep_ms(2000)  # backoff, then rebuild + relaunch
             except Exception:
                 pass
+
+
+def _web(info, ok, warn, error, multi, rest=''):
+    r = rest.strip().lower()
+    if r in ('on', 'start'):
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Web', 'on')
+        except Exception:
+            pass
+        set_web(True)
+        import novaweb
+        ok("Web panel on — open http://{}/ from your phone.".format(novaweb._ip()), p="NovaD1")
+    elif r in ('off', 'stop'):
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Web', 'off')
+        except Exception:
+            pass
+        set_web(False)
+        ok("Web panel off.", p="NovaD1")
+    else:
+        import novaweb
+        multi("  Web panel: {}".format(_reg('Apps.NovaD1_Web', 'off')))
+        multi("  URL: http://{}:{}/".format(novaweb._ip(), _reg('Apps.NovaD1_Web_Port', 80)))
+        multi("  PIN: {}".format('set' if _reg('Apps.NovaD1_Web_PIN', '') else 'none (LAN open)'))
+        multi("  novad1 web on | off   (PIN: reg set Apps.NovaD1_Web_PIN <pin>)")
 
 
 def _logs(info, ok, warn, error, multi, rest=''):
@@ -468,6 +544,7 @@ def novad1(args=None):
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
+        multi("  novad1 web on|off  Phone control panel over WiFi")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
         multi("  Tips: LED is WS2812 on GPIO48 by default — reg set")
@@ -486,6 +563,8 @@ def novad1(args=None):
     elif cmd == 'logs':
         rest_cs = (args or '').strip().split(None, 1)
         _logs(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'web':
+        _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
         st = 'menu' if rest.startswith('m') else ('gallery' if rest.startswith('g') else None)
         if st is None:

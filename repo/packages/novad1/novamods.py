@@ -531,9 +531,11 @@ def _gps_has_data(ms=500):
             pass
 
 
-def quickcheck(cancel=None):
+def quickcheck(cancel=None, fast=False):
     """Generator yielding (done, total, label, status, results) per probe.
-    status: 'ok' | '--' (not found) | 'na' (manual). Fast (no long waits)."""
+    status: 'ok' | '--' (not found) | 'na' (manual). `fast` skips the GPS probe
+    (the only ~0.5s one) so the BOOT bar is near-instant; the System Check app
+    runs the full set."""
     cancel = cancel or (lambda: False)
     try:
         addrs = set(_i2c().scan())
@@ -541,7 +543,7 @@ def quickcheck(cancel=None):
         addrs = set()
     bus = [('Display', 0x3c), ('NFC', 0x24), ('RTC', 0x68)]
     spi = [('Sub-GHz', test_cc1101), ('LoRa', test_sx1276)]
-    total = len(bus) + len(spi) + 1
+    total = len(bus) + len(spi) + (0 if fast else 1)
     results = []
     i = 0
     for label, addr in bus:
@@ -560,7 +562,7 @@ def quickcheck(cancel=None):
             st = '--'
         results.append((label, st)); i += 1
         yield (i, total, label, st, results)
-    if not cancel():
+    if not fast and not cancel():
         try:
             ok = _gps_has_data(500)
         except Exception:

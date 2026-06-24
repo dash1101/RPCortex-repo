@@ -49,12 +49,35 @@ def _disp():
     return _active_ui.display if _active_ui is not None else None
 
 
+def _apply_invert(val):
+    d = _disp()
+    if d is not None:
+        try:
+            d.invert(val == 'on')
+        except Exception:
+            pass
+
+
+def _apply_web(val):
+    try:
+        import novad1
+        novad1.set_web(val == 'on')
+    except Exception:
+        pass
+
+
 # --- status-bar icons (primitives — no bitmap blobs to maintain) ------------
-def _wifi(c, x, y, connected):
+def _wifi(c, x, y, st):
+    # st: 'connected' (3 bars) / 'connecting' (1 bar) / 'off' (baseline dots).
+    if st is True:
+        st = 'connected'
+    elif st is False or st is None:
+        st = 'off'
+    n = 3 if st == 'connected' else (1 if st == 'connecting' else 0)
     for i in range(3):
         bx = x + i * 3
         h = 2 + i * 2
-        if connected:
+        if i < n:
             c.fill_rect(bx, y + (6 - h), 2, h, 1)
         else:
             c.pixel(bx, y + 5, 1); c.pixel(bx + 1, y + 5, 1)
@@ -716,7 +739,7 @@ class BootCheckScreen(Screen):
         if not self._started:
             self._started = True
             import novamods
-            self._gen = novamods.quickcheck(lambda: self._cancel)
+            self._gen = novamods.quickcheck(lambda: self._cancel, fast=True)
             return True
         if self._gen is None:
             self._hold += dt_ms or 16
@@ -856,6 +879,8 @@ class NovaUI:
         self._state_cache = None
         self._state_t = -100000
         self._last_render = 0
+        self._idle_t0 = 0
+        self._dimmed = False
 
     def _now(self):
         try:
@@ -909,6 +934,14 @@ class NovaUI:
         e = self.source.poll()
         if e is not None:
             dirty = self.handle(e) or dirty
+            self._idle_t0 = now
+            if self._dimmed:                     # wake from screensaver on any input
+                self._dimmed = False
+                try:
+                    self.display.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
+                except Exception:
+                    pass
+                dirty = True
         scr = self.stack[-1]
         if scr.tick(dt):
             dirty = True
@@ -919,6 +952,20 @@ class NovaUI:
             dirty = True
         if (now - self._last_render) >= 1000:    # keep the clock/signal live
             dirty = True
+        # Screen-dim (burn-in saver): after Apps.NovaD1_DimSec idle, drop contrast.
+        if not self._dimmed:
+            try:
+                dim_s = int(_reg('Apps.NovaD1_DimSec', 0) or 0)
+            except Exception:
+                dim_s = 0
+            if dim_s > 0 and (now - self._idle_t0) >= dim_s * 1000:
+                self._dimmed = True
+                try:
+                    self.display.contrast(0)
+                except Exception:
+                    pass
+        if self._dimmed:
+            dirty = False                        # stay dark + idle while dimmed
         if dirty:
             self.render(now)
         # pace: fast frames while animating, relaxed when idle
@@ -935,6 +982,7 @@ class NovaUI:
             import time as _tt
             def _sleep(ms): _tt.sleep(ms / 1000.0)
         self._stop = False
+        self._idle_t0 = self._now()
         self.render()
         prev = self._now()
         while not self._stop:
@@ -948,6 +996,7 @@ class NovaUI:
         global _active_ui
         _active_ui = self
         self._stop = False
+        self._idle_t0 = self._now()
         self.render()
         prev = self._now()
         while not self._stop:
@@ -1012,14 +1061,86 @@ def _home_keys():
     return keys or None
 
 
+class SettingsScreen(Screen):
+    """Kitted-out settings: push-rows open a sub-screen; cycle-rows flip a saved
+    value in place AND apply it. Scrollable. Every row is wired (no dead rows)."""
+    def __init__(self):
+        self.title = 'Settings'
+        self.sel = 0
+        self.top = 0
+        all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
+        cur = _home_keys() or [k for k, _l in all_for_cfg]
+        # ('push', label, factory) | ('cycle', label, regkey, [values], default, apply)
+        self.rows = [
+            ('push', 'Brightness', DisplayScreen),
+            ('push', 'Set Time', TimeScreen),
+            ('push', 'WiFi', WiFiScreen),
+            ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
+            ('cycle', 'Home', 'Apps.NovaD1_HomeStyle', ['gallery', 'menu'], 'gallery', None),
+            ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
+            ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
+            ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
+            ('cycle', 'Dim', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60'], '0', None),
+            ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+        ]
+
+    def _rows_visible(self, c):
+        return (c.h - _TOP) // _ROWH
+
+    def _val(self, row):
+        return _reg(row[2], row[4])
+
+    def draw(self, c):
+        rows = self._rows_visible(c)
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.rows):
+                break
+            r = self.rows[idx]
+            y = _TOP + i * _ROWH
+            inv = (idx == self.sel)
+            if inv:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+            tc = 0 if inv else 1
+            c.text(3, y, r[1][:11], tc)
+            if r[0] == 'push':
+                c.text(c.w - _ADV - 2, y, '>', tc)
+            else:
+                v = self._val(r)
+                c.text(c.w - len(v) * _ADV - 2, y, v, tc)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(self.rows)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(self.rows)
+        elif e == ev.SELECT:
+            r = self.rows[self.sel]
+            if r[0] == 'push':
+                return r[2]()
+            vals = r[3]
+            try:
+                i = vals.index(self._val(r))
+            except ValueError:
+                i = 0
+            nv = vals[(i + 1) % len(vals)]
+            _save_reg(r[2], nv)
+            if r[5]:
+                try:
+                    r[5](nv)
+                except Exception:
+                    pass
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _settings_menu():
-    all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
-    cur = _home_keys() or [k for k, _l in all_for_cfg]
-    return Menu('Settings', [
-        ('Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
-        ('Display', DisplayScreen),
-        ('Set Time', TimeScreen),
-    ])
+    return SettingsScreen()
 
 
 def build_home(modules=None, style=None):
