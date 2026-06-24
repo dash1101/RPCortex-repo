@@ -312,6 +312,45 @@ def test_sx1276(cfg):
             pass
 
 
+# --- Bluetooth (BLE scan) — ESP32 only --------------------------------------
+def test_bt(cfg):
+    try:
+        import bluetooth
+        import utime
+    except ImportError:
+        return False, ['Bluetooth', 'no BLE here', '(needs ESP32)']
+    found = {}
+
+    def _irq(event, data):
+        if event == 5:                         # _IRQ_SCAN_RESULT
+            addr = bytes(data[1])
+            if addr not in found:
+                found[addr] = data[3]          # rssi
+    ble = bluetooth.BLE()
+    try:
+        ble.active(True)
+        ble.irq(_irq)
+        ble.gap_scan(3000, 30000, 30000)       # ~3s active scan
+        t0 = utime.ticks_ms()
+        while utime.ticks_diff(utime.ticks_ms(), t0) < 3400:
+            utime.sleep_ms(100)
+        try:
+            ble.gap_scan(None)
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            ble.active(False)
+        except Exception:
+            pass
+        return False, ['Bluetooth', 'scan err', str(e)[:18]]
+    try:
+        ble.active(False)
+    except Exception:
+        pass
+    return True, ['Bluetooth', '{} BLE devices'.format(len(found)), 'scan OK']
+
+
 # --- the registry the GUI builds apps from ----------------------------------
 # (key, label, test_fn). Order = home-menu order.
 MODULES = [
@@ -320,6 +359,7 @@ MODULES = [
     ('pn532',     'NFC (PN532)',  test_pn532),
     ('cc1101',    'Sub-GHz',      test_cc1101),
     ('sx1276',    'LoRa',         test_sx1276),
+    ('bt',        'Bluetooth',    test_bt),
     ('ir_rx',     'IR Receive',   test_ir_rx),
     ('ir_tx',     'IR Send',      test_ir_tx),
     ('ibutton',   'iButton',      test_ibutton),

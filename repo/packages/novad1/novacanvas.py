@@ -6,7 +6,8 @@
 # SH1106/SSD1306 page memory expects — so a driver just streams `buf` out.
 #   byte index = (y >> 3) * width + x   ;   bit = 1 << (y & 7)   (a column of 8px)
 #
-# Text uses the shared 5x7 font in novafont (NOT framebuf), so device == mock.
+# Text uses the shared 6x8 font in novafont (NOT framebuf), so device == mock.
+# char()/text() take an optional scale (scale=2 doubles each pixel for big text).
 # MicroPython-safe: no f-strings, positional split, .format() only.
 
 import novafont as _f
@@ -50,7 +51,7 @@ class Canvas:
         for j in range(h):
             self.hline(x, y + j, w, c)
 
-    def char(self, x, y, code, c=1):
+    def char(self, x, y, code, c=1, scale=1):
         if code < _f.FIRST or code > _f.FIRST + 0x5e:
             code = ord('?')
         gi = (code - _f.FIRST) * _f.WIDTH
@@ -58,16 +59,19 @@ class Canvas:
             bits = _f.DATA[gi + col]
             for row in range(_f.HEIGHT):
                 if bits & (1 << row):
-                    self.pixel(x + col, y + row, c)
+                    if scale == 1:
+                        self.pixel(x + col, y + row, c)
+                    else:
+                        self.fill_rect(x + col * scale, y + row * scale, scale, scale, c)
 
-    def text(self, x, y, s, c=1):
+    def text(self, x, y, s, c=1, scale=1):
         cx = x
         for ch in s:
-            self.char(cx, y, ord(ch), c)
-            cx += _f.ADVANCE
+            self.char(cx, y, ord(ch), c, scale)
+            cx += _f.ADVANCE * scale
 
-    def text_width(self, s):
-        return len(s) * _f.ADVANCE
+    def text_width(self, s, scale=1):
+        return len(s) * _f.ADVANCE * scale
 
     def icon(self, x, y, rows, c=1):
         # rows = iterable of bytes; each byte is one row, MSB = leftmost column.

@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.3.0",
-      "desc": "Nova D1 multi-tool wrapper \u2014 OLED UI + modular drivers & test apps for all peripherals.",
+      "ver": "0.4.0",
+      "desc": "Nova D1 multi-tool \u2014 rotating-shelf OLED UI + modular drivers/test apps for every peripheral (DHT11/GPS/NFC/Sub-GHz/LoRa/IR/SD/iButton/battery/WiFi/BT).",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }

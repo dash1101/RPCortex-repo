@@ -1,6 +1,6 @@
 # Desc: Nova D1 wrapper — turns RPCortex into the Nova D1 multi-tool
 # File: /Packages/NovaD1/novad1.py
-# Version: 0.2.0  (Stage 1 concept — UI framework + GUI launch)
+# Version: 0.4.0  (rotating-shelf UI, live clock, IRQ encoder, WiFi app, homepage cfg)
 # Author: dash1101
 #
 # The Nova D1 is RPCortex Vela running headless with this wrapper on top
@@ -31,7 +31,8 @@ _I2C_KNOWN = {
 }
 
 _DEF_I2C = {'sda': 8, 'scl': 9}
-_DEF_PINS = {'enc_a': 4, 'enc_b': 5, 'enc_sw': 6, 'btn1': 7, 'btn2': 15, 'btn3': 16}
+# 3 buttons total (encoder SW + 2). btn2=16 keeps GPIO15 free for the SD CS.
+_DEF_PINS = {'enc_a': 4, 'enc_b': 5, 'enc_sw': 6, 'btn1': 7, 'btn2': 16}
 
 
 def _w(s):
@@ -233,12 +234,55 @@ def _status(info, ok, warn, error, multi):
     sda, scl = _i2c_pins()
     multi("  I2C: SDA={} SCL={}   Display: {}".format(sda, scl, _reg('Apps.NovaD1_Display', 'sh1106')))
     p = _input_pins()
-    multi("  Encoder A/B/SW: {}/{}/{}   Buttons: {}/{}/{}".format(
-        p['enc_a'], p['enc_b'], p['enc_sw'], p['btn1'], p['btn2'], p['btn3']))
+    multi("  Encoder A/B/SW: {}/{}/{}   Buttons: {}/{}".format(
+        p['enc_a'], p['enc_b'], p['enc_sw'], p['btn1'], p['btn2']))
     mods = _detect_modules()
     present = [k for k in mods if mods[k]]
-    multi("  Modules: {}".format(', '.join(present) if present else 'none detected'))
-    multi("  Stage 1 (UI framework). Plan: NovaLabs/docs/novad1-dev-plan.md")
+    multi("  Detected: {}".format(', '.join(present) if present else 'none detected'))
+    home = _reg('Apps.NovaD1_Home')
+    multi("  Home apps: {}".format(home if home else 'all (default)'))
+    multi("  Plan: NovaLabs/docs/novad1-dev-plan.md")
+
+
+def _apps(info, ok, warn, error, multi, rest=''):
+    """Homepage config: choose which apps show on the shelf (Apps.NovaD1_Home)."""
+    import novagui
+    allapps = [(k, l) for k, l, _f in novagui._all_apps()]
+    raw = _reg('Apps.NovaD1_Home')
+    enabled = [k.strip() for k in raw.split(',') if k.strip()] if raw else None
+    parts = rest.split(None, 1)
+    act = parts[0].lower() if parts else 'list'
+    key = parts[1].strip() if len(parts) > 1 else ''
+    cur = enabled if enabled is not None else [k for k, _l in allapps]
+    valid = {k for k, _l in allapps}
+    if act in ('show', 'add', 'hide', 'remove', 'rm'):
+        if key not in valid:
+            error("Unknown app '{}'. See: novad1 apps".format(key)); return
+        if act in ('show', 'add'):
+            if key not in cur:
+                cur.append(key)
+        else:
+            cur = [k for k in cur if k != key] or cur
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Home', ','.join(cur))
+        except Exception as e:
+            error("Could not save: {}".format(e)); return
+        ok("Home apps updated. Re-open the GUI to see it.", p="NovaD1")
+        return
+    if act == 'reset':
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Home', '')
+        except Exception:
+            pass
+        ok("Home reset to all apps.", p="NovaD1"); return
+    info("=== Nova D1 — home apps ===", p="NovaD1")
+    for k, l in allapps:
+        on = (enabled is None) or (k in enabled)
+        multi("  [{}] {:10} {}".format('x' if on else ' ', k, l))
+    multi("")
+    multi("  novad1 apps show <key> | hide <key> | reset")
 
 
 def _gui(info, ok, warn, error, multi, bg=False):
@@ -268,10 +312,11 @@ def novad1(args=None):
     rest = parts[1].strip().lower() if len(parts) > 1 else ''
 
     if cmd in ('help', '-h', '--help', '?'):
-        info("Nova D1 — RPCortex multi-tool wrapper (Stage 1)", p="NovaD1")
-        multi("  novad1 scan      Probe the I2C bus for Nova D1 modules")
-        multi("  novad1 setup     Headless boot + register the GUI as a service")
-        multi("  novad1 status    Show what's configured")
+        info("Nova D1 — RPCortex multi-tool wrapper", p="NovaD1")
+        multi("  novad1 scan        Probe the I2C bus for Nova D1 modules")
+        multi("  novad1 setup       Headless boot + register the GUI as a service")
+        multi("  novad1 status      Show what's configured")
+        multi("  novad1 apps ...    Choose which apps show on the home shelf")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         return
     if cmd == 'scan':
@@ -280,6 +325,10 @@ def novad1(args=None):
         _setup(info, ok, warn, error, multi)
     elif cmd == 'status':
         _status(info, ok, warn, error, multi)
+    elif cmd == 'apps':
+        # keep original case for keys
+        rest_cs = (args or '').strip().split(None, 1)
+        _apps(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'gui':
         _gui(info, ok, warn, error, multi, bg=('--bg' in rest or 'bg' == rest))
     else:
