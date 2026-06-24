@@ -83,33 +83,52 @@ def _status_json():
             % (_ip(), ver, gc.mem_free(), 'true' if _online() else 'false'))
 
 
+def _strip_ansi(s):
+    out = ''
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == '\x1b':
+            j = i + 1
+            while j < n and not ('a' <= s[j] <= 'z' or 'A' <= s[j] <= 'Z'):
+                j += 1
+            i = j + 1
+        else:
+            out += s[i]
+            i += 1
+    return out
+
+
 def _run_cmd(cmd):
-    """Run a shell line on the device, return captured output (text)."""
-    try:
-        import RPCortex
-    except Exception:
-        return 'shell unavailable'
+    """Run a shell line on the device, return its full captured output (text).
+    Redirects sys.stdout so info/ok/warn/multi/print are all captured (the OS
+    multi-only capture would miss most of it)."""
     lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
     if lp is None or not hasattr(lp, '_run_line'):
         return 'shell engine not found'
+    out = ''
     try:
-        if RPCortex.is_capturing():
-            return 'device busy (try again)'
+        import io
+        buf = io.StringIO()
+        old = sys.stdout
+        try:
+            sys.stdout = buf
+            lp._run_line(cmd)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
     except Exception:
-        pass
-    try:
-        RPCortex.begin_capture()
-    except Exception:
-        return 'capture unavailable'
-    try:
-        lp._run_line(cmd)
-    except Exception as e:
-        pass
-    try:
-        out = RPCortex.end_capture()
-    except Exception:
-        out = ''
-    return out or '(no output)'
+        try:
+            import RPCortex
+            RPCortex.begin_capture()
+            try:
+                lp._run_line(cmd)
+            except Exception:
+                pass
+            out = RPCortex.end_capture() or ''
+        except Exception:
+            out = ''
+    return _strip_ansi(out) or '(no output)'
 
 
 _PAGE = """<!DOCTYPE html><html><head><meta charset=utf-8>

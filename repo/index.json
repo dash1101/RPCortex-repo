@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.8.0",
-      "desc": "Nova D1 multi-tool \u2014 fast boot + splash, background WiFi, phone web control panel, kitted-out settings, screen-dim, OLED UI + modular drivers for every peripheral.",
+      "ver": "0.9.0",
+      "desc": "Nova D1 multi-tool \u2014 LoRa P2P messaging, power/battery/USB icons, phone web panel, background WiFi, kitted settings (OS actions), OLED UI + drivers for every peripheral.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }

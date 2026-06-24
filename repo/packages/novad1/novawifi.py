@@ -12,10 +12,22 @@
 
 _state = 'off'
 _started = False
+_paused = False           # set while a foreground scan owns the STA interface
 
 
 def state():
     return _state
+
+
+def pause():
+    """Pause the connect loop so a foreground WLAN.scan() can run uncontended."""
+    global _paused
+    _paused = True
+
+
+def resume():
+    global _paused
+    _paused = False
 
 
 def _saved():
@@ -47,6 +59,9 @@ async def manager():
         pass
     while True:
         try:
+            if _paused:                         # a scan owns the interface — wait
+                await asyncio.sleep_ms(400)
+                continue
             if wlan.isconnected():
                 _state = 'connected'
                 await asyncio.sleep_ms(5000)

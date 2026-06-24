@@ -289,8 +289,11 @@ def test_gps(cfg, cancel=None):
     m = _machine()
     u = m.UART(1, baudrate=9600, tx=m.Pin(_pin('gps_tx', 17)), rx=m.Pin(_pin('gps_rx', 18)))
     try:
-        t0 = _ms(); buf = b''; nbytes = 0; sats = '0'; fix = None
-        while _since(t0) < 10000:
+        t0 = _ms(); buf = b''; nbytes = 0
+        used = '0'           # GGA: satellites USED (0 until a fix)
+        inview = '0'         # GSV: satellites IN VIEW (shows progress before a fix)
+        fix = None
+        while _since(t0) < 12000:
             if cancel():
                 return
             while u.any():                    # drain the FIFO this step (no loss)
@@ -304,24 +307,28 @@ def test_gps(cfg, cancel=None):
                         s = line.decode('ascii', 'ignore')
                     except Exception:
                         continue
-                    if 'GGA' in s:
+                    if 'GGA' in s:            # fix quality + satellites used
                         f = s.split(',')
                         if len(f) > 7:
                             if f[6] not in ('', '0'):
                                 fix = (f[2], f[4])
-                            sats = f[7] or '0'
+                            used = f[7] or '0'
+                    elif 'GSV' in s:          # satellites in view (pre-fix progress)
+                        f = s.split(',')
+                        if len(f) > 3 and f[3].strip().isdigit():
+                            inview = f[3].strip()
             if fix:
-                yield (True, ['GPS FIX', 'sats: ' + sats, 'lat ' + fix[0][:9], 'lon ' + fix[1][:9]])
+                yield (True, ['GPS FIX', 'sats used: ' + used, 'lat ' + fix[0][:9], 'lon ' + fix[1][:9]])
                 return
             secs = _since(t0) // 1000
             if nbytes == 0:
                 yield (None, ['GPS: no data ' + str(secs) + 's', 'check TX<->RX', 'swap if still 0', 'at ~5s'])
             else:
-                yield (None, ['GPS RX ok', 'bytes ' + str(nbytes), 'sats ' + sats, 'no fix yet ' + str(secs) + 's'])
+                yield (None, ['GPS RX ok ' + str(secs) + 's', 'in view: ' + inview, 'used: ' + used, 'waiting for fix'])
         if nbytes == 0:
             yield (False, ['GPS: NO DATA', 'swap TX/RX?', 'check baud/wiring'])
         else:
-            yield (False, ['GPS RX ok', 'no fix (needs sky)', 'bytes ' + str(nbytes), 'sats ' + sats])
+            yield (True, ['GPS RX ok', 'sats in view: ' + inview, 'no fix (needs sky)', 'bytes ' + str(nbytes)])
     finally:
         try:
             u.deinit()

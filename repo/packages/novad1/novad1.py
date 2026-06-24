@@ -179,7 +179,13 @@ def _state_provider():
         tstr = '{:02d}:{:02d}'.format(t[3], t[4])
     except Exception:
         pass
-    return {'wifi': wifi, 'battery': 50, 'time': tstr}   # battery: placeholder
+    pwr = None
+    try:
+        import novapower
+        pwr = novapower.read()
+    except Exception:
+        pass
+    return {'wifi': wifi, 'time': tstr, 'power': pwr}
 
 
 def _build_ui(kind=None):
@@ -204,7 +210,8 @@ def _build_ui(kind=None):
     except Exception as e:
         return None, 'input pins: {}'.format(e)
     home = novagui.build_home(_detect_modules())
-    return novagui.NovaUI(disp, cv, src, _state_provider, home), None
+    hf = lambda: novagui.build_home(_detect_modules())   # for live rebuild
+    return novagui.NovaUI(disp, cv, src, _state_provider, home, home_factory=hf), None
 
 
 # --- subcommands ------------------------------------------------------------

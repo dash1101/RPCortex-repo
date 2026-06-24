@@ -43,6 +43,14 @@ def _save_reg(key, value):
 
 # The running UI, so screens (Display/Time) can reach the live display/hardware.
 _active_ui = None
+# Set when the home app list/style changes so the runner rebuilds the home live
+# (no reboot needed — was the "apps don't remove until reboot" bug).
+_home_dirty = False
+
+
+def _mark_home_dirty():
+    global _home_dirty
+    _home_dirty = True
 
 
 def _disp():
@@ -83,27 +91,49 @@ def _wifi(c, x, y, st):
             c.pixel(bx, y + 5, 1); c.pixel(bx + 1, y + 5, 1)
 
 
-def _battery(c, x, y, pct):
+def _battery(c, x, y, pct, low=False):
     c.rect(x, y, 11, 6, 1)
-    c.fill_rect(x + 11, y + 2, 1, 2, 1)
+    c.fill_rect(x + 11, y + 2, 1, 2, 1)         # nub
+    if low:
+        c.pixel(x + 5, y + 2, 1)                # '!' when low (rest empty)
+        c.pixel(x + 5, y + 4, 1)
+        return
     fillw = (pct * 9) // 100
     if fillw > 0:
         c.fill_rect(x + 1, y + 1, fillw, 4, 1)
 
 
+def _usb(c, x, y):
+    # small USB plug glyph (~7 wide)
+    c.hline(x, y + 2, 6, 1)
+    c.fill_rect(x, y + 1, 2, 3, 1)
+    c.pixel(x + 3, y, 1)
+    c.pixel(x + 5, y + 4, 1)
+    c.pixel(x + 6, y + 2, 1)
+
+
 def draw_status_bar(c, state):
-    # Right-aligned clock, then battery + wifi leftward, then the title fills the
-    # rest — all measured from _ADV so a font change can't clip the clock.
+    # Right-aligned clock, then (battery)(usb)(wifi) leftward, then title fills the
+    # rest — all measured from _ADV so a font swap can't clip the clock. Battery +
+    # USB icons appear ONLY when power info says they're present (no lying icon).
     w = c.w
     tstr = state.get('time', '--:--')
     tx = w - len(tstr) * _ADV
     c.text(tx, 1, tstr, 1)
-    bx = tx - 12 - 3
-    _battery(c, bx, 2, state.get('battery', 50))
-    wx = bx - 8 - 3
-    _wifi(c, wx, 2, state.get('wifi', False))
+    x = tx - 3
+    pwr = state.get('power') or {}
+    if pwr.get('have'):
+        x -= 12
+        _battery(c, x, 2, pwr.get('pct', 0), pwr.get('low'))
+        x -= 3
+    if pwr.get('usb'):
+        x -= 7
+        _usb(c, x, 1)
+        x -= 3
+    x -= 8
+    _wifi(c, x, 2, state.get('wifi', False))
     title = state.get('title', 'Nova D1')
-    maxc = max(1, (wx - 4) // _ADV)
+    maxc = max(1, (x - 4) // _ADV)
     c.text(2, 1, title[:maxc], 1)
     c.hline(0, _BARH, w, 1)
 
@@ -502,15 +532,23 @@ class WiFiScreen(Screen):
         return False
 
     def _do_scan(self):
+        # Scan via the STA interface directly, pausing the background WiFi manager
+        # so it isn't mid-connect on the same interface (that broke scan in 0.8.0).
+        import novawifi
+        novawifi.pause()
         try:
-            import net
+            import network
             saved = []
             try:
+                import net
                 saved = [s for s, _p in net._read_networks()]
             except Exception:
                 pass
-            sl = {s.lower() for s in saved}
-            res = net.scan() or []
+            sl = set(s.lower() for s in saved)
+            wlan = network.WLAN(network.STA_IF)
+            if not wlan.active():
+                wlan.active(True)
+            res = wlan.scan() or []
             nets = []
             for r in res:
                 try:
@@ -526,6 +564,8 @@ class WiFiScreen(Screen):
             self.msg = 'No networks' if not nets else ''
         except Exception as e:
             self.msg = 'scan err: ' + str(e)[:12]
+        finally:
+            novawifi.resume()
 
     def _do_connect(self, ssid):
         try:
@@ -592,6 +632,7 @@ class ManageAppsScreen(Menu):
             self.items[self.sel] = (self._row(key, label), None)
             order = [k for k, _l in self._all if k in self._on]
             _save_reg('Apps.NovaD1_Home', ','.join(order))
+            _mark_home_dirty()             # rebuild the home on exit (no reboot)
             return None
         return Menu.on_event(self, e)       # rotation/scroll + BACK/HOME
 
@@ -850,6 +891,118 @@ class SystemCheckScreen(Screen):
         return None
 
 
+_INBOX = []          # recent LoRa messages (module-level, survives screen close)
+
+
+class MessagesScreen(Screen):
+    """P2P LoRa messaging (novamesh over novalora). Open = radio listens; Select
+    broadcasts a ping. Foreground RX for now; background mesh relay is roadmap.
+    DEVICE-PENDING: needs an SX1276 (and a second board to talk to)."""
+    def __init__(self):
+        self.title = 'Messages'
+        self.lora = None
+        self.err = None
+        self._sent = 0
+        try:
+            import novalora
+            lr = novalora.LoRa()
+            if lr.begin():
+                lr.start_rx()
+                self.lora = lr
+            else:
+                self.err = 'no SX1276'
+        except Exception as e:
+            self.err = str(e)[:16]
+
+    def draw(self, c):
+        if self.lora is None:
+            c.text(2, _TOP, 'LoRa: ' + (self.err or 'n/a'), 1)
+            c.text(2, _TOP + _ROWH, 'check wiring/911', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        rows = (c.h - _TOP - _FH) // _ROWH
+        view = _INBOX[-rows:]
+        if not view:
+            c.text(2, _TOP, '(listening...)', 1)
+        for i, m in enumerate(view):
+            c.text(2, _TOP + i * _ROWH, m[:21], 1)
+        c.text(2, c.h - _FH, 'Sel=ping BACK=exit', 1)
+
+    def tick(self, dt_ms=0):
+        if self.lora is None:
+            return False
+        try:
+            raw = self.lora.poll()
+            if raw:
+                import novamesh
+                pkt = novamesh.parse_packet(raw)
+                if pkt:
+                    try:
+                        txt = pkt['payload'].decode('utf-8')
+                    except Exception:
+                        txt = '?'
+                    _INBOX.append('{}: {}'.format(pkt['src'], txt))
+                    if len(_INBOX) > 30:
+                        _INBOX.pop(0)
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def on_event(self, e):
+        if e == ev.SELECT and self.lora is not None:
+            try:
+                import novamesh
+                self._sent = (self._sent + 1) & 0xFFFF
+                src = novamesh.node_id()
+                pkt = novamesh.make_packet(src, novamesh.BROADCAST, self._sent,
+                                           'ping ' + str(src))
+                self.lora.send(pkt)
+                _INBOX.append('me: ping #{}'.format(self._sent))
+                self.lora.start_rx()
+            except Exception:
+                pass
+            return None
+        if e in (ev.BACK, ev.HOME):
+            if self.lora is not None:
+                try:
+                    self.lora.sleep()
+                except Exception:
+                    pass
+            return e
+        return None
+
+
+class LowPowerScreen(Screen):
+    """Transient low-battery popup — auto-dismisses; any key clears it."""
+    DUR = 3000
+
+    def __init__(self):
+        self.title = 'Battery'
+        self.t = 0
+        self.next = None
+
+    def draw(self, c):
+        bw, bh = 110, 32
+        x = (c.w - bw) // 2
+        y = (c.h - bh) // 2
+        c.fill_rect(x, y, bw, bh, 0)
+        c.rect(x, y, bw, bh, 1)
+        c.rect(x + 1, y + 1, bw - 2, bh - 2, 1)
+        c.text(x + 8, y + 6, 'LOW BATTERY', 1)
+        c.text(x + 8, y + 17, 'charge soon', 1)
+
+    def tick(self, dt_ms=0):
+        self.t += dt_ms or 16
+        if self.t >= self.DUR:
+            self.next = 'back'
+        return False
+
+    def on_event(self, e):
+        self.next = 'back'
+        return None
+
+
 class ErrorScreen(Screen):
     """Shown on startup after the GUI recovered from a crash. Any key dismisses."""
     def __init__(self, msg):
@@ -869,18 +1022,20 @@ class ErrorScreen(Screen):
 
 # --- the runner -------------------------------------------------------------
 class NovaUI:
-    def __init__(self, display, canvas, source, state_provider, home):
+    def __init__(self, display, canvas, source, state_provider, home, home_factory=None):
         self.display = display
         self.canvas = canvas
         self.source = source
         self.state = state_provider
         self.stack = [home]
+        self.home_factory = home_factory      # () -> fresh home screen, for live rebuild
         self._stop = False
         self._state_cache = None
         self._state_t = -100000
         self._last_render = 0
         self._idle_t0 = 0
         self._dimmed = False
+        self._low_warned = False
 
     def _now(self):
         try:
@@ -942,6 +1097,16 @@ class NovaUI:
                 except Exception:
                     pass
                 dirty = True
+        # Rebuild the home live when its config changed (apps/style) and we're back
+        # on it — no reboot needed.
+        global _home_dirty
+        if _home_dirty and len(self.stack) == 1 and self.home_factory is not None:
+            try:
+                self.stack[0] = self.home_factory()
+            except Exception:
+                pass
+            _home_dirty = False
+            dirty = True
         scr = self.stack[-1]
         if scr.tick(dt):
             dirty = True
@@ -952,6 +1117,15 @@ class NovaUI:
             dirty = True
         if (now - self._last_render) >= 1000:    # keep the clock/signal live
             dirty = True
+        # Low-battery popup (once per low->ok transition; needs a configured battery).
+        pwr = self._get_state(now).get('power') or {}
+        if pwr.get('low'):
+            if not self._low_warned and not self._dimmed:
+                self._low_warned = True
+                self.stack.append(LowPowerScreen())
+                dirty = True
+        else:
+            self._low_warned = False
         # Screen-dim (burn-in saver): after Apps.NovaD1_DimSec idle, drop contrast.
         if not self._dimmed:
             try:
@@ -968,8 +1142,13 @@ class NovaUI:
             dirty = False                        # stay dark + idle while dimmed
         if dirty:
             self.render(now)
-        # pace: fast frames while animating, relaxed when idle
-        nap = 16 if scr.animating() else sleep_ms
+        # Pace: fast while animating, relaxed when idle, DEEP when dimmed (power).
+        if self._dimmed:
+            nap = 300
+        elif scr.animating():
+            nap = 16
+        else:
+            nap = sleep_ms
         return now, nap
 
     def run(self, sleep_ms=40):
@@ -1040,6 +1219,7 @@ def _all_apps():
     import novamods
     apps = [(k, l, _mk_test(k, l)) for k, l, _fn in novamods.MODULES]
     apps.append(('wifi', 'WiFi', WiFiScreen))
+    apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', _scripts_screen))
@@ -1059,6 +1239,98 @@ def _home_keys():
         return None
     keys = [k.strip() for k in raw.split(',') if k.strip()]
     return keys or None
+
+
+def _strip_ansi(s):
+    out = ''
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == '\x1b':
+            j = i + 1
+            while j < n and not ('a' <= s[j] <= 'z' or 'A' <= s[j] <= 'Z'):
+                j += 1
+            i = j + 1
+        else:
+            out += s[i]
+            i += 1
+    return out
+
+
+def _run_capture(cmd):
+    """Run an OS shell command, return its output as wrapped display lines."""
+    import sys
+    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+    if lp is None or not hasattr(lp, '_run_line'):
+        return ['shell n/a']
+    out = ''
+    try:
+        import io
+        buf = io.StringIO()
+        old = sys.stdout
+        try:
+            sys.stdout = buf
+            lp._run_line(cmd)
+        finally:
+            sys.stdout = old
+        out = buf.getvalue()
+    except Exception:
+        try:
+            import RPCortex
+            RPCortex.begin_capture()
+            try:
+                lp._run_line(cmd)
+            except Exception:
+                pass
+            out = RPCortex.end_capture() or ''
+        except Exception:
+            out = ''
+    out = _strip_ansi(out)
+    lines = []
+    cols = (128 - 3) // _ADV
+    for ln in out.split('\n'):
+        ln = ln.rstrip('\r')
+        if ln == '':
+            continue
+        lines.extend(_wrap(ln, cols))
+    return lines[:60] or ['(done)']
+
+
+class CommandScreen(Screen):
+    """Runs an OS command on first tick, shows scrollable output."""
+    def __init__(self, title, cmd):
+        self.title = title
+        self.cmd = cmd
+        self.lines = ['Running...']
+        self.top = 0
+        self._ran = False
+
+    def draw(self, c):
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self.top > max(0, len(self.lines) - rows):
+            self.top = max(0, len(self.lines) - rows)
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.lines):
+                break
+            c.text(2, _TOP + i * _ROWH, self.lines[idx], 1)
+        c.text(2, c.h - _FH, 'turn=scroll BACK=exit', 1)
+
+    def tick(self, dt_ms=0):
+        if not self._ran:
+            self._ran = True
+            self.lines = _run_capture(self.cmd)
+            return True
+        return False
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.top += 1
+        elif e == ev.ROT_CCW:
+            self.top = max(0, self.top - 1)
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
 
 
 class SettingsScreen(Screen):
@@ -1082,6 +1354,10 @@ class SettingsScreen(Screen):
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
             ('cycle', 'Dim', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60'], '0', None),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+            # OS-level actions (run a shell command, show output)
+            ('action', 'Check Updates', 'update check'),
+            ('action', 'NTP Sync', 'ntp sync'),
+            ('action', 'System Info', 'sysinfo'),
         ]
 
     def _rows_visible(self, c):
@@ -1107,7 +1383,7 @@ class SettingsScreen(Screen):
                 c.fill_rect(0, y - 1, c.w, _ROWH, 1)
             tc = 0 if inv else 1
             c.text(3, y, r[1][:11], tc)
-            if r[0] == 'push':
+            if r[0] in ('push', 'action'):
                 c.text(c.w - _ADV - 2, y, '>', tc)
             else:
                 v = self._val(r)
@@ -1122,6 +1398,8 @@ class SettingsScreen(Screen):
             r = self.rows[self.sel]
             if r[0] == 'push':
                 return r[2]()
+            if r[0] == 'action':
+                return CommandScreen(r[1], r[2])
             vals = r[3]
             try:
                 i = vals.index(self._val(r))
@@ -1129,6 +1407,8 @@ class SettingsScreen(Screen):
                 i = 0
             nv = vals[(i + 1) % len(vals)]
             _save_reg(r[2], nv)
+            if r[2] == 'Apps.NovaD1_HomeStyle':
+                _mark_home_dirty()         # gallery<->menu applies live
             if r[5]:
                 try:
                     r[5](nv)

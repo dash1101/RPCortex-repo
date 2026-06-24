@@ -146,12 +146,20 @@ def _check(c, cx, cy, r):             # System Check — clipboard + tick
     c.line(cx - 1, cy + r - 3, cx + r - 3, cy - r + 4, 1)
 
 
+def _chat(c, cx, cy, r):              # Messages — speech bubble
+    c.rect(cx - r, cy - r, 2 * r, int(1.4 * r), 1)
+    c.line(cx - r // 2, cy - r + int(1.4 * r), cx - r // 3, cy + r, 1)
+    c.line(cx - r // 3, cy + r, cx, cy - r + int(1.4 * r), 1)
+    for i in range(3):
+        c.pixel(cx - r // 2 + i * (r // 2), cy - r // 3, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
     'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
-    'check': _check,
+    'check': _check, 'msg': _chat,
 }
 
 
