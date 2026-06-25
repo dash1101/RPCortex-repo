@@ -1315,6 +1315,7 @@ class CodeListScreen(Screen):
         self.sel = 0
         self.top = 0
         self.msg = ''
+        self._confirm = None
         self._reload()
 
     def _reload(self):
@@ -1370,9 +1371,25 @@ class CodeListScreen(Screen):
                     self.msg = 'sent: ' + r[:9]
                 except Exception:
                     self.msg = 'fire failed'
+            self._confirm = None
             return None
-        elif e in (ev.BACK, ev.HOME):
-            return e
+        elif e == ev.HOME:                      # native delete (HOME, confirm)
+            r = self.rows[self.sel]
+            if self.capf and r == '+ New':
+                return None
+            if self._confirm == r:
+                import novastore
+                novastore.delete_code(self.cat, r)
+                self._confirm = None
+                self.msg = 'deleted'
+                self._reload()
+            else:
+                self._confirm = r
+                self.msg = 'Home=del?'
+            return None
+        elif e == ev.BACK:
+            self._confirm = None
+            return 'back'
         return None
 
     def tick(self, dt_ms=0):
@@ -1384,7 +1401,7 @@ class CodeListScreen(Screen):
 
 
 class IRCaptureScreen(Screen):
-    """Record a raw IR burst from a remote and save it as a code file."""
+    """Record a raw IR burst and save it as a Flipper-compatible .ir file."""
     def __init__(self):
         self.title = 'Record IR'
         self.msg = 'point remote + Sel'
@@ -1410,7 +1427,7 @@ class IRCaptureScreen(Screen):
                     name = 'ir_{:02d}{:02d}{:02d}'.format(lt[3], lt[4], lt[5])
                 except Exception:
                     name = 'ir_code'
-                novastore.save_code('ir', name, novair.to_text(t))
+                novastore.save_code('ir', name + '.ir', novair.to_flipper(name, t))
                 self.msg = 'Saved ' + name
             else:
                 self.msg = 'no signal'
@@ -1428,10 +1445,139 @@ class IRCaptureScreen(Screen):
         return None
 
 
+class IRSignalsScreen(Screen):
+    """Buttons inside one .ir file (a remote). Select replays the signal."""
+    def __init__(self, fname, sigs):
+        self.title = fname[:14]
+        self.sigs = sigs           # [(name, freq, duty, times)]
+        self.sel = 0
+        self.top = 0
+        self.msg = ''
+
+    def draw(self, c):
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.sigs):
+                break
+            y = _TOP + i * _ROWH
+            label = self.sigs[idx][0][:(c.w - 8) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+            else:
+                c.text(4, y, label, 1)
+        c.text(2, c.h - _FH, (self.msg or 'Sel=send BACK=back')[:16], 1)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(self.sigs)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(self.sigs)
+        elif e == ev.SELECT:
+            n, fr, du, times = self.sigs[self.sel]
+            try:
+                import novair
+                novair.replay(times, fr, du)
+                self.msg = 'sent: ' + n[:9]
+            except Exception:
+                self.msg = 'fire failed'
+            return None
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class IRFilesScreen(Screen):
+    """IR code library: list .ir files (remotes). '+ Record' captures a new one;
+    a 1-signal file fires directly, a multi-signal remote opens its button list.
+    Home = delete (confirm). Flipper .ir files drop straight in."""
+    title = 'IR'
+
+    def __init__(self):
+        self.sel = 0
+        self.top = 0
+        self.msg = ''
+        self._confirm = None
+
+    def _files(self):
+        import novastore
+        return novastore.list_codes('ir')
+
+    def draw(self, c):
+        rows_list = ['+ Record'] + self._files()
+        if self.sel >= len(rows_list):
+            self.sel = len(rows_list) - 1
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(rows_list):
+                break
+            y = _TOP + i * _ROWH
+            label = rows_list[idx][:(c.w - 8) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+            else:
+                c.text(4, y, label, 1)
+        c.text(2, c.h - _FH, (self.msg or 'Sel=open Home=del')[:16], 1)
+
+    def on_event(self, e):
+        rows_list = ['+ Record'] + self._files()
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(rows_list)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(rows_list)
+        elif e == ev.SELECT:
+            r = rows_list[self.sel]
+            self._confirm = None
+            if r == '+ Record':
+                return IRCaptureScreen()
+            import novastore
+            import novair
+            sigs = novair.parse_flipper(novastore.read_code('ir', r) or '')
+            if not sigs:
+                self.msg = 'empty file'
+                return None
+            if len(sigs) == 1:
+                n, fr, du, times = sigs[0]
+                try:
+                    novair.replay(times, fr, du)
+                    self.msg = 'sent'
+                except Exception:
+                    self.msg = 'fire failed'
+                return None
+            return IRSignalsScreen(r, sigs)
+        elif e == ev.HOME:
+            r = rows_list[self.sel]
+            if r == '+ Record':
+                return None
+            if self._confirm == r:
+                import novastore
+                novastore.delete_code('ir', r)
+                self._confirm = None
+                self.sel = 0
+                self.msg = 'deleted'
+            else:
+                self._confirm = r
+                self.msg = 'Home=del?'
+            return None
+        elif e == ev.BACK:
+            self._confirm = None
+            return 'back'
+        return None
+
+
 def _ir_app():
-    import novair
-    return CodeListScreen('IR', 'ir', lambda t: novair.replay(novair.from_text(t)),
-                          capture_factory=IRCaptureScreen, fire_label='send')
+    return IRFilesScreen()
 
 
 def _subghz_app():

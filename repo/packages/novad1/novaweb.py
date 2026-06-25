@@ -146,6 +146,18 @@ def _wifi_scan():
     return '[' + ','.join(parts) + ']'
 
 
+def _codes_json():
+    try:
+        import novastore
+        parts = []
+        for cat in novastore.CATS:
+            for n in novastore.list_codes(cat):
+                parts.append('{"c":"%s","n":"%s"}' % (cat, n.replace('"', "'")))
+        return '[' + ','.join(parts) + ']'
+    except Exception:
+        return '[]'
+
+
 def _msg_json():
     try:
         import novamsg
@@ -230,6 +242,7 @@ white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 <button id=ta class=on onclick="tab('a')">Apps</button>
 <button id=tw onclick="tab('w')">WiFi</button>
 <button id=tm onclick="tab('m')">Msg</button>
+<button id=tcd onclick="tab('cd')">Codes</button>
 <button id=ts onclick="tab('s')">Shell</button></div>
 
 <div id=a class="sec on"><div class=grid>
@@ -255,6 +268,10 @@ white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 onkeydown="if(event.key=='Enter')msend()"><button class=b onclick=msend()>Send</button></div>
 <div class=muted>Broadcasts over LoRa to nearby Nova D1s.</div></div>
 
+<div id=cd class=sec>
+<div id=cl class=muted>loading…</div>
+<div class=muted>Rename uses your phone keyboard; delete removes it from the device.</div></div>
+
 <div id=s class=sec>
 <div class=row><input id=c placeholder="command, e.g. ls /"
 onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
@@ -262,7 +279,7 @@ onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</butto
 </div><script>
 var P=localStorage.nvpin||'';
 function $(i){return document.getElementById(i)}
-function tab(t){for(var x of['a','w','m','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}if(t=='m')mload()}
+function tab(t){for(var x of['a','w','m','cd','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}if(t=='m')mload();if(t=='cd')cload()}
 function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' · v'+j.version+' · '+(j.free/1024|0)+'KB'}).catch(_=>{})}
 function pin(){if(!P)P=prompt('Device PIN')||'';localStorage.nvpin=P;return P}
 function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin()))
@@ -277,6 +294,12 @@ api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw')
 function mload(){if($('m').className.indexOf('on')<0)return;api('/msg').then(x=>x.json()).then(function(l){
 $('mb').textContent=l.map(function(m){return m.w+': '+m.t}).join('\\n')||'(no messages)'}).catch(_=>{})}
 function msend(){var t=$('mt').value;if(!t)return;$('mt').value='';api('/msgsend?text='+encodeURIComponent(t)).then(_=>setTimeout(mload,300))}
+function cload(){if($('cd').className.indexOf('on')<0)return;api('/codes').then(x=>x.json()).then(function(l){
+$('cl').innerHTML=l.map(function(o){return '<div class=net><span>'+o.c+'/'+o.n+'</span><small>'+
+'<a href=# onclick="cren(\\''+o.c+'\\',\\''+o.n+'\\');return false">rename</a> &middot; '+
+'<a href=# onclick="cdel(\\''+o.c+'\\',\\''+o.n+'\\');return false">del</a></small></div>'}).join('')||'<div class=muted>no codes</div>'})}
+function cren(c,n){var t=prompt('New name',n);if(!t)return;api('/coderename?cat='+c+'&name='+encodeURIComponent(n)+'&to='+encodeURIComponent(t)).then(_=>cload())}
+function cdel(c,n){if(!confirm('Delete '+n+'?'))return;api('/codedel?cat='+c+'&name='+encodeURIComponent(n)).then(_=>cload())}
 st();setInterval(st,8000);setInterval(mload,3000);
 </script></body></html>"""
 
@@ -326,10 +349,27 @@ async def _handle_async(conn):
         path, q = _qs(parts[1])
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
-        elif path in ('/wifiscan', '/wificonnect', '/notify', '/msg', '/msgsend'):
+        elif path in ('/wifiscan', '/wificonnect', '/notify', '/msg', '/msgsend',
+                      '/codes', '/coderename', '/codedel'):
             pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
             if not pin or q.get('pin', '') != pin:
                 await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
+            elif path == '/codes':
+                await _asend(stream, '200 OK', 'application/json', _codes_json())
+            elif path == '/coderename':
+                try:
+                    import novastore
+                    novastore.rename_code(q.get('cat', ''), q.get('name', ''), q.get('to', '').strip())
+                except Exception:
+                    pass
+                await _asend(stream, '200 OK', 'text/plain', 'renamed')
+            elif path == '/codedel':
+                try:
+                    import novastore
+                    novastore.delete_code(q.get('cat', ''), q.get('name', ''))
+                except Exception:
+                    pass
+                await _asend(stream, '200 OK', 'text/plain', 'deleted')
             elif path == '/wifiscan':
                 await _asend(stream, '200 OK', 'application/json', _wifi_scan())
             elif path == '/notify':

@@ -62,6 +62,19 @@ def save_code(cat, name, text):
     return path
 
 
+CATS = ('ir', 'subghz', 'lora', 'nfc')
+
+
+def rename_code(cat, old, new):
+    data = read_code(cat, old)
+    if data is None or not new:
+        return False
+    save_code(cat, new, data)
+    if new != old:
+        delete_code(cat, old)
+    return True
+
+
 def delete_code(cat, name):
     import uos
     ok = False

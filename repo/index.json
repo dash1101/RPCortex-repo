@@ -137,7 +137,7 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.16.0",
+      "ver": "0.17.0",
       "desc": "Nova D1 multi-tool \u2014 file-based codes (IR record/replay, Sub-GHz/LoRa fire), NFC, GPS, LoRa messaging, web panel, OLED UI + drivers.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
