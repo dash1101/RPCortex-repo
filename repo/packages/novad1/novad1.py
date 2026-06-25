@@ -397,6 +397,33 @@ def set_web(on):
         pass
 
 
+def _seed_scripts():
+    """Write a couple of example button-grid scripts on first run so the Scripts
+    app has working content + shows the format. Only if no scripts exist yet."""
+    try:
+        import novastore
+        if novastore.list_codes('scripts'):
+            return
+        demo = ("# Nova D1 demo remote — these work out of the box.\n"
+                "title: Demo\n"
+                "Sysinfo = run sysinfo\n"
+                "Free RAM = run meminfo\n"
+                "Notify = notify hello from Nova\n"
+                "LoRa Ping = lora ping\n")
+        novastore.save_code('scripts', 'demo.txt', demo)
+        tv = ("# IR remote template — record buttons into tv.ir first (IR app),\n"
+              "# then each line fires a saved signal by name.\n"
+              "title: TV\n"
+              "Power = ir tv.ir Power\n"
+              "Vol+ = ir tv.ir Vol_up\n"
+              "Vol- = ir tv.ir Vol_dn\n"
+              "Input = ir tv.ir Input\n")
+        novastore.save_code('scripts', 'tv_remote.txt', tv)
+        _nlog('seeded example scripts')
+    except Exception:
+        pass
+
+
 def _boot_or_recover(ui, novagui):
     """Set up the initial screen stack: recovered-error flash, or the once-per-boot
     splash + system check, or just home."""
@@ -465,6 +492,7 @@ async def _gui_service():
                 novartc.boot_sync()           # DS3231 -> RTC if present (offline time)
             except Exception:
                 pass
+            _seed_scripts()                   # example button-grid scripts (once)
             if not _booted and not _reg('Apps.NovaD1_LastError'):
                 # Screen ON immediately — paint the splash before any settle/boot
                 # work so the user sees it ASAP (hides the Nova-side boot time; the
