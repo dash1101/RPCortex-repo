@@ -270,7 +270,10 @@ onkeydown="if(event.key=='Enter')msend()"><button class=b onclick=msend()>Send</
 
 <div id=cd class=sec>
 <div id=cl class=muted>loading…</div>
-<div class=muted>Rename uses your phone keyboard; delete removes it from the device.</div></div>
+<div class=row><input id=ucat value=ir style=flex:.55><input id=uname placeholder="name e.g. tv.ir"></div>
+<textarea id=ubody placeholder="paste a Flipper .ir file (or any code) here" style="width:100%;min-height:88px;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:11px;font-size:14px"></textarea>
+<div class=row><button class=b onclick=upl()>Upload to device</button></div>
+<div class=muted id=um>Rename/delete a saved code above, or paste &amp; upload a new one.</div></div>
 
 <div id=s class=sec>
 <div class=row><input id=c placeholder="command, e.g. ls /"
@@ -300,6 +303,9 @@ $('cl').innerHTML=l.map(function(o){return '<div class=net><span>'+o.c+'/'+o.n+'
 '<a href=# onclick="cdel(\\''+o.c+'\\',\\''+o.n+'\\');return false">del</a></small></div>'}).join('')||'<div class=muted>no codes</div>'})}
 function cren(c,n){var t=prompt('New name',n);if(!t)return;api('/coderename?cat='+c+'&name='+encodeURIComponent(n)+'&to='+encodeURIComponent(t)).then(_=>cload())}
 function cdel(c,n){if(!confirm('Delete '+n+'?'))return;api('/codedel?cat='+c+'&name='+encodeURIComponent(n)).then(_=>cload())}
+function upl(){var c=$('ucat').value||'ir',n=$('uname').value,b=$('ubody').value;if(!n||!b){$('um').textContent='need name + content';return}
+fetch('/codeupload?pin='+encodeURIComponent(pin())+'&cat='+encodeURIComponent(c)+'&name='+encodeURIComponent(n),{method:'POST',body:b})
+.then(x=>x.text()).then(t=>{$('um').textContent=t;$('ubody').value='';cload()}).catch(e=>$('um').textContent=''+e)}
 st();setInterval(st,8000);setInterval(mload,3000);
 </script></body></html>"""
 
@@ -337,7 +343,7 @@ async def _handle_async(conn):
         return
     try:
         try:
-            req = await asyncio.wait_for(stream.read(1024), 5)
+            req = await asyncio.wait_for(stream.read(4096), 5)
         except Exception:
             req = b''
         if not req:
@@ -346,7 +352,35 @@ async def _handle_async(conn):
         parts = line.split(' ')
         if len(parts) < 2:
             return
+        method = parts[0]
         path, q = _qs(parts[1])
+        if path == '/codeupload' and method == 'POST':
+            pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
+            if not pin or q.get('pin', '') != pin:
+                await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
+                return
+            body = req.split(b'\r\n\r\n', 1)[1] if b'\r\n\r\n' in req else b''
+            try:
+                cl = 0
+                for h in req.split(b'\r\n'):
+                    if h.lower().startswith(b'content-length:'):
+                        cl = int(h.split(b':', 1)[1])
+                        break
+                while len(body) < cl and len(body) < 16384:
+                    more = await asyncio.wait_for(stream.read(1024), 3)
+                    if not more:
+                        break
+                    body += more
+            except Exception:
+                pass
+            try:
+                import novastore
+                novastore.save_code(q.get('cat', 'ir'), q.get('name', 'upload'),
+                                    body.decode('utf-8'))
+                await _asend(stream, '200 OK', 'text/plain', 'uploaded')
+            except Exception as _e:
+                await _asend(stream, '200 OK', 'text/plain', 'error: ' + str(_e)[:30])
+            return
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
         elif path in ('/wifiscan', '/wificonnect', '/notify', '/msg', '/msgsend',

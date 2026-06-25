@@ -113,7 +113,7 @@ async def manager():
                 if len(_INBOX) > _MAX:
                     _INBOX.pop(0)
                 _lora.start_rx()
-            await asyncio.sleep_ms(120)
+            await asyncio.sleep_ms(250)          # easier on the shared event loop
         except Exception:
             _lora = None                         # SPI likely torn down — re-init next loop
             await asyncio.sleep_ms(500)

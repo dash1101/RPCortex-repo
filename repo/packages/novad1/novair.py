@@ -95,16 +95,83 @@ def append_signal(existing, name, times, freq=38000, duty=0.33):
     return existing + block
 
 
+# --- protocol encoders: parsed (NEC/Samsung/Sony) -> raw timings -------------
+def _pulsedist(data_bytes, hdr_m, hdr_s, bit, one, zero, stop=True):
+    """Pulse-distance encode (NEC/Samsung family): bytes LSB-first."""
+    t = [hdr_m, hdr_s]
+    for byte in data_bytes:
+        for i in range(8):
+            t.append(bit)
+            t.append(one if (byte >> i) & 1 else zero)
+    if stop:
+        t.append(bit)
+    return t
+
+
+def _hexbytes(s):
+    out = []
+    for tok in (s or '').split():
+        try:
+            out.append(int(tok, 16))
+        except ValueError:
+            pass
+    return out
+
+
+def encode(protocol, address, command):
+    """Encode a parsed Flipper signal (protocol + address/command hex) to a raw
+    timing list. Returns (freq, times) or None for an unsupported protocol."""
+    p = (protocol or '').upper()
+    a = _hexbytes(address)
+    c = _hexbytes(command)
+    if not a:
+        a = [0]
+    if not c:
+        c = [0]
+    if p == 'NEC':
+        return 38000, _pulsedist([a[0], a[0] ^ 0xFF, c[0], c[0] ^ 0xFF],
+                                 9000, 4500, 560, 1690, 560)
+    if p in ('NECEXT', 'NEC_EXT', 'NEC42', 'NEC42EXT'):
+        a1 = a[1] if len(a) > 1 else 0
+        c1 = c[1] if len(c) > 1 else (c[0] ^ 0xFF)
+        return 38000, _pulsedist([a[0], a1, c[0], c1], 9000, 4500, 560, 1690, 560)
+    if p in ('SAMSUNG32', 'SAMSUNG'):
+        return 38000, _pulsedist([a[0], a[0], c[0], c[0] ^ 0xFF],
+                                 4500, 4500, 560, 1690, 560)
+    if p in ('SIRC', 'SONY', 'SIRC15', 'SIRC20'):
+        nbits = 15 if p == 'SIRC15' else (20 if p == 'SIRC20' else 12)
+        if nbits == 12:
+            val = (c[0] & 0x7F) | ((a[0] & 0x1F) << 7)
+        elif nbits == 15:
+            val = (c[0] & 0x7F) | ((a[0] & 0xFF) << 7)
+        else:
+            val = (c[0] & 0x7F) | ((a[0] & 0x1F) << 7) | (((a[1] if len(a) > 1 else 0) & 0xFF) << 12)
+        t = [2400, 600]
+        for i in range(nbits):
+            t.append(1200 if (val >> i) & 1 else 600)
+            t.append(600)
+        return 40000, t                          # Sony uses ~40 kHz
+    return None
+
+
 def parse_flipper(text):
-    """Return [(name, freq, duty, times)] for every RAW signal in a .ir file.
-    Tolerant: a bare 'data:'-only file (our old format) still parses."""
+    """Return [(name, freq, duty, times)] for each signal in a .ir file — RAW
+    signals use their data directly, PARSED signals (NEC/Samsung/Sony) are encoded
+    to timings. Tolerant of a bare comma-separated timing list (legacy)."""
     sigs = []
     cur = {}
 
     def _flush():
-        if cur.get('data') and cur.get('type', 'raw') == 'raw':
+        if not cur.get('name') and not cur.get('data'):
+            return
+        typ = cur.get('type', 'raw')
+        if typ == 'raw' and cur.get('data'):
             sigs.append((cur.get('name', 'signal'), cur.get('freq', 38000),
                          cur.get('duty', 0.33), cur['data']))
+        elif typ == 'parsed' and cur.get('protocol'):
+            enc = encode(cur['protocol'], cur.get('address', ''), cur.get('command', ''))
+            if enc:
+                sigs.append((cur.get('name', 'signal'), enc[0], 0.33, enc[1]))
     for line in text.split('\n'):
         line = line.strip()
         if line.startswith('name:'):
@@ -112,6 +179,12 @@ def parse_flipper(text):
             cur = {'name': line[5:].strip()}
         elif line.startswith('type:'):
             cur['type'] = line.split(':', 1)[1].strip()
+        elif line.startswith('protocol:'):
+            cur['protocol'] = line.split(':', 1)[1].strip()
+        elif line.startswith('address:'):
+            cur['address'] = line.split(':', 1)[1].strip()
+        elif line.startswith('command:'):
+            cur['command'] = line.split(':', 1)[1].strip()
         elif line.startswith('frequency:'):
             try:
                 cur['freq'] = int(line.split(':', 1)[1])
@@ -125,7 +198,6 @@ def parse_flipper(text):
         elif line.startswith('data:'):
             cur['data'] = [int(x) for x in line.split(':', 1)[1].split() if x.lstrip('-').isdigit()]
         elif line and ',' in line and 'data' not in cur and not cur.get('name'):
-            # legacy: a bare comma-separated timing list
             cur = {'name': 'signal', 'data': [int(x) for x in line.split(',') if x.strip().isdigit()]}
     _flush()
     return sigs
