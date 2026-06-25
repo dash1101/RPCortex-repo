@@ -1936,13 +1936,18 @@ class NovaUI:
             dirty = False                        # screen off — skip rendering
         if dirty:
             self.render(now)
-        # Pace: fast while animating, relaxed when idle, DEEP when dimmed (power).
+        # Adaptive pace — the GUI shares one cooperative loop with the serial shell,
+        # so when the UI is idle it must CEDE cpu (long nap) or it starves the shell's
+        # keystroke reader (choppy typing). When you're actually using the UI (recent
+        # input) or animating, nap short so the UI stays snappy.
         if self._dimmed:
-            nap = 300
+            nap = 400
         elif scr.animating():
-            nap = 16
+            nap = 16                            # smooth animation frames
+        elif (now - self._idle_t0) < 1500:
+            nap = 33                            # just interacted -> responsive UI
         else:
-            nap = sleep_ms
+            nap = 160                           # idle -> hand the loop to the shell
         return now, nap
 
     def run(self, sleep_ms=40):

@@ -288,8 +288,7 @@ function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURICompon
 function r(c){if($('home').style.display!='none')op('sys');$('ao').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('ao').textContent=t).catch(e=>$('ao').textContent=e)}
 function sysload(){api('/cmd?c='+encodeURIComponent('novad1 status')).then(x=>x.text()).then(t=>$('sysc').textContent=t).catch(_=>{})}
 function run(){var c=$('c').value;if(!c)return;$('o').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('o').textContent=t).catch(e=>$('o').textContent=e)}
-function mload(){if($('v_msg').style.display=='none')return;api('/msg').then(x=>x.json()).then(l=>{$('mb').textContent=l.map(m=>m.w+': '+m.t).join('
-')||'(no messages)'}).catch(_=>{})}
+function mload(){if($('v_msg').style.display=='none')return;api('/msg').then(x=>x.json()).then(l=>{$('mb').textContent=l.map(m=>m.w+': '+m.t).join(String.fromCharCode(10))||'(no messages)'}).catch(_=>{})}
 function msend(){var t=$('mt').value;if(!t)return;$('mt').value='';api('/msgsend?text='+encodeURIComponent(t)).then(_=>setTimeout(mload,300))}
 function scan(){$('nets').innerHTML='';$('nets').appendChild(el('div','muted','scanning...'));api('/wifiscan').then(x=>x.json()).then(l=>{var box=$('nets');box.innerHTML='';if(!l.length){box.appendChild(el('div','muted','none'));return}l.forEach(function(n){var d=el('div','net');var a=el('span',null,n.s);var b=el('small',null,n.r+'dBm'+(n.k?' saved':''));d.appendChild(a);d.appendChild(b);d.onclick=function(){$('ssid').value=n.s};box.appendChild(d)})}).catch(e=>{$('nets').textContent=''+e})}
 function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving...';api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
