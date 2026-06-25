@@ -441,6 +441,25 @@ def test_pn532(cfg, cancel=None):
         yield (False, ['PN532', 'error', str(e)[:16]])
 
 
+def pn532_read_uid(cancel=None):
+    """One bounded (~120ms) poll for a tag UID. Returns hex-UID string or None.
+    Reusable by the NFC app (I2C bus; no conflict with the SPI radios)."""
+    cancel = cancel or (lambda: False)
+    try:
+        i2c = _i2c()
+        if _PN532_ADDR not in i2c.scan():
+            return None
+        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        i2c.readfrom(_PN532_ADDR, 7)            # ACK
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        return _pn532_uid(i2c.readfrom(_PN532_ADDR, 25))
+    except Exception:
+        return None
+
+
 def _pn532_uid(t):
     for i in range(len(t) - 6):
         if t[i] == 0xD5 and t[i + 1] == 0x4B and t[i + 2] >= 1:

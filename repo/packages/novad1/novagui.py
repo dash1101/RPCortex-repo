@@ -1234,6 +1234,64 @@ class GPSScreen(Screen):
         return None
 
 
+class NFCScreen(Screen):
+    """NFC reader (PN532) — poll for a tag, show its UID, Select saves it to the
+    Nova store (build a tag library). Fires a notification on a new read."""
+    def __init__(self):
+        self.title = 'NFC'
+        self.uid = None
+        self.saved = False
+        self._acc = 0
+
+    def draw(self, c):
+        y = _TOP
+        c.text(2, y, 'NFC reader', 1); y += _ROWH
+        if self.uid:
+            c.text(2, y, 'UID:', 1); y += _ROWH
+            c.text(2, y, self.uid[:16], 1); y += _ROWH
+            if len(self.uid) > 16:
+                c.text(2, y, self.uid[16:32], 1)
+        else:
+            c.text(2, y, 'tap a tag...', 1)
+        foot = 'Saved!' if self.saved else ('Sel=save BACK=exit' if self.uid else 'BACK=exit')
+        c.text(2, c.h - _FH, foot[:16], 1)
+
+    def tick(self, dt_ms=0):
+        self._acc += dt_ms or 16
+        if self._acc < 400:                      # throttle the ~120ms poll
+            return False
+        self._acc = 0
+        try:
+            import novamods
+            u = novamods.pn532_read_uid()
+            if u and u != self.uid:
+                self.uid = u
+                self.saved = False
+                try:
+                    import novanotify
+                    novanotify.notify('NFC tag ' + u[:14])
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            pass
+        return False
+
+    def on_event(self, e):
+        if e == ev.SELECT and self.uid:
+            try:
+                import novad1
+                with open(novad1._nova_base() + '/tags.txt', 'a') as f:
+                    f.write(self.uid + '\n')
+                self.saved = True
+            except Exception:
+                pass
+            return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 class LowPowerScreen(Screen):
     """Transient low-battery popup — auto-dismisses; any key clears it."""
     DUR = 3000
@@ -1534,6 +1592,8 @@ def _all_apps():
     for k, l, _fn in novamods.MODULES:
         if k == 'gps':
             apps.append((k, 'GPS', GPSScreen))
+        elif k == 'pn532':
+            apps.append((k, 'NFC', NFCScreen))
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('wifi', 'WiFi', WiFiScreen))
