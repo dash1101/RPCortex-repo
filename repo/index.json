@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.15.0",
-      "desc": "Nova D1 multi-tool \u2014 LoRa messaging (synced Nova UI + phone web), notifications, secure web panel, screen-off, OLED UI + drivers for every peripheral.",
+      "ver": "0.16.0",
+      "desc": "Nova D1 multi-tool \u2014 file-based codes (IR record/replay, Sub-GHz/LoRa fire), NFC, GPS, LoRa messaging, web panel, OLED UI + drivers.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }

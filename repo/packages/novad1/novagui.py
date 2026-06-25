@@ -121,6 +121,13 @@ def _bell(c, x, y):
     c.pixel(x + 2, y + 5, 1)
 
 
+def _disk(c, x, y):
+    # small floppy/save glyph (~7 wide) — shown while a code is backing up to SD
+    c.rect(x, y, 7, 7, 1)
+    c.fill_rect(x + 2, y, 3, 2, 1)              # notch
+    c.fill_rect(x + 1, y + 4, 5, 3, 1)          # label
+
+
 def draw_status_bar(c, state):
     # Right-aligned clock, then (battery)(usb)(wifi) leftward, then title fills the
     # rest — all measured from _ADV so a font swap can't clip the clock. Battery +
@@ -141,6 +148,9 @@ def draw_status_bar(c, state):
         x -= 3
     x -= 8
     _wifi(c, x, 2, state.get('wifi', False))
+    if state.get('saving'):                 # SD backup in progress -> save icon
+        x -= 9
+        _disk(c, x, 1)
     if state.get('notify'):                 # unread notifications -> bell
         x -= 9
         _bell(c, x, 1)
@@ -1292,6 +1302,153 @@ class NFCScreen(Screen):
         return None
 
 
+class CodeListScreen(Screen):
+    """Browse saved code files for a tool and FIRE them (load hex/timing from a
+    file and transmit — no capture needed). Optional '+ New' opens a capture
+    screen. Codes live in the Nova store (flash, SD-backed). fire_fn(text)."""
+    def __init__(self, title, cat, fire_fn, capture_factory=None, fire_label='fire'):
+        self.title = title
+        self.cat = cat
+        self.fire = fire_fn
+        self.capf = capture_factory
+        self.fire_label = fire_label
+        self.sel = 0
+        self.top = 0
+        self.msg = ''
+        self._reload()
+
+    def _reload(self):
+        import novastore
+        self.rows = (['+ New'] if self.capf else []) + novastore.list_codes(self.cat)
+        if self.sel >= len(self.rows):
+            self.sel = max(0, len(self.rows) - 1)
+
+    def draw(self, c):
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if not self.rows:
+            c.text(2, _TOP, '(no codes)', 1)
+            c.text(2, _TOP + _ROWH, 'add via web/SD', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.rows):
+                break
+            y = _TOP + i * _ROWH
+            label = self.rows[idx][:(c.w - 8) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+            else:
+                c.text(4, y, label, 1)
+        c.text(2, c.h - _FH, (self.msg or ('Sel=' + self.fire_label))[:16], 1)
+
+    def on_event(self, e):
+        if not self.rows:
+            if e in (ev.BACK, ev.HOME):
+                return e
+            return None
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(self.rows)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(self.rows)
+        elif e == ev.SELECT:
+            r = self.rows[self.sel]
+            if self.capf and r == '+ New':
+                return self.capf()
+            import novastore
+            txt = novastore.read_code(self.cat, r)
+            if txt is None:
+                self.msg = 'read failed'
+            else:
+                try:
+                    self.fire(txt)
+                    self.msg = 'sent: ' + r[:9]
+                except Exception:
+                    self.msg = 'fire failed'
+            return None
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+    def tick(self, dt_ms=0):
+        if getattr(self, '_dirty', False):
+            self._dirty = False
+            self._reload()
+            return True
+        return False
+
+
+class IRCaptureScreen(Screen):
+    """Record a raw IR burst from a remote and save it as a code file."""
+    def __init__(self):
+        self.title = 'Record IR'
+        self.msg = 'point remote + Sel'
+        self._cap = False
+
+    def draw(self, c):
+        c.text(2, _TOP, 'Record IR', 1)
+        c.text(2, _TOP + _ROWH, self.msg[:16], 1)
+        c.text(2, c.h - _FH, 'Sel=rec BACK=exit', 1)
+
+    def tick(self, dt_ms=0):
+        if not self._cap:
+            return False
+        self._cap = False
+        try:
+            import novair
+            import novastore
+            t = novair.capture(8000)
+            if t:
+                try:
+                    import utime
+                    lt = utime.localtime()
+                    name = 'ir_{:02d}{:02d}{:02d}'.format(lt[3], lt[4], lt[5])
+                except Exception:
+                    name = 'ir_code'
+                novastore.save_code('ir', name, novair.to_text(t))
+                self.msg = 'Saved ' + name
+            else:
+                self.msg = 'no signal'
+        except Exception:
+            self.msg = 'capture error'
+        return True
+
+    def on_event(self, e):
+        if e == ev.SELECT and not self._cap:
+            self.msg = 'recording...'
+            self._cap = True
+            return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+def _ir_app():
+    import novair
+    return CodeListScreen('IR', 'ir', lambda t: novair.replay(novair.from_text(t)),
+                          capture_factory=IRCaptureScreen, fire_label='send')
+
+
+def _subghz_app():
+    import novacc
+    return CodeListScreen('Sub-GHz', 'subghz', lambda t: novacc.fire_text(t),
+                          fire_label='TX')
+
+
+def _lora_tx_app():
+    return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
+
+
+def _lora_fire(t):
+    import novamsg
+    novamsg.send(t.strip())
+
+
 class LowPowerScreen(Screen):
     """Transient low-battery popup — auto-dismisses; any key clears it."""
     DUR = 3000
@@ -1594,6 +1751,14 @@ def _all_apps():
             apps.append((k, 'GPS', GPSScreen))
         elif k == 'pn532':
             apps.append((k, 'NFC', NFCScreen))
+        elif k == 'ir_rx':
+            apps.append(('ir', 'IR', _ir_app))          # record/replay + code library
+        elif k == 'ir_tx':
+            continue                                    # folded into the IR app
+        elif k == 'cc1101':
+            apps.append((k, 'Sub-GHz', _subghz_app))    # load + fire OOK codes
+        elif k == 'sx1276':
+            apps.append((k, 'LoRa TX', _lora_tx_app))   # fire saved LoRa payloads
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('wifi', 'WiFi', WiFiScreen))

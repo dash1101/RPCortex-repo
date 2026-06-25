@@ -191,7 +191,13 @@ def _state_provider():
         nt = novanotify.count()
     except Exception:
         pass
-    return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt}
+    sv = False
+    try:
+        import novastore
+        sv = novastore.saving()
+    except Exception:
+        pass
+    return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt, 'saving': sv}
 
 
 def _build_ui(kind=None):
@@ -441,6 +447,13 @@ async def _gui_service():
             import novamsg                    # disables if no SX1276 answers)
             if not novamsg._started:
                 asyncio.create_task(novamsg.manager())
+        except Exception:
+            pass
+        try:                                  # background code -> SD backup mover (once)
+            import novastore
+            if not getattr(novastore, '_mover_on', False):
+                novastore._mover_on = True
+                asyncio.create_task(novastore.backup_mover())
         except Exception:
             pass
         if first and _reg('Apps.NovaD1_Web', 'off') == 'on':
