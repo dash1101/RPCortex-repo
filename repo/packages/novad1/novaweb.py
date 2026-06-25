@@ -146,6 +146,20 @@ def _wifi_scan():
     return '[' + ','.join(parts) + ']'
 
 
+def _msg_json():
+    try:
+        import novamsg
+        box = novamsg.inbox()
+    except Exception:
+        box = []
+    parts = []
+    for m in box[-25:]:
+        who = 'me' if m.get('me') else str(m.get('src', '?'))
+        t = str(m.get('text', '')).replace('\\', '').replace('"', "'")
+        parts.append('{"w":"%s","t":"%s"}' % (who, t))
+    return '[' + ','.join(parts) + ']'
+
+
 def _wifi_join(ssid, pw):
     """Save the network; the background manager then connects to it (no blocking,
     no fighting the manager). Returns a status string."""
@@ -215,6 +229,7 @@ white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 <div class=tabs>
 <button id=ta class=on onclick="tab('a')">Apps</button>
 <button id=tw onclick="tab('w')">WiFi</button>
+<button id=tm onclick="tab('m')">Msg</button>
 <button id=ts onclick="tab('s')">Shell</button></div>
 
 <div id=a class="sec on"><div class=grid>
@@ -234,6 +249,12 @@ white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 <button class=b onclick=conn()>Join</button></div>
 <div class=muted id=wm>Pick a network or type one. Saved nets connect automatically.</div></div>
 
+<div id=m class=sec>
+<pre id=mb>loading…</pre>
+<div class=row><input id=mt placeholder="message" maxlength=120
+onkeydown="if(event.key=='Enter')msend()"><button class=b onclick=msend()>Send</button></div>
+<div class=muted>Broadcasts over LoRa to nearby Nova D1s.</div></div>
+
 <div id=s class=sec>
 <div class=row><input id=c placeholder="command, e.g. ls /"
 onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
@@ -241,7 +262,7 @@ onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</butto
 </div><script>
 var P=localStorage.nvpin||'';
 function $(i){return document.getElementById(i)}
-function tab(t){for(var x of['a','w','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}}
+function tab(t){for(var x of['a','w','m','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}if(t=='m')mload()}
 function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' · v'+j.version+' · '+(j.free/1024|0)+'KB'}).catch(_=>{})}
 function pin(){if(!P)P=prompt('Device PIN')||'';localStorage.nvpin=P;return P}
 function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin()))
@@ -253,7 +274,10 @@ var h='';l.forEach(function(n){h+='<div class=net onclick="document.getElementBy
 $('nets').innerHTML=h||'<div class=muted>none found</div>'}).catch(e=>$('nets').innerHTML='<div class=muted>'+e+'</div>')}
 function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving…';
 api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
-st();setInterval(st,8000);
+function mload(){if($('m').className.indexOf('on')<0)return;api('/msg').then(x=>x.json()).then(function(l){
+$('mb').textContent=l.map(function(m){return m.w+': '+m.t}).join('\\n')||'(no messages)'}).catch(_=>{})}
+function msend(){var t=$('mt').value;if(!t)return;$('mt').value='';api('/msgsend?text='+encodeURIComponent(t)).then(_=>setTimeout(mload,300))}
+st();setInterval(st,8000);setInterval(mload,3000);
 </script></body></html>"""
 
 
@@ -302,7 +326,7 @@ async def _handle_async(conn):
         path, q = _qs(parts[1])
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
-        elif path in ('/wifiscan', '/wificonnect', '/notify'):
+        elif path in ('/wifiscan', '/wificonnect', '/notify', '/msg', '/msgsend'):
             pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
             if not pin or q.get('pin', '') != pin:
                 await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
@@ -315,7 +339,16 @@ async def _handle_async(conn):
                 except Exception:
                     pass
                 await _asend(stream, '200 OK', 'text/plain', 'sent')
-            else:
+            elif path == '/msg':
+                await _asend(stream, '200 OK', 'application/json', _msg_json())
+            elif path == '/msgsend':
+                try:
+                    import novamsg
+                    novamsg.send(q.get('text', '').strip() or 'ping')
+                except Exception:
+                    pass
+                await _asend(stream, '200 OK', 'text/plain', 'sent')
+            elif path == '/wificonnect':
                 msg = _wifi_join(q.get('ssid', '').strip(), q.get('pw', ''))
                 await _asend(stream, '200 OK', 'text/plain', msg)
         elif path == '/cmd':

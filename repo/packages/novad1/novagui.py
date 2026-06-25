@@ -904,84 +904,75 @@ class SystemCheckScreen(Screen):
         return None
 
 
-_INBOX = []          # recent LoRa messages (module-level, survives screen close)
-
-
 class MessagesScreen(Screen):
-    """P2P LoRa messaging (novamesh over novalora). Open = radio listens; Select
-    broadcasts a ping. Foreground RX for now; background mesh relay is roadmap.
-    DEVICE-PENDING: needs an SX1276 (and a second board to talk to)."""
+    """LoRa messaging view — backed by the shared novamsg manager (same inbox the
+    web panel uses). Shows the conversation; Select broadcasts a quick 'ping'.
+    Compose real text from the web panel (phone keyboard). The manager owns the
+    radio + listens in the background, so messages arrive even off this screen."""
     def __init__(self):
         self.title = 'Messages'
-        self.lora = None
-        self.err = None
-        self._sent = 0
+        self.top = 0
+        self._last = -1
+
+    def _lines(self):
         try:
-            import novalora
-            lr = novalora.LoRa()
-            if lr.begin():
-                lr.start_rx()
-                self.lora = lr
-            else:
-                self.err = 'no SX1276'
-        except Exception as e:
-            self.err = str(e)[:16]
+            import novamsg
+            box = novamsg.inbox()
+        except Exception:
+            box = []
+        out = []
+        for m in box:
+            who = 'me' if m.get('me') else str(m.get('src', '?'))
+            out.append('{}: {}'.format(who, m.get('text', '')))
+        return out
 
     def draw(self, c):
-        if self.lora is None:
-            c.text(2, _TOP, 'LoRa: ' + (self.err or 'n/a'), 1)
-            c.text(2, _TOP + _ROWH, 'check wiring/911', 1)
+        try:
+            import novamsg
+            ok = novamsg.radio_ok()
+        except Exception:
+            ok = False
+        if not ok:
+            c.text(2, _TOP, 'LoRa: no radio', 1)
+            c.text(2, _TOP + _ROWH, 'check SX1276 wiring', 1)
             c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
+        lines = self._lines()
         rows = (c.h - _TOP - _FH) // _ROWH
-        view = _INBOX[-rows:]
-        if not view:
+        wl = []
+        for ln in lines:
+            wl.extend(_wrap(ln, (c.w - 3) // _ADV))
+        if len(wl) > rows:                       # auto-stick to newest
+            self.top = len(wl) - rows
+        if not wl:
             c.text(2, _TOP, '(listening...)', 1)
-        for i, m in enumerate(view):
-            c.text(2, _TOP + i * _ROWH, m[:16], 1)
+        for i in range(rows):
+            idx = self.top + i
+            if 0 <= idx < len(wl):
+                c.text(2, _TOP + i * _ROWH, wl[idx], 1)
         c.text(2, c.h - _FH, 'Sel=ping BACK=exit', 1)
 
     def tick(self, dt_ms=0):
-        if self.lora is None:
-            return False
         try:
-            raw = self.lora.poll()
-            if raw:
-                import novamesh
-                pkt = novamesh.parse_packet(raw)
-                if pkt:
-                    try:
-                        txt = pkt['payload'].decode('utf-8')
-                    except Exception:
-                        txt = '?'
-                    _INBOX.append('{}: {}'.format(pkt['src'], txt))
-                    if len(_INBOX) > 30:
-                        _INBOX.pop(0)
-                    return True
+            import novamsg
+            n = len(novamsg.inbox())
         except Exception:
-            pass
+            n = 0
+        if n != self._last:                      # redraw when the inbox changes
+            self._last = n
+            return True
         return False
 
     def on_event(self, e):
-        if e == ev.SELECT and self.lora is not None:
+        if e == ev.SELECT:
             try:
+                import novamsg
                 import novamesh
-                self._sent = (self._sent + 1) & 0xFFFF
-                src = novamesh.node_id()
-                pkt = novamesh.make_packet(src, novamesh.BROADCAST, self._sent,
-                                           'ping ' + str(src))
-                self.lora.send(pkt)
-                _INBOX.append('me: ping #{}'.format(self._sent))
-                self.lora.start_rx()
+                novamsg.send('ping ' + str(novamesh.node_id()))
             except Exception:
                 pass
             return None
         if e in (ev.BACK, ev.HOME):
-            if self.lora is not None:
-                try:
-                    self.lora.sleep()
-                except Exception:
-                    pass
             return e
         return None
 

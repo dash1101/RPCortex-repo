@@ -51,6 +51,22 @@ def _i2c():
                  sda=m.Pin(int(_reg('Apps.NovaD1_SDA', 8))), freq=400000)
 
 
+def _msg_pause():
+    try:
+        import novamsg
+        novamsg.pause()
+    except Exception:
+        pass
+
+
+def _msg_resume():
+    try:
+        import novamsg
+        novamsg.resume()
+    except Exception:
+        pass
+
+
 def _ms():
     import utime
     return utime.ticks_ms()
@@ -136,35 +152,40 @@ def test_ir_tx(cfg, cancel=None):
 
 def test_sdcard(cfg, cancel=None):
     import uos
-    # Prefer the OS core mount (one mount point, shared with `sd` + boot).
+    _msg_pause()                          # SD takes over the SPI host — pause LoRa mgr
     try:
-        import sdmgr
-        okk, msg = sdmgr.mount()
-        if not okk:
-            return False, ['SD card', msg[:16], 'check wiring']
-        files = uos.listdir('/sd')
-        return True, ['SD card OK', '{} entries'.format(len(files)),
-                      files[0][:16] if files else '(empty)']
-    except ImportError:
-        pass            # older OS without sdmgr — fall back to a direct mount
-    m = _machine()
-    try:
-        sd = m.SDCard(slot=2, sck=m.Pin(_pin('spi_sck', 12)),
-                      mosi=m.Pin(_pin('spi_mosi', 11)),
-                      miso=m.Pin(_pin('spi_miso', 13)),
-                      cs=m.Pin(_pin('sd_cs', 15)))
-        uos.mount(sd, '/sd')
-        files = uos.listdir('/sd')
-        uos.umount('/sd')
-        return True, ['SD card OK', '{} entries'.format(len(files)),
-                      files[0][:16] if files else '(empty)']
-    except Exception as e:
-        return False, ['SD card', 'init failed', str(e)[:16]]
+        # Prefer the OS core mount (one mount point, shared with `sd` + boot).
+        try:
+            import sdmgr
+            okk, msg = sdmgr.mount()
+            if not okk:
+                return False, ['SD card', msg[:16], 'check wiring']
+            files = uos.listdir('/sd')
+            return True, ['SD card OK', '{} entries'.format(len(files)),
+                          files[0][:16] if files else '(empty)']
+        except ImportError:
+            pass        # older OS without sdmgr — fall back to a direct mount
+        m = _machine()
+        try:
+            sd = m.SDCard(slot=2, sck=m.Pin(_pin('spi_sck', 12)),
+                          mosi=m.Pin(_pin('spi_mosi', 11)),
+                          miso=m.Pin(_pin('spi_miso', 13)),
+                          cs=m.Pin(_pin('sd_cs', 15)))
+            uos.mount(sd, '/sd')
+            files = uos.listdir('/sd')
+            uos.umount('/sd')
+            return True, ['SD card OK', '{} entries'.format(len(files)),
+                          files[0][:16] if files else '(empty)']
+        except Exception as e:
+            return False, ['SD card', 'init failed', str(e)[:16]]
+    finally:
+        _msg_resume()
 
 
 def test_cc1101(cfg, cancel=None):
     m = _machine()
     import utime
+    _msg_pause()                          # free the shared SPI bus from the LoRa mgr
     spi = _spi(cfg)
     cs = m.Pin(_pin('cc_cs', 10), m.Pin.OUT, value=1)
     try:
@@ -187,11 +208,13 @@ def test_cc1101(cfg, cancel=None):
             spi.deinit()
         except Exception:
             pass
+        _msg_resume()
 
 
 def test_sx1276(cfg, cancel=None):
     m = _machine()
     import utime
+    _msg_pause()                          # the LoRa manager owns this radio — pause it
     spi = _spi(cfg)
     cs = m.Pin(_pin('sx_cs', 21), m.Pin.OUT, value=1)
     rst = m.Pin(_pin('sx_rst', 47), m.Pin.OUT, value=1)
@@ -210,6 +233,7 @@ def test_sx1276(cfg, cancel=None):
             spi.deinit()
         except Exception:
             pass
+        _msg_resume()
 
 
 # --- status LED — WS2812/NeoPixel (default) or plain GPIO (generator) --------

@@ -137,8 +137,8 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.12.0",
-      "desc": "Nova D1 multi-tool \u2014 redesigned phone web panel (WiFi GUI), real screen-off, PIN lock, power menu, LoRa P2P, OLED UI + drivers for every peripheral.",
+      "ver": "0.13.0",
+      "desc": "Nova D1 multi-tool \u2014 LoRa messaging (synced Nova UI + phone web), notifications, secure web panel, screen-off, OLED UI + drivers for every peripheral.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
     }

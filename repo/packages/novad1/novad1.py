@@ -437,6 +437,12 @@ async def _gui_service():
                 asyncio.create_task(novawifi.manager())
         except Exception:
             pass
+        try:                                  # background LoRa messaging (once; self-
+            import novamsg                    # disables if no SX1276 answers)
+            if not novamsg._started:
+                asyncio.create_task(novamsg.manager())
+        except Exception:
+            pass
         if first and _reg('Apps.NovaD1_Web', 'off') == 'on':
             set_web(True)                     # auto-host the control panel
         if first:
