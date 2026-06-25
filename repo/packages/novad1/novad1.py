@@ -185,7 +185,13 @@ def _state_provider():
         pwr = novapower.read()
     except Exception:
         pass
-    return {'wifi': wifi, 'time': tstr, 'power': pwr}
+    nt = 0
+    try:
+        import novanotify
+        nt = novanotify.count()
+    except Exception:
+        pass
+    return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt}
 
 
 def _build_ui(kind=None):
@@ -506,6 +512,21 @@ def _web(info, ok, warn, error, multi, rest=''):
         multi("  novad1 web on | off   (PIN: reg set Apps.NovaD1_Web_PIN <pin>)")
 
 
+def _notify(info, ok, warn, error, multi, rest=''):
+    text = rest.strip()
+    if not text:
+        warn("Usage: novad1 notify <text>")
+        return
+    try:
+        import novanotify
+        if novanotify.notify(text):
+            ok("Notification pushed to the Nova UI.", p="NovaD1")
+        else:
+            warn("Notifications are off (settings: Notify).")
+    except Exception as e:
+        error("notify failed: {}".format(e))
+
+
 def _logs(info, ok, warn, error, multi, rest=''):
     import novalog
     r = rest.strip().lower()
@@ -558,6 +579,7 @@ def novad1(args=None):
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
+        multi("  novad1 notify <t>  Push a notification to the Nova UI")
         multi("  novad1 web on|off  Phone control panel over WiFi")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
@@ -577,6 +599,9 @@ def novad1(args=None):
     elif cmd == 'logs':
         rest_cs = (args or '').strip().split(None, 1)
         _logs(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'notify':
+        rest_cs = (args or '').strip().split(None, 1)
+        _notify(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':

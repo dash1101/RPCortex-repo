@@ -302,12 +302,19 @@ async def _handle_async(conn):
         path, q = _qs(parts[1])
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
-        elif path in ('/wifiscan', '/wificonnect'):
+        elif path in ('/wifiscan', '/wificonnect', '/notify'):
             pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
             if not pin or q.get('pin', '') != pin:
                 await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
             elif path == '/wifiscan':
                 await _asend(stream, '200 OK', 'application/json', _wifi_scan())
+            elif path == '/notify':
+                try:
+                    import novanotify
+                    novanotify.notify(q.get('text', '').strip() or 'web ping')
+                except Exception:
+                    pass
+                await _asend(stream, '200 OK', 'text/plain', 'sent')
             else:
                 msg = _wifi_join(q.get('ssid', '').strip(), q.get('pw', ''))
                 await _asend(stream, '200 OK', 'text/plain', msg)

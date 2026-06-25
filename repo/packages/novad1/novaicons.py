@@ -160,12 +160,20 @@ def _power(c, cx, cy, r):             # power symbol (ring + break + stem)
     c.vline(cx, cy - r - 1, r + 2, 1)
 
 
+def _notes(c, cx, cy, r):             # Notifications — bell
+    c.line(cx - r + 1, cy + r - 2, cx, cy - r, 1)
+    c.line(cx + r - 1, cy + r - 2, cx, cy - r, 1)
+    c.hline(cx - r + 1, cy + r - 2, 2 * r - 2, 1)
+    c.fill_circle(cx, cy + r - 1, 1, 1)
+    c.fill_circle(cx, cy - r, 1, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
     'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
-    'check': _check, 'msg': _chat, 'power': _power,
+    'check': _check, 'msg': _chat, 'power': _power, 'notes': _notes,
 }
 
 

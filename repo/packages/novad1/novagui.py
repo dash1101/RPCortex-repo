@@ -112,6 +112,15 @@ def _usb(c, x, y):
     c.pixel(x + 6, y + 2, 1)
 
 
+def _bell(c, x, y):
+    # small bell glyph (~6 wide) — shown when there are unread notifications
+    c.hline(x + 1, y, 3, 1)
+    c.line(x, y + 4, x + 1, y + 1, 1)
+    c.line(x + 4, y + 1, x + 5, y + 4, 1)
+    c.hline(x - 1, y + 4, 7, 1)
+    c.pixel(x + 2, y + 5, 1)
+
+
 def draw_status_bar(c, state):
     # Right-aligned clock, then (battery)(usb)(wifi) leftward, then title fills the
     # rest — all measured from _ADV so a font swap can't clip the clock. Battery +
@@ -132,6 +141,9 @@ def draw_status_bar(c, state):
         x -= 3
     x -= 8
     _wifi(c, x, 2, state.get('wifi', False))
+    if state.get('notify'):                 # unread notifications -> bell
+        x -= 9
+        _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
     maxc = max(1, (x - 4) // _ADV)
     c.text(2, 1, title[:maxc], 1)
@@ -974,6 +986,62 @@ class MessagesScreen(Screen):
         return None
 
 
+class NotificationsScreen(Screen):
+    """View recent notifications (newest first); Select clears. Marks read on open."""
+    def __init__(self):
+        self.title = 'Notes'
+        self.top = 0
+        try:
+            import novanotify
+            novanotify.mark_read()
+        except Exception:
+            pass
+
+    def _lines(self):
+        try:
+            import novanotify
+            it = novanotify.items()
+        except Exception:
+            it = []
+        out = []
+        for ts, txt in reversed(it):
+            out.append(ts + ' ' + txt)
+        return out
+
+    def draw(self, c):
+        lines = self._lines()
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if not lines:
+            c.text(2, _TOP, '(no notifications)', 1)
+        wl = []
+        for ln in lines:
+            wl.extend(_wrap(ln, (c.w - 3) // _ADV))
+        if self.top > max(0, len(wl) - rows):
+            self.top = max(0, len(wl) - rows)
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(wl):
+                break
+            c.text(2, _TOP + i * _ROWH, wl[idx], 1)
+        c.text(2, c.h - _FH, 'Sel=clear BACK=exit', 1)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.top += 1
+        elif e == ev.ROT_CCW:
+            self.top = max(0, self.top - 1)
+        elif e == ev.SELECT:
+            try:
+                import novanotify
+                novanotify.clear()
+            except Exception:
+                pass
+            self.top = 0
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 class PinScreen(Screen):
     """6-digit PIN entry via the rotary encoder. mode='verify' locks the UI (can't
     be escaped except by the correct PIN); mode='set' stores a new PIN.
@@ -1222,6 +1290,11 @@ class NovaUI:
             if not self._low_warned and not self._dimmed:
                 self._low_warned = True
                 self.stack.append(LowPowerScreen())
+                try:
+                    import novanotify
+                    novanotify.notify('Low battery')
+                except Exception:
+                    pass
                 dirty = True
         else:
             self._low_warned = False
@@ -1342,6 +1415,7 @@ def _all_apps():
     apps = [(k, l, _mk_test(k, l)) for k, l, _fn in novamods.MODULES]
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
+    apps.append(('notes', 'Notifications', NotificationsScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', _scripts_screen))
@@ -1478,6 +1552,7 @@ class SettingsScreen(Screen):
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
             ('cycle', 'Auto-Off', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60', '120'], '0', None),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+            ('cycle', 'Notify', 'Apps.NovaD1_Notify', ['on', 'off'], 'on', None),
             # OS-level actions (run a shell command, show output)
             ('action', 'Check Updates', 'update check'),
             ('action', 'Update Nova', 'pkg upgrade'),
