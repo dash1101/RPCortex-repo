@@ -343,7 +343,7 @@ async def _handle_async(conn):
         return
     try:
         try:
-            req = await asyncio.wait_for(stream.read(4096), 5)
+            req = await asyncio.wait_for(stream.read(4096), 3)
         except Exception:
             req = b''
         if not req:

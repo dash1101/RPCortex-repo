@@ -62,7 +62,7 @@ def save_code(cat, name, text):
     return path
 
 
-CATS = ('ir', 'subghz', 'lora', 'nfc')
+CATS = ('ir', 'subghz', 'lora', 'nfc', 'scripts')
 
 
 def rename_code(cat, old, new):

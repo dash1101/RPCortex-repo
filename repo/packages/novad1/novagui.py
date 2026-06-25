@@ -666,37 +666,41 @@ class ManageAppsScreen(Menu):
 
 
 class DisplayScreen(Screen):
-    """Adjust the OLED brightness/contrast live; persisted to the registry."""
+    """Adjust OLED brightness as 0-100% (steps of 10), stored as 0-255 contrast."""
     def __init__(self):
         self.title = 'Display'
         try:
-            self.val = int(_reg('Apps.NovaD1_Contrast', 255))
+            raw = int(_reg('Apps.NovaD1_Contrast', 255))
         except Exception:
-            self.val = 255
+            raw = 255
+        self.pct = max(0, min(100, round(raw * 100 / 255 / 10) * 10))
 
     def draw(self, c):
         c.text(2, _TOP, 'Brightness', 1)
         bx, by, bw = 6, _TOP + _ROWH, c.w - 12
         c.rect(bx, by, bw, 9, 1)
-        c.fill_rect(bx + 1, by + 1, int((bw - 2) * self.val / 255), 7, 1)
-        c.text(2, by + 12, '{}'.format(self.val), 1)
+        c.fill_rect(bx + 1, by + 1, int((bw - 2) * self.pct / 100), 7, 1)
+        c.text(2, by + 12, '{}%'.format(self.pct), 1)
         c.text(2, c.h - _FH, 'turn=adj BACK=save', 1)
+
+    def _raw(self):
+        return max(10, int(self.pct * 255 / 100))   # never fully 0 (keep visible)
 
     def _apply(self):
         d = _disp()
         if d is not None:
             try:
-                d.contrast(self.val)
+                d.contrast(self._raw())
             except Exception:
                 pass
 
     def on_event(self, e):
         if e == ev.ROT_CW:
-            self.val = min(255, self.val + 15); self._apply()
+            self.pct = min(100, self.pct + 10); self._apply()
         elif e == ev.ROT_CCW:
-            self.val = max(1, self.val - 15); self._apply()
+            self.pct = max(10, self.pct - 10); self._apply()
         elif e in (ev.BACK, ev.HOME):
-            _save_reg('Apps.NovaD1_Contrast', str(self.val))
+            _save_reg('Apps.NovaD1_Contrast', str(self._raw()))
             return e
         return None
 
@@ -1595,6 +1599,128 @@ def _lora_fire(t):
     novamsg.send(t.strip())
 
 
+class ButtonGridScreen(Screen):
+    """A 'remote' — a 2-column grid of buttons, each running a nova action string
+    ('ir tv.ir Power', 'lora hi', 'subghz gate', 'run sysinfo', 'notify ...')."""
+    def __init__(self, title, buttons):
+        self.title = title[:14]
+        self.buttons = buttons               # [(label, action)]
+        self.sel = 0
+        self.msg = ''
+
+    def draw(self, c):
+        if not self.buttons:
+            c.text(2, _TOP, '(no buttons)', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        cols = 2
+        bw = (c.w - 6) // cols
+        bh = _ROWH + 4
+        rows_vis = max(1, (c.h - _TOP - _FH) // bh)
+        per = cols * rows_vis
+        start = (self.sel // per) * per
+        for i in range(per):
+            idx = start + i
+            if idx >= len(self.buttons):
+                break
+            r = i // cols
+            col = i % cols
+            x = 3 + col * bw
+            y = _TOP + r * bh
+            lbl = self.buttons[idx][0][:(bw - 5) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(x, y, bw - 2, bh - 2, 1)
+                c.text(x + 3, y + 2, lbl, 0)
+            else:
+                c.rect(x, y, bw - 2, bh - 2, 1)
+                c.text(x + 3, y + 2, lbl, 1)
+        c.text(2, c.h - _FH, (self.msg or 'Sel=run BACK=exit')[:16], 1)
+
+    def on_event(self, e):
+        n = len(self.buttons)
+        if not n:
+            return e if e in (ev.BACK, ev.HOME) else None
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % n
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % n
+        elif e == ev.SELECT:
+            import nova
+            self.msg = nova.do(self.buttons[self.sel][1])
+            return None
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class ScriptsScreen(Screen):
+    """Script launcher: lists files in the scripts store. A button-grid script
+    opens as a remote; a .py script runs with the nova API. Upload via the web."""
+    title = 'Scripts'
+
+    def __init__(self):
+        self.sel = 0
+        self.top = 0
+        self.msg = ''
+
+    def _files(self):
+        import novastore
+        return novastore.list_codes('scripts')
+
+    def draw(self, c):
+        files = self._files()
+        if not files:
+            c.text(2, _TOP, '(no scripts)', 1)
+            c.text(2, _TOP + _ROWH, 'upload via web', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self.sel >= len(files):
+            self.sel = len(files) - 1
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(files):
+                break
+            y = _TOP + i * _ROWH
+            label = files[idx][:(c.w - 8) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+            else:
+                c.text(4, y, label, 1)
+        c.text(2, c.h - _FH, (self.msg or 'Sel=open BACK=exit')[:16], 1)
+
+    def on_event(self, e):
+        files = self._files()
+        if not files:
+            return e if e in (ev.BACK, ev.HOME) else None
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(files)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(files)
+        elif e == ev.SELECT:
+            import novastore
+            import nova
+            name = files[self.sel]
+            txt = novastore.read_code('scripts', name) or ''
+            if name.endswith('.py'):
+                ok, err = nova.run_py(txt)
+                self.msg = 'ran ok' if ok else ('err: ' + err)[:15]
+                return None
+            title, btns = nova.parse_buttons(txt)
+            if btns:
+                return ButtonGridScreen(title, btns)
+            self.msg = 'no buttons'
+            return None
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 class LowPowerScreen(Screen):
     """Transient low-battery popup — auto-dismisses; any key clears it."""
     DUR = 3000
@@ -1922,7 +2048,7 @@ def _all_apps():
     apps.append(('notes', 'Notifications', NotificationsScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
-    apps.append(('scripts', 'Scripts', _scripts_screen))
+    apps.append(('scripts', 'Scripts', ScriptsScreen))
     apps.append(('power', 'Power', _power_menu))
     return apps
 
