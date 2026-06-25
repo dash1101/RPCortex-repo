@@ -119,8 +119,9 @@ class LoRa:
         self._w(_OPMODE, _LORA | _STDBY); utime.sleep_ms(5)
         return True
 
-    def send(self, data, timeout_ms=2000):
-        import utime
+    def send_start(self, data):
+        """Begin a TX (load FIFO + enter TX mode). Use tx_done() to poll — lets the
+        caller yield the event loop instead of blocking on the whole transmit."""
         self._rx_armed = False
         self._w(_OPMODE, _LORA | _STDBY)
         self._w(_IRQ, 0xFF)               # clear IRQs
@@ -131,10 +132,19 @@ class LoRa:
         self.cs.value(1)
         self._w(_PAYLEN, len(data) & 0xFF)
         self._w(_OPMODE, _LORA | _TX)
+
+    def tx_done(self):
+        if self._r(_IRQ) & _IRQ_TXDONE:
+            self._w(_IRQ, 0xFF)
+            return True
+        return False
+
+    def send(self, data, timeout_ms=2000):
+        import utime
+        self.send_start(data)
         t0 = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), t0) < timeout_ms:
-            if self._r(_IRQ) & _IRQ_TXDONE:
-                self._w(_IRQ, 0xFF)
+            if self.tx_done():
                 return True
             utime.sleep_ms(5)
         return False

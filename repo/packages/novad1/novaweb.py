@@ -233,7 +233,7 @@ button:active{background:#21407a}.b{background:#1c3a6e;border-color:#2f5aa0;font
 input,textarea{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px;width:100%}
 pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;font-size:13px;white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 .net{display:flex;justify-content:space-between;padding:11px;border:1px solid #21345c;border-radius:10px;margin:6px 0;background:#0e1830}
-.net small{color:#8aa0c4}.muted{color:#8aa0c4;font-size:12px;margin-top:6px}
+.net small{color:#8aa0c4}.net small a{color:#7fd1ff}.muted{color:#8aa0c4;font-size:12px;margin-top:6px}
 .card{background:#0e1830;border:1px solid #21345c;border-radius:12px;padding:12px;font-size:13px;white-space:pre-wrap;color:#b6e6bd;min-height:60px}
 </style></head><body><div class=wrap>
 <div class=hd><span class=bk id=bk onclick=back()>&#8249;</span><b id=ttl>NOVA D1</b><span class=s id=st>...</span></div>
@@ -268,7 +268,7 @@ pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;
 <div class=row><input id=ucat value=ir style=flex:.55><input id=uname placeholder="name e.g. tv.ir"></div>
 <textarea id=ubody placeholder="paste a Flipper .ir / code / script" style=min-height:80px></textarea>
 <div class=row><button class=b onclick=upl()>Upload to device</button></div>
-<div class=muted id=um>Rename/delete above, or paste &amp; upload (cat: ir/subghz/lora/scripts).</div></div>
+<div class=muted id=um>Tap rename/del on a code, or paste &amp; upload (cat: ir/subghz/lora/scripts).</div></div>
 
 <div id=v_shell class=view>
 <div class=row><input id=c placeholder="command, e.g. ls /" onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
@@ -277,21 +277,23 @@ pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;
 </div><script>
 var P=localStorage.nvpin||'';
 function $(i){return document.getElementById(i)}
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 var V=['sys','msg','wifi','codes','shell'];
 var T={sys:'System',msg:'Messages',wifi:'WiFi',codes:'Codes',shell:'Shell'};
-function back(){for(var v of V)$('v_'+v).style.display='none';$('home').style.display='grid';$('bk').style.display='none';$('ttl').textContent='NOVA D1'}
-function op(n){$('home').style.display='none';for(var v of V)$('v_'+v).style.display=(v==n?'block':'none');$('bk').style.display='inline';$('ttl').textContent=T[n];if(n=='msg')mload();if(n=='codes')cload();if(n=='sys')sysload()}
+function back(){for(var i=0;i<V.length;i++)$('v_'+V[i]).style.display='none';$('home').style.display='grid';$('bk').style.display='none';$('ttl').textContent='NOVA D1'}
+function op(n){$('home').style.display='none';for(var i=0;i<V.length;i++)$('v_'+V[i]).style.display=(V[i]==n?'block':'none');$('bk').style.display='inline';$('ttl').textContent=T[n];if(n=='msg')mload();if(n=='codes')cload();if(n=='sys')sysload()}
 function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' . '+(j.free/1024|0)+'KB'}).catch(_=>{})}
 function pin(){if(!P)P=prompt('Device PIN')||'';localStorage.nvpin=P;return P}
 function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin())).then(x=>{if(x.status==403){P='';localStorage.nvpin='';throw 'PIN required'}return x})}
 function r(c){if($('home').style.display!='none')op('sys');$('ao').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('ao').textContent=t).catch(e=>$('ao').textContent=e)}
 function sysload(){api('/cmd?c='+encodeURIComponent('novad1 status')).then(x=>x.text()).then(t=>$('sysc').textContent=t).catch(_=>{})}
 function run(){var c=$('c').value;if(!c)return;$('o').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('o').textContent=t).catch(e=>$('o').textContent=e)}
-function mload(){if($('v_msg').style.display=='none')return;api('/msg').then(x=>x.json()).then(l=>{$('mb').textContent=l.map(m=>m.w+': '+m.t).join('\n')||'(no messages)'}).catch(_=>{})}
+function mload(){if($('v_msg').style.display=='none')return;api('/msg').then(x=>x.json()).then(l=>{$('mb').textContent=l.map(m=>m.w+': '+m.t).join('
+')||'(no messages)'}).catch(_=>{})}
 function msend(){var t=$('mt').value;if(!t)return;$('mt').value='';api('/msgsend?text='+encodeURIComponent(t)).then(_=>setTimeout(mload,300))}
-function scan(){$('nets').innerHTML='<div class=muted>scanning...</div>';api('/wifiscan').then(x=>x.json()).then(l=>{$('nets').innerHTML=l.map(n=>'<div class=net onclick="document.getElementById(\'ssid\').value=\''+n.s.replace(/'/g,'')+'\'"><span>'+n.s+'</span><small>'+n.r+'dBm'+(n.k?' saved':'')+'</small></div>').join('')||'<div class=muted>none</div>'}).catch(e=>$('nets').innerHTML='<div class=muted>'+e+'</div>')}
+function scan(){$('nets').innerHTML='';$('nets').appendChild(el('div','muted','scanning...'));api('/wifiscan').then(x=>x.json()).then(l=>{var box=$('nets');box.innerHTML='';if(!l.length){box.appendChild(el('div','muted','none'));return}l.forEach(function(n){var d=el('div','net');var a=el('span',null,n.s);var b=el('small',null,n.r+'dBm'+(n.k?' saved':''));d.appendChild(a);d.appendChild(b);d.onclick=function(){$('ssid').value=n.s};box.appendChild(d)})}).catch(e=>{$('nets').textContent=''+e})}
 function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving...';api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
-function cload(){if($('v_codes').style.display=='none')return;api('/codes').then(x=>x.json()).then(l=>{$('cl').innerHTML=l.map(o=>'<div class=net><span>'+o.c+'/'+o.n+'</span><small><a href=# onclick="cren(\''+o.c+'\',\''+o.n+'\');return false">rename</a> . <a href=# onclick="cdel(\''+o.c+'\',\''+o.n+'\');return false">del</a></small></div>').join('')||'<div class=muted>no codes</div>'})}
+function cload(){if($('v_codes').style.display=='none')return;api('/codes').then(x=>x.json()).then(l=>{var box=$('cl');box.innerHTML='';if(!l.length){box.appendChild(el('div','muted','no codes'));return}l.forEach(function(o){var d=el('div','net');d.appendChild(el('span',null,o.c+'/'+o.n));var sm=el('small');var ra=el('a',null,'rename');ra.href='#';ra.onclick=function(){cren(o.c,o.n);return false};var da=el('a',null,'del');da.href='#';da.onclick=function(){cdel(o.c,o.n);return false};sm.appendChild(ra);sm.appendChild(document.createTextNode(' '));sm.appendChild(da);d.appendChild(sm);box.appendChild(d)})})}
 function cren(c,n){var t=prompt('New name',n);if(!t)return;api('/coderename?cat='+c+'&name='+encodeURIComponent(n)+'&to='+encodeURIComponent(t)).then(_=>cload())}
 function cdel(c,n){if(!confirm('Delete '+n+'?'))return;api('/codedel?cat='+c+'&name='+encodeURIComponent(n)).then(_=>cload())}
 function upl(){var c=$('ucat').value||'ir',n=$('uname').value,b=$('ubody').value;if(!n||!b){$('um').textContent='need name + content';return}fetch('/codeupload?pin='+encodeURIComponent(pin())+'&cat='+encodeURIComponent(c)+'&name='+encodeURIComponent(n),{method:'POST',body:b}).then(x=>x.text()).then(t=>{$('um').textContent=t;$('ubody').value='';cload()}).catch(e=>$('um').textContent=''+e)}

@@ -313,13 +313,13 @@ class IconGallery(Screen):
     def on_event(self, e):
         n = len(self.items)
         if e == ev.ROT_CW:
-            if self.sel == n - 1:               # loop around end -> start (snap, no
-                self.sel = 0; self.sel_f = 0.0  # long backward slide)
+            if self.sel == n - 1:               # wrap end -> start: slide the new
+                self.sel = 0; self.sel_f = -1.0 # item IN from the right (one step)
             else:
                 self.sel += 1
         elif e == ev.ROT_CCW:
-            if self.sel == 0:
-                self.sel = n - 1; self.sel_f = float(n - 1)
+            if self.sel == 0:                   # wrap start -> end: slide IN from left
+                self.sel = n - 1; self.sel_f = float(n)
             else:
                 self.sel -= 1
         elif e == ev.SELECT:
@@ -1867,15 +1867,20 @@ class NovaUI:
         now = self._now()
         dt = now - prev
         dirty = False
+        # Drain ALL pending input events this turn — the encoder IRQ can queue many
+        # steps between turns; processing one per turn made fast spins/held buttons
+        # 'spread out over time'. Applying them all here keeps input snappy.
         e = self.source.poll()
-        if e is not None:
+        if e is not None and self._dimmed:       # WAKE only — swallow everything queued
+            self._wake_display()
+            dirty = True
+            while self.source.poll() is not None:
+                pass
+            e = None
+        while e is not None:
             self._idle_t0 = now
-            if self._dimmed:                     # WAKE only — swallow the input so the
-                self._wake_display()             # wake press doesn't also activate a row
-                e = None
-                dirty = True
-            else:
-                dirty = self.handle(e) or dirty
+            dirty = self.handle(e) or dirty
+            e = self.source.poll()
         # Rebuild the home live when its config changed (apps/style) and we're back
         # on it — no reboot needed.
         global _home_dirty

@@ -113,10 +113,16 @@ async def manager():
                 _msgid = (_msgid + 1) & 0xFFFF
                 try:
                     import novacrypt
+                    import utime
                     payload = novacrypt.encrypt(text) if novacrypt.have_key() else text
                     if payload is None:
                         payload = text
-                    _lora.send(novamesh.make_packet(me, dst, _msgid, payload))
+                    _lora.send_start(novamesh.make_packet(me, dst, _msgid, payload))
+                    t0 = utime.ticks_ms()           # cooperative TX: yield while it sends
+                    while utime.ticks_diff(utime.ticks_ms(), t0) < 1500:
+                        if _lora.tx_done():
+                            break
+                        await asyncio.sleep_ms(15)
                 except Exception:
                     pass
                 _INBOX.append({'ts': _ts(), 'src': me, 'text': text, 'me': True})
