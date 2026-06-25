@@ -57,6 +57,16 @@ def _disp():
     return _active_ui.display if _active_ui is not None else None
 
 
+def perf_stats():
+    ui = _active_ui
+    if ui is None:
+        return None
+    d = {'render_us': ui._render_us, 'render_max_us': ui._render_max,
+         'shows': ui._shows, 'dimmed': ui._dimmed}
+    ui._render_max = 0                           # reset the peak each read
+    return d
+
+
 def _apply_invert(val):
     d = _disp()
     if d is not None:
@@ -1792,6 +1802,9 @@ class NovaUI:
         self._dimmed = False
         self._low_warned = False
         self._last_sig = None
+        self._render_us = 0          # last render time (us) — perf instrumentation
+        self._render_max = 0         # worst render since reset
+        self._shows = 0
 
     def _now(self):
         try:
@@ -1839,27 +1852,25 @@ class NovaUI:
         return True
 
     def sleep_display(self):
-        """Real screen-off: power the OLED down (falls back to contrast 0). The
-        loop keeps polling input, so wake is just a poll event away."""
+        """Screen sleep via CONTRAST 0 (near-black) — NOT power-off. This is 100%
+        recoverable: the panel is never in a state that needs a command to come
+        back, so any render restores it (power(False) could leave a dark panel that
+        won't wake — the reported brick). The loop keeps polling input."""
         self._dimmed = True
-        d = self.display
         try:
-            d.power(False)
+            self.display.contrast(0)
         except Exception:
-            try:
-                d.contrast(0)
-            except Exception:
-                pass
+            pass
 
     def _wake_display(self):
         self._dimmed = False
         d = self.display
         try:
-            d.power(True)
+            d.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
         except Exception:
             pass
         try:
-            d.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
+            d.invalidate()                       # force a full redraw next frame
         except Exception:
             pass
 
@@ -1935,7 +1946,16 @@ class NovaUI:
         if self._dimmed:
             dirty = False                        # screen off — skip rendering
         if dirty:
-            self.render(now)
+            try:
+                import utime
+                _t = utime.ticks_us()
+                self.render(now)
+                self._render_us = utime.ticks_diff(utime.ticks_us(), _t)
+                if self._render_us > self._render_max:
+                    self._render_max = self._render_us
+                self._shows += 1
+            except Exception:
+                self.render(now)
         # Adaptive pace — the GUI shares one cooperative loop with the serial shell,
         # so when the UI is idle it must CEDE cpu (long nap) or it starves the shell's
         # keystroke reader (choppy typing). When you're actually using the UI (recent

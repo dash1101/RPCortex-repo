@@ -23,6 +23,7 @@ class _OledI2C:
         self.w = w
         self.h = h
         self.pages = h // 8
+        self._last = None               # previous frame, for page-diff pushes
         self._cmd(self._init_cmds)
 
     def _cmd(self, cmds):
@@ -34,20 +35,33 @@ class _OledI2C:
 
     def power(self, on):
         self._cmd((0xaf if on else 0xae,))
+        self._last = None               # panel state changed -> force a full push
 
     def invert(self, on):
         self._cmd((0xa7 if on else 0xa6,))
 
+    def invalidate(self):
+        self._last = None               # force the next show() to push every page
+
     def show(self, canvas):
+        # Page-diff: only push the 128-byte pages that actually CHANGED since the
+        # last frame. A full 8-page (~1 KB) I2C write is the biggest synchronous
+        # block on the shared event loop; most UI updates touch 1-2 pages, so this
+        # cuts that block ~4-8x and keeps the shell/animation responsive.
         off = self._col_offset
         buf = canvas.buf
         w = self.w
+        last = self._last
         for page in range(self.pages):
+            start = page * w
+            end = start + w
+            if last is not None and last[start:end] == buf[start:end]:
+                continue                # unchanged page -> skip the I2C write
             self._cmd((0xb0 | page,             # set page
                        0x00 | (off & 0x0f),     # lower column nibble
                        0x10 | (off >> 4)))       # higher column nibble
-            start = page * w
-            self.i2c.writeto(self.addr, bytes((_DAT,)) + bytes(buf[start:start + w]))
+            self.i2c.writeto(self.addr, bytes((_DAT,)) + bytes(buf[start:end]))
+        self._last = bytes(buf)         # snapshot for the next diff
 
 
 class SH1106(_OledI2C):

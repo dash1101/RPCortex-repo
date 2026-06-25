@@ -574,6 +574,25 @@ def _notify(info, ok, warn, error, multi, rest=''):
         error("notify failed: {}".format(e))
 
 
+def _perf(info, ok, warn, error, multi):
+    info("=== Nova D1 — perf ===", p="NovaD1")
+    import gc
+    multi("  free RAM: {} KB".format(gc.mem_free() // 1024))
+    try:
+        import novagui
+        p = novagui.perf_stats()
+        if p:
+            multi("  GUI render: {} us (peak since last: {} us)".format(
+                p['render_us'], p['render_max_us']))
+            multi("  renders: {}   screen-dimmed: {}".format(p['shows'], p['dimmed']))
+        else:
+            multi("  GUI not running (open the Nova GUI to measure).")
+    except Exception as e:
+        warn("perf: {}".format(e))
+    multi("  (A render that blocks > ~15ms is what stutters the shell. Spin the")
+    multi("   encoder / open an app, then run this again to read the peak.)")
+
+
 def _logs(info, ok, warn, error, multi, rest=''):
     import novalog
     r = rest.strip().lower()
@@ -649,6 +668,8 @@ def novad1(args=None):
     elif cmd == 'notify':
         rest_cs = (args or '').strip().split(None, 1)
         _notify(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'perf':
+        _perf(info, ok, warn, error, multi)
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
