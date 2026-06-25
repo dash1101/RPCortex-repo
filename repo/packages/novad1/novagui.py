@@ -1158,21 +1158,44 @@ class NovaUI:
         self._apply(self.stack[-1].on_event(e))
         return True
 
+    def sleep_display(self):
+        """Real screen-off: power the OLED down (falls back to contrast 0). The
+        loop keeps polling input, so wake is just a poll event away."""
+        self._dimmed = True
+        d = self.display
+        try:
+            d.power(False)
+        except Exception:
+            try:
+                d.contrast(0)
+            except Exception:
+                pass
+
+    def _wake_display(self):
+        self._dimmed = False
+        d = self.display
+        try:
+            d.power(True)
+        except Exception:
+            pass
+        try:
+            d.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
+        except Exception:
+            pass
+
     def _loop_once(self, prev, sleep_ms):
         now = self._now()
         dt = now - prev
         dirty = False
         e = self.source.poll()
         if e is not None:
-            dirty = self.handle(e) or dirty
             self._idle_t0 = now
-            if self._dimmed:                     # wake from screensaver on any input
-                self._dimmed = False
-                try:
-                    self.display.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
-                except Exception:
-                    pass
+            if self._dimmed:                     # WAKE only — swallow the input so the
+                self._wake_display()             # wake press doesn't also activate a row
+                e = None
                 dirty = True
+            else:
+                dirty = self.handle(e) or dirty
         # Rebuild the home live when its config changed (apps/style) and we're back
         # on it — no reboot needed.
         global _home_dirty
@@ -1202,20 +1225,16 @@ class NovaUI:
                 dirty = True
         else:
             self._low_warned = False
-        # Screen-dim (burn-in saver): after Apps.NovaD1_DimSec idle, drop contrast.
+        # Screen-off (burn-in/power saver): power the OLED down after DimSec idle.
         if not self._dimmed:
             try:
                 dim_s = int(_reg('Apps.NovaD1_DimSec', 0) or 0)
             except Exception:
                 dim_s = 0
             if dim_s > 0 and (now - self._idle_t0) >= dim_s * 1000:
-                self._dimmed = True
-                try:
-                    self.display.contrast(0)
-                except Exception:
-                    pass
+                self.sleep_display()
         if self._dimmed:
-            dirty = False                        # stay dark + idle while dimmed
+            dirty = False                        # screen off — skip rendering
         if dirty:
             self.render(now)
         # Pace: fast while animating, relaxed when idle, DEEP when dimmed (power).
@@ -1272,14 +1291,10 @@ def _power_lock():
 
 
 def _power_sleep():
-    # Dim the screen now (and lock if a PIN is set). NOT machine.lightsleep — that
-    # can drop USB-CDC/peripherals and look like a brick.
+    # Real screen-off now (+ lock if a PIN is set). NOT machine.lightsleep — that
+    # can drop USB-CDC/peripherals and look like a brick. Wake = any button.
     if _active_ui is not None:
-        _active_ui._dimmed = True
-        try:
-            _active_ui.display.contrast(0)
-        except Exception:
-            pass
+        _active_ui.sleep_display()
     return _power_lock()
 
 
@@ -1461,7 +1476,7 @@ class SettingsScreen(Screen):
             ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
             ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
-            ('cycle', 'Dim', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60'], '0', None),
+            ('cycle', 'Auto-Off', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60', '120'], '0', None),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             # OS-level actions (run a shell command, show output)
             ('action', 'Check Updates', 'update check'),

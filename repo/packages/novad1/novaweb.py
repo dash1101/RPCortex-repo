@@ -99,6 +99,62 @@ def _strip_ansi(s):
     return out
 
 
+def _wifi_scan():
+    """Scan for networks (JSON list). Pauses the background WiFi manager so it
+    isn't mid-connect on the shared STA interface."""
+    try:
+        import novawifi
+        novawifi.pause()
+    except Exception:
+        novawifi = None
+    saved = set()
+    try:
+        import net
+        saved = set(s.lower() for s, _p in net._read_networks())
+    except Exception:
+        pass
+    out = []
+    try:
+        import network
+        wlan = network.WLAN(network.STA_IF)
+        if not wlan.active():
+            wlan.active(True)
+        seen = set()
+        for r in (wlan.scan() or []):
+            try:
+                ssid = r[0].decode() if isinstance(r[0], (bytes, bytearray)) else str(r[0])
+            except Exception:
+                continue
+            if not ssid or ssid in seen:
+                continue
+            seen.add(ssid)
+            rssi = r[3] if len(r) > 3 else 0
+            out.append((ssid, rssi, ssid.lower() in saved))
+    except Exception:
+        pass
+    finally:
+        try:
+            if novawifi:
+                novawifi.resume()
+        except Exception:
+            pass
+    out.sort(key=lambda x: x[1], reverse=True)
+    parts = []
+    for ssid, rssi, k in out[:25]:
+        s = ssid.replace('"', "'")
+        parts.append('{"s":"%s","r":%d,"k":%s}' % (s, rssi, 'true' if k else 'false'))
+    return '[' + ','.join(parts) + ']'
+
+
+def _wifi_join(ssid, pw):
+    """Save the network; the background manager then connects to it (no blocking,
+    no fighting the manager). Returns a status string."""
+    if not ssid:
+        return 'no SSID'
+    _run_cmd('wifi add "{}" "{}"'.format(ssid, pw))
+    return 'Saved "{}" - connecting in background.'.format(ssid)
+
+
 def _run_cmd(cmd):
     """Run a shell line on the device, return its full captured output (text).
     Redirects sys.stdout so info/ok/warn/multi/print are all captured (the OS
@@ -134,39 +190,70 @@ def _run_cmd(cmd):
 _PAGE = """<!DOCTYPE html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Nova D1</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0a0e1a;color:#cfe6ff;
-font-family:-apple-system,Segoe UI,Roboto,sans-serif}
-.wrap{max-width:560px;margin:0 auto;padding:14px}
-h1{font-size:20px;margin:6px 0;color:#7fd1ff;letter-spacing:1px}
-.s{font-size:12px;color:#7790b0;margin-bottom:10px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-button{background:#13203a;color:#cfe6ff;border:1px solid #24406e;border-radius:10px;
-padding:12px;font-size:15px}button:active{background:#1d3a6e}
-.row{display:flex;gap:8px;margin:10px 0}input{flex:1;background:#0d1426;color:#cfe6ff;
-border:1px solid #24406e;border-radius:10px;padding:12px;font-size:15px}
-pre{background:#070b14;border:1px solid #1b2c4a;border-radius:10px;padding:10px;
-font-size:13px;white-space:pre-wrap;word-break:break-word;min-height:60px;color:#aee0b0}
-.b{background:#16325a}</style></head><body><div class=wrap>
-<h1>NOVA D1</h1><div class=s id=st>connecting...</div>
-<div class=grid>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#070b16;color:#dbe8ff;font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:600px;margin:0 auto;padding:14px}
+.hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.hd b{font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,#7fd1ff,#a98bff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.s{font-size:12px;color:#8aa0c4;margin-bottom:12px}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{flex:1;background:#0e1830;border:1px solid #21345c;color:#9fb6dd;border-radius:10px;padding:10px;font-size:14px}
+.tabs button.on{background:#1a2c52;color:#dbe8ff;border-color:#3a5aa0}
+.sec{display:none}.sec.on{display:block}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{background:#13203a;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px}
+button:active{background:#21407a}
+.row{display:flex;gap:8px;margin:8px 0}
+input{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px}
+.b{background:#1c3a6e;border-color:#2f5aa0;font-weight:600}
+pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;font-size:13px;
+white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
+.net{display:flex;justify-content:space-between;padding:11px;border:1px solid #21345c;border-radius:10px;margin:6px 0;background:#0e1830}
+.net small{color:#8aa0c4}.muted{color:#8aa0c4;font-size:12px;margin-top:6px}
+</style></head><body><div class=wrap>
+<div class=hd><b>NOVA D1</b><span class=s id=st>...</span></div>
+<div class=tabs>
+<button id=ta class=on onclick="tab('a')">Apps</button>
+<button id=tw onclick="tab('w')">WiFi</button>
+<button id=ts onclick="tab('s')">Shell</button></div>
+
+<div id=a class="sec on"><div class=grid>
 <button onclick="r('sysinfo')">System</button>
 <button onclick="r('meminfo')">Memory</button>
 <button onclick="r('df')">Storage</button>
-<button onclick="r('wifi status')">WiFi</button>
 <button onclick="r('novad1 status')">Nova</button>
 <button onclick="r('novad1 logs 20')">Logs</button>
-</div>
-<div class=row><input id=c placeholder="shell command, e.g. ls"
+<button onclick="r('fetch')">Fetch</button>
+</div><pre id=ao>Tap an app.</pre></div>
+
+<div id=w class=sec>
+<button class=b onclick=scan()>Scan networks</button>
+<div id=nets></div>
+<div class=row><input id=ssid placeholder=SSID></div>
+<div class=row><input id=pw type=password placeholder=password>
+<button class=b onclick=conn()>Join</button></div>
+<div class=muted id=wm>Pick a network or type one. Saved nets connect automatically.</div></div>
+
+<div id=s class=sec>
+<div class=row><input id=c placeholder="command, e.g. ls /"
 onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
-<pre id=o>Ready.</pre></div><script>
+<pre id=o>Commands run on the device; some take a moment.</pre></div>
+</div><script>
 var P=localStorage.nvpin||'';
-function st(){fetch('/status').then(r=>r.json()).then(j=>{
-document.getElementById('st').textContent=j.ip+'  v'+j.version+'  '+(j.free/1024|0)+'KB free';})}
-function out(t){document.getElementById('o').textContent=t}
-function q(c){return '/cmd?c='+encodeURIComponent(c)+(P?'&pin='+encodeURIComponent(P):'')}
-function r(c){out('...');fetch(q(c)).then(x=>{if(x.status==403){P=prompt('PIN:')||'';localStorage.nvpin=P;return r(c)}return x.text()}).then(out)}
-function run(){var c=document.getElementById('c').value;if(c)r(c)}
-st();setInterval(st,5000);
+function $(i){return document.getElementById(i)}
+function tab(t){for(var x of['a','w','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}}
+function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' · v'+j.version+' · '+(j.free/1024|0)+'KB'}).catch(_=>{})}
+function pin(){if(!P)P=prompt('Device PIN')||'';localStorage.nvpin=P;return P}
+function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin()))
+.then(x=>{if(x.status==403){P='';localStorage.nvpin='';throw 'PIN required'}return x})}
+function r(c){$('ao').textContent='running…';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('ao').textContent=t).catch(e=>$('ao').textContent=e)}
+function run(){var c=$('c').value;if(!c)return;$('o').textContent='running…';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('o').textContent=t).catch(e=>$('o').textContent=e)}
+function scan(){$('nets').innerHTML='<div class=muted>scanning…</div>';api('/wifiscan').then(x=>x.json()).then(function(l){
+var h='';l.forEach(function(n){h+='<div class=net onclick="document.getElementById(\\'ssid\\').value=\\''+n.s.replace(/'/g,'')+'\\'"><span>'+n.s+'</span><small>'+n.r+' dBm'+(n.k?' ·saved':'')+'</small></div>'});
+$('nets').innerHTML=h||'<div class=muted>none found</div>'}).catch(e=>$('nets').innerHTML='<div class=muted>'+e+'</div>')}
+function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving…';
+api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
+st();setInterval(st,8000);
 </script></body></html>"""
 
 
@@ -215,6 +302,15 @@ async def _handle_async(conn):
         path, q = _qs(parts[1])
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
+        elif path in ('/wifiscan', '/wificonnect'):
+            pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
+            if not pin or q.get('pin', '') != pin:
+                await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
+            elif path == '/wifiscan':
+                await _asend(stream, '200 OK', 'application/json', _wifi_scan())
+            else:
+                msg = _wifi_join(q.get('ssid', '').strip(), q.get('pw', ''))
+                await _asend(stream, '200 OK', 'text/plain', msg)
         elif path == '/cmd':
             # Mandatory PIN: command exec is remote root-ish, so it ALWAYS needs a
             # configured PIN (reuses the UI login PIN if no web-specific one set).
