@@ -301,11 +301,16 @@ class IconGallery(Screen):
             c.text(c.w - _ADV, icy - _FH // 2, '>', 1)
 
     def on_event(self, e):
+        n = len(self.items)
         if e == ev.ROT_CW:
-            if self.sel < len(self.items) - 1:
+            if self.sel == n - 1:               # loop around end -> start (snap, no
+                self.sel = 0; self.sel_f = 0.0  # long backward slide)
+            else:
                 self.sel += 1
         elif e == ev.ROT_CCW:
-            if self.sel > 0:
+            if self.sel == 0:
+                self.sel = n - 1; self.sel_f = float(n - 1)
+            else:
                 self.sel -= 1
         elif e == ev.SELECT:
             fac = self.items[self.sel][2]
@@ -1060,10 +1065,12 @@ class PinScreen(Screen):
             x = x0 + i * (bw + gap)
             if i == self.pos:
                 c.fill_rect(x, y - 1, bw, _FH + 4, 1); tc = 0
+                glyph = str(self.digits[i])        # reveal only the digit you're on
             else:
                 c.rect(x, y - 1, bw, _FH + 4, 1); tc = 1
-            c.char(x + (bw - _ADV) // 2 + 1, y + 1, ord(str(self.digits[i])), tc)
-        foot = self.msg or 'turn=digit Sel=ok'
+                glyph = '*'                         # others masked
+            c.char(x + (bw - _ADV) // 2 + 1, y + 1, ord(glyph), tc)
+        foot = self.msg or 'turn=set Sel=move Home=ok'
         c.text((c.w - len(foot[:16]) * _ADV) // 2, c.h - _FH, foot[:16], 1)
 
     def tick(self, dt_ms=0):
@@ -1096,15 +1103,134 @@ class PinScreen(Screen):
         elif e == ev.ROT_CCW:
             self.digits[self.pos] = (self.digits[self.pos] - 1) % 10
         elif e == ev.SELECT:
-            if self.pos < 5:
-                self.pos += 1
-            else:
-                return self._submit()
+            self.pos = (self.pos + 1) % 6       # advance, looping around the 6 digits
+        elif e == ev.HOME:
+            return self._submit()               # HOME = enter/login (loop digits first)
         elif e == ev.BACK:
             if self.pos > 0:
                 self.pos -= 1
             elif self.mode == 'set':
                 return 'back'                   # cancel a set (verify can't escape)
+        return None
+
+
+def _nmea_dec(v, hemi):
+    """NMEA ddmm.mmmm -> signed decimal degrees string."""
+    if not v:
+        return ''
+    try:
+        dot = v.index('.')
+        dl = dot - 2
+        dec = int(v[:dl]) + float(v[dl:]) / 60.0
+        if hemi in ('S', 'W'):
+            dec = -dec
+        return '{:.5f}'.format(dec)
+    except Exception:
+        return v
+
+
+class GPSScreen(Screen):
+    """Live GPS — parses NMEA continuously: fix + decimal coords + altitude +
+    satellites (used via GGA, in-view via GSV) + speed (RMC). Select saves a
+    waypoint to the Nova store. Backed by the verified NEO-M8N RX."""
+    def __init__(self):
+        self.title = 'GPS'
+        self.u = None
+        self.err = None
+        self.buf = b''
+        self.fix = None        # (lat_dec, lon_dec)
+        self.alt = ''
+        self.used = '0'
+        self.inview = '0'
+        self.spd = ''
+        self.msg = ''
+        try:
+            import machine
+            tx = int(_reg('Apps.NovaD1_PIN_gps_tx', 17))
+            rx = int(_reg('Apps.NovaD1_PIN_gps_rx', 18))
+            self.u = machine.UART(1, baudrate=9600, tx=machine.Pin(tx), rx=machine.Pin(rx))
+        except Exception as e:
+            self.err = str(e)[:16]
+
+    def draw(self, c):
+        if self.u is None:
+            c.text(2, _TOP, 'GPS: ' + (self.err or 'n/a'), 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        y = _TOP
+        if self.fix:
+            c.text(2, y, 'FIX  sats ' + self.used, 1); y += _ROWH
+            c.text(2, y, self.fix[0], 1); y += _ROWH
+            c.text(2, y, self.fix[1], 1); y += _ROWH
+            c.text(2, y, 'alt ' + (self.alt or '?') + ' ' + (self.spd and self.spd + 'k/h' or ''), 1)
+        else:
+            c.text(2, y, 'searching...', 1); y += _ROWH
+            c.text(2, y, 'in view: ' + self.inview, 1); y += _ROWH
+            c.text(2, y, 'used: ' + self.used, 1); y += _ROWH
+            c.text(2, y, '(needs sky view)', 1)
+        foot = self.msg or ('Sel=save BACK=exit' if self.fix else 'BACK=exit')
+        c.text(2, c.h - _FH, foot[:16], 1)
+
+    def tick(self, dt_ms=0):
+        if self.u is None:
+            return False
+        changed = False
+        try:
+            while self.u.any():
+                d = self.u.read()
+                if not d:
+                    break
+                self.buf += d
+                while b'\n' in self.buf:
+                    line, self.buf = self.buf.split(b'\n', 1)
+                    try:
+                        s = line.decode('ascii', 'ignore')
+                    except Exception:
+                        continue
+                    f = s.split(',')
+                    if 'GGA' in s and len(f) > 9:
+                        if f[6] not in ('', '0'):
+                            self.fix = (_nmea_dec(f[2], f[3]), _nmea_dec(f[4], f[5]))
+                            self.alt = f[9]
+                        else:
+                            self.fix = None
+                        self.used = f[7] or '0'
+                        changed = True
+                    elif 'GSV' in s and len(f) > 3 and f[3].strip().isdigit():
+                        self.inview = f[3].strip()
+                        changed = True
+                    elif 'RMC' in s and len(f) > 7 and f[7]:
+                        try:
+                            self.spd = '{:.1f}'.format(float(f[7]) * 1.852)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        return changed
+
+    def _save(self):
+        if not self.fix:
+            self.msg = 'no fix to save'
+            return
+        try:
+            import novad1
+            path = novad1._nova_base() + '/waypoints.txt'
+            with open(path, 'a') as fh:
+                fh.write('{},{}\n'.format(self.fix[0], self.fix[1]))
+            self.msg = 'Saved waypoint'
+        except Exception:
+            self.msg = 'save failed'
+
+    def on_event(self, e):
+        if e == ev.SELECT:
+            self._save()
+            return None
+        if e in (ev.BACK, ev.HOME):
+            try:
+                self.u.deinit()
+            except Exception:
+                pass
+            return e
         return None
 
 
@@ -1401,9 +1527,15 @@ def _scripts_screen():
 
 
 def _all_apps():
-    """Every possible home app: (key, label, factory). Modules + built-in apps."""
+    """Every possible home app: (key, label, factory). Modules + built-in apps.
+    GPS uses the live coordinates app (not just the detect test)."""
     import novamods
-    apps = [(k, l, _mk_test(k, l)) for k, l, _fn in novamods.MODULES]
+    apps = []
+    for k, l, _fn in novamods.MODULES:
+        if k == 'gps':
+            apps.append((k, 'GPS', GPSScreen))
+        else:
+            apps.append((k, l, _mk_test(k, l)))
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('notes', 'Notifications', NotificationsScreen))

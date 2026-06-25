@@ -51,8 +51,23 @@ def send(text, dst=None):
     return True
 
 
+def _init_radio():
+    """(Re)create + start the radio. Returns the LoRa or None. Called lazily so the
+    manager self-heals after a CC1101/SX1276/SD test deinits the shared SPI bus."""
+    try:
+        import novalora
+        lr = novalora.LoRa()
+        if not lr.begin():
+            return None
+        lr.start_rx()
+        return lr
+    except Exception:
+        return None
+
+
 async def manager():
-    """Background service: own the radio, RX->inbox+notify, drain the send queue."""
+    """Background service: own the radio, RX->inbox+notify, drain the send queue.
+    Self-heals — if a shared-SPI test tears down the bus, it re-inits the radio."""
     global _lora, _started, _msgid
     if _started:
         return
@@ -60,25 +75,17 @@ async def manager():
     import asyncio
     import novamesh
     seen = novamesh.Seen()
-    try:
-        import novalora
-        lr = novalora.LoRa()
-        if not lr.begin():
-            _lora = None
-            _started = False
-            return
-        lr.start_rx()
-        _lora = lr
-    except Exception:
-        _lora = None
-        _started = False
-        return
     me = novamesh.node_id()
     while True:
         try:
             if _paused:
                 await asyncio.sleep_ms(300)
                 continue
+            if _lora is None:                    # (re)initialize on first run / after a
+                _lora = _init_radio()            # test deinit'd the shared SPI bus
+                if _lora is None:
+                    await asyncio.sleep_ms(3000)  # no SX1276 answering — retry slowly
+                    continue
             raw = _lora.poll()
             if raw:
                 pkt = novamesh.parse_packet(raw)
@@ -108,4 +115,5 @@ async def manager():
                 _lora.start_rx()
             await asyncio.sleep_ms(120)
         except Exception:
+            _lora = None                         # SPI likely torn down — re-init next loop
             await asyncio.sleep_ms(500)
