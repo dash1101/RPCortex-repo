@@ -2168,35 +2168,58 @@ class CommandScreen(Screen):
 
 
 class SettingsScreen(Screen):
-    """Kitted-out settings: push-rows open a sub-screen; cycle-rows flip a saved
-    value in place AND apply it. Scrollable. Every row is wired (no dead rows)."""
+    """Grouped settings under section headers. Rows:
+       ('head', label) — a section title (skipped by navigation)
+       ('push', label, factory) — opens a sub-screen
+       ('cycle', label, regkey, [values], default, apply) — flips a saved value
+       ('action', label, shell-cmd) — runs an OS command, shows output."""
     def __init__(self):
         self.title = 'Settings'
-        self.sel = 0
         self.top = 0
         all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
         cur = _home_keys() or [k for k, _l in all_for_cfg]
-        # ('push', label, factory) | ('cycle', label, regkey, [values], default, apply)
         self.rows = [
+            ('head', 'DISPLAY'),
             ('push', 'Brightness', DisplayScreen),
-            ('push', 'Set Time', TimeScreen),
-            ('push', 'WiFi', WiFiScreen),
-            ('push', 'Set PIN', lambda: PinScreen('set')),
-            ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
-            ('cycle', 'Home', 'Apps.NovaD1_HomeStyle', ['gallery', 'menu'], 'gallery', None),
-            ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
+            ('cycle', 'Auto-Off', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60', '120'], '0', None),
             ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
-            ('cycle', 'Auto-Off', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60', '120'], '0', None),
-            ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+            ('head', 'HOME'),
+            ('cycle', 'Layout', 'Apps.NovaD1_HomeStyle', ['gallery', 'menu'], 'gallery', None),
+            ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
+            ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
             ('cycle', 'Notify', 'Apps.NovaD1_Notify', ['on', 'off'], 'on', None),
-            # OS-level actions (run a shell command, show output)
+            ('head', 'SYSTEM'),
+            ('push', 'Set Time', TimeScreen),
+            ('push', 'WiFi', WiFiScreen),
+            ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false', None),
+            ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
+            ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
+            ('head', 'RADIO'),
+            ('cycle', 'LoRa MHz', 'Apps.NovaD1_LoRa_Freq', ['433', '868', '915'], '915', None),
+            ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
+            ('head', 'SECURITY'),
+            ('push', 'Set PIN', lambda: PinScreen('set')),
+            ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+            ('head', 'ACTIONS'),
             ('action', 'Check Updates', 'update check'),
             ('action', 'Update Nova', 'pkg upgrade'),
             ('action', 'NTP Sync', 'ntp sync'),
             ('action', 'Web Info', 'novad1 web'),
             ('action', 'System Info', 'sysinfo'),
+            ('action', 'Reboot', 'sreboot'),
         ]
+        self.sel = self._step(0, 1)         # land on the first non-header row
+
+    def _step(self, start, d):
+        """Return the next selectable (non-head) row index from `start`, dir d."""
+        n = len(self.rows)
+        i = start
+        for _ in range(n):
+            if self.rows[i][0] != 'head':
+                return i
+            i = (i + d) % n
+        return start
 
     def _rows_visible(self, c):
         return (c.h - _TOP) // _ROWH
@@ -2216,11 +2239,15 @@ class SettingsScreen(Screen):
                 break
             r = self.rows[idx]
             y = _TOP + i * _ROWH
+            if r[0] == 'head':
+                c.text(2, y, r[1][:14], 1)
+                c.hline(2 + len(r[1]) * _ADV + 2, y + _FH // 2, c.w - (len(r[1]) * _ADV + 8), 1)
+                continue
             inv = (idx == self.sel)
             if inv:
                 c.fill_rect(0, y - 1, c.w, _ROWH, 1)
             tc = 0 if inv else 1
-            c.text(3, y, r[1][:11], tc)
+            c.text(7, y, r[1][:11], tc)
             if r[0] in ('push', 'action'):
                 c.text(c.w - _ADV - 2, y, '>', tc)
             else:
@@ -2229,9 +2256,9 @@ class SettingsScreen(Screen):
 
     def on_event(self, e):
         if e == ev.ROT_CW:
-            self.sel = (self.sel + 1) % len(self.rows)
+            self.sel = self._step((self.sel + 1) % len(self.rows), 1)
         elif e == ev.ROT_CCW:
-            self.sel = (self.sel - 1) % len(self.rows)
+            self.sel = self._step((self.sel - 1) % len(self.rows), -1)
         elif e == ev.SELECT:
             r = self.rows[self.sel]
             if r[0] == 'push':
