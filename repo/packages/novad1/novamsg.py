@@ -90,8 +90,14 @@ async def manager():
             if raw:
                 pkt = novamesh.parse_packet(raw)
                 if pkt and pkt['src'] != me and seen.first_time(pkt['src'], pkt['id']):
+                    payload = pkt['payload']
                     try:
-                        txt = pkt['payload'].decode('utf-8')
+                        import novacrypt
+                        if novacrypt.is_encrypted(payload):
+                            pt = novacrypt.decrypt(payload) if novacrypt.have_key() else None
+                            txt = pt.decode('utf-8') if pt else '[encrypted]'
+                        else:
+                            txt = payload.decode('utf-8')
                     except Exception:
                         txt = '?'
                     _INBOX.append({'ts': _ts(), 'src': pkt['src'], 'text': txt})
@@ -106,7 +112,11 @@ async def manager():
                 dst, text = _OUTQ.pop(0)
                 _msgid = (_msgid + 1) & 0xFFFF
                 try:
-                    _lora.send(novamesh.make_packet(me, dst, _msgid, text))
+                    import novacrypt
+                    payload = novacrypt.encrypt(text) if novacrypt.have_key() else text
+                    if payload is None:
+                        payload = text
+                    _lora.send(novamesh.make_packet(me, dst, _msgid, payload))
                 except Exception:
                     pass
                 _INBOX.append({'ts': _ts(), 'src': me, 'text': text, 'me': True})

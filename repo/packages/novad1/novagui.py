@@ -969,7 +969,14 @@ class MessagesScreen(Screen):
             idx = self.top + i
             if 0 <= idx < len(wl):
                 c.text(2, _TOP + i * _ROWH, wl[idx], 1)
-        c.text(2, c.h - _FH, 'Sel=ping BACK=exit', 1)
+        enc = ''
+        try:
+            import novacrypt
+            if novacrypt.have_key():
+                enc = ' *enc'
+        except Exception:
+            pass
+        c.text(2, c.h - _FH, ('Sel=ping BACK=exit' + enc)[:16], 1)
 
     def tick(self, dt_ms=0):
         try:
