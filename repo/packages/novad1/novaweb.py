@@ -217,95 +217,84 @@ _PAGE = """<!DOCTYPE html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Nova D1</title><style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:#070b16;color:#dbe8ff;font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:#070b16;color:#dbe8ff;font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif}
 .wrap{max-width:600px;margin:0 auto;padding:14px}
-.hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.hd{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.hd .bk{font-size:24px;color:#7fd1ff;display:none;width:18px}
 .hd b{font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,#7fd1ff,#a98bff);-webkit-background-clip:text;background-clip:text;color:transparent}
-.s{font-size:12px;color:#8aa0c4;margin-bottom:12px}
-.tabs{display:flex;gap:6px;margin-bottom:12px}
-.tabs button{flex:1;background:#0e1830;border:1px solid #21345c;color:#9fb6dd;border-radius:10px;padding:10px;font-size:14px}
-.tabs button.on{background:#1a2c52;color:#dbe8ff;border-color:#3a5aa0}
-.sec{display:none}.sec.on{display:block}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-button{background:#13203a;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px}
-button:active{background:#21407a}
+.hd .s{margin-left:auto;font-size:12px;color:#8aa0c4}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:#0e1830;border:1px solid #24406e;border-radius:14px;padding:20px 12px;text-align:center;font-size:16px}
+.tile:active{background:#1a2c52}.tile .i{font-size:24px;display:block;margin-bottom:6px}
+.view{display:none}
+button{background:#13203a;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px;width:100%}
+button:active{background:#21407a}.b{background:#1c3a6e;border-color:#2f5aa0;font-weight:600}
 .row{display:flex;gap:8px;margin:8px 0}
-input{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px}
-.b{background:#1c3a6e;border-color:#2f5aa0;font-weight:600}
-pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;font-size:13px;
-white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
+input,textarea{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px;width:100%}
+pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;font-size:13px;white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 .net{display:flex;justify-content:space-between;padding:11px;border:1px solid #21345c;border-radius:10px;margin:6px 0;background:#0e1830}
 .net small{color:#8aa0c4}.muted{color:#8aa0c4;font-size:12px;margin-top:6px}
+.card{background:#0e1830;border:1px solid #21345c;border-radius:12px;padding:12px;font-size:13px;white-space:pre-wrap;color:#b6e6bd;min-height:60px}
 </style></head><body><div class=wrap>
-<div class=hd><b>NOVA D1</b><span class=s id=st>...</span></div>
-<div class=tabs>
-<button id=ta class=on onclick="tab('a')">Apps</button>
-<button id=tw onclick="tab('w')">WiFi</button>
-<button id=tm onclick="tab('m')">Msg</button>
-<button id=tcd onclick="tab('cd')">Codes</button>
-<button id=ts onclick="tab('s')">Shell</button></div>
+<div class=hd><span class=bk id=bk onclick=back()>&#8249;</span><b id=ttl>NOVA D1</b><span class=s id=st>...</span></div>
 
-<div id=a class="sec on"><div class=grid>
-<button onclick="r('sysinfo')">System</button>
-<button onclick="r('meminfo')">Memory</button>
-<button onclick="r('df')">Storage</button>
-<button onclick="r('novad1 status')">Nova</button>
-<button onclick="r('novad1 logs 20')">Logs</button>
-<button onclick="r('fetch')">Fetch</button>
-</div><pre id=ao>Tap an app.</pre></div>
+<div id=home class=grid>
+<div class=tile onclick="op('sys')"><span class=i>&#9881;</span>System</div>
+<div class=tile onclick="op('msg')"><span class=i>&#9742;</span>Messages</div>
+<div class=tile onclick="op('wifi')"><span class=i>&#9776;</span>WiFi</div>
+<div class=tile onclick="op('codes')"><span class=i>&#9636;</span>Codes</div>
+<div class=tile onclick="op('shell')"><span class=i>&gt;_</span>Shell</div>
+<div class=tile onclick="r('fetch')"><span class=i>&#9889;</span>Fetch</div>
+</div>
 
-<div id=w class=sec>
-<button class=b onclick=scan()>Scan networks</button>
-<div id=nets></div>
-<div class=row><input id=ssid placeholder=SSID></div>
-<div class=row><input id=pw type=password placeholder=password>
-<button class=b onclick=conn()>Join</button></div>
-<div class=muted id=wm>Pick a network or type one. Saved nets connect automatically.</div></div>
+<div id=v_sys class=view>
+<div class=card id=sysc>loading...</div>
+<div class=row><button onclick="r('meminfo')">Memory</button><button onclick="r('df')">Storage</button></div>
+<pre id=ao>-</pre></div>
 
-<div id=m class=sec>
-<pre id=mb>loading…</pre>
-<div class=row><input id=mt placeholder="message" maxlength=120
-onkeydown="if(event.key=='Enter')msend()"><button class=b onclick=msend()>Send</button></div>
+<div id=v_msg class=view>
+<pre id=mb>loading...</pre>
+<div class=row><input id=mt placeholder=message maxlength=120 onkeydown="if(event.key=='Enter')msend()"><button class=b onclick=msend()>Send</button></div>
 <div class=muted>Broadcasts over LoRa to nearby Nova D1s.</div></div>
 
-<div id=cd class=sec>
-<div id=cl class=muted>loading…</div>
-<div class=row><input id=ucat value=ir style=flex:.55><input id=uname placeholder="name e.g. tv.ir"></div>
-<textarea id=ubody placeholder="paste a Flipper .ir file (or any code) here" style="width:100%;min-height:88px;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:11px;font-size:14px"></textarea>
-<div class=row><button class=b onclick=upl()>Upload to device</button></div>
-<div class=muted id=um>Rename/delete a saved code above, or paste &amp; upload a new one.</div></div>
+<div id=v_wifi class=view>
+<button class=b onclick=scan()>Scan networks</button><div id=nets></div>
+<div class=row><input id=ssid placeholder=SSID></div>
+<div class=row><input id=pw type=password placeholder=password><button class=b onclick=conn()>Join</button></div>
+<div class=muted id=wm>Pick a network or type one.</div></div>
 
-<div id=s class=sec>
-<div class=row><input id=c placeholder="command, e.g. ls /"
-onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
+<div id=v_codes class=view>
+<div id=cl class=muted>loading...</div>
+<div class=row><input id=ucat value=ir style=flex:.55><input id=uname placeholder="name e.g. tv.ir"></div>
+<textarea id=ubody placeholder="paste a Flipper .ir / code / script" style=min-height:80px></textarea>
+<div class=row><button class=b onclick=upl()>Upload to device</button></div>
+<div class=muted id=um>Rename/delete above, or paste &amp; upload (cat: ir/subghz/lora/scripts).</div></div>
+
+<div id=v_shell class=view>
+<div class=row><input id=c placeholder="command, e.g. ls /" onkeydown="if(event.key=='Enter')run()"><button class=b onclick=run()>Run</button></div>
 <pre id=o>Commands run on the device; some take a moment.</pre></div>
+
 </div><script>
 var P=localStorage.nvpin||'';
 function $(i){return document.getElementById(i)}
-function tab(t){for(var x of['a','w','m','cd','s']){$(x).className='sec'+(x==t?' on':'');$('t'+x).className=(x==t?'on':'')}if(t=='m')mload();if(t=='cd')cload()}
-function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' · v'+j.version+' · '+(j.free/1024|0)+'KB'}).catch(_=>{})}
+var V=['sys','msg','wifi','codes','shell'];
+var T={sys:'System',msg:'Messages',wifi:'WiFi',codes:'Codes',shell:'Shell'};
+function back(){for(var v of V)$('v_'+v).style.display='none';$('home').style.display='grid';$('bk').style.display='none';$('ttl').textContent='NOVA D1'}
+function op(n){$('home').style.display='none';for(var v of V)$('v_'+v).style.display=(v==n?'block':'none');$('bk').style.display='inline';$('ttl').textContent=T[n];if(n=='msg')mload();if(n=='codes')cload();if(n=='sys')sysload()}
+function st(){fetch('/status').then(r=>r.json()).then(j=>{$('st').textContent=j.ip+' . '+(j.free/1024|0)+'KB'}).catch(_=>{})}
 function pin(){if(!P)P=prompt('Device PIN')||'';localStorage.nvpin=P;return P}
-function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin()))
-.then(x=>{if(x.status==403){P='';localStorage.nvpin='';throw 'PIN required'}return x})}
-function r(c){$('ao').textContent='running…';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('ao').textContent=t).catch(e=>$('ao').textContent=e)}
-function run(){var c=$('c').value;if(!c)return;$('o').textContent='running…';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('o').textContent=t).catch(e=>$('o').textContent=e)}
-function scan(){$('nets').innerHTML='<div class=muted>scanning…</div>';api('/wifiscan').then(x=>x.json()).then(function(l){
-var h='';l.forEach(function(n){h+='<div class=net onclick="document.getElementById(\\'ssid\\').value=\\''+n.s.replace(/'/g,'')+'\\'"><span>'+n.s+'</span><small>'+n.r+' dBm'+(n.k?' ·saved':'')+'</small></div>'});
-$('nets').innerHTML=h||'<div class=muted>none found</div>'}).catch(e=>$('nets').innerHTML='<div class=muted>'+e+'</div>')}
-function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving…';
-api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
-function mload(){if($('m').className.indexOf('on')<0)return;api('/msg').then(x=>x.json()).then(function(l){
-$('mb').textContent=l.map(function(m){return m.w+': '+m.t}).join('\\n')||'(no messages)'}).catch(_=>{})}
+function api(u){return fetch(u+(u.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(pin())).then(x=>{if(x.status==403){P='';localStorage.nvpin='';throw 'PIN required'}return x})}
+function r(c){if($('home').style.display!='none')op('sys');$('ao').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('ao').textContent=t).catch(e=>$('ao').textContent=e)}
+function sysload(){api('/cmd?c='+encodeURIComponent('novad1 status')).then(x=>x.text()).then(t=>$('sysc').textContent=t).catch(_=>{})}
+function run(){var c=$('c').value;if(!c)return;$('o').textContent='running...';api('/cmd?c='+encodeURIComponent(c)).then(x=>x.text()).then(t=>$('o').textContent=t).catch(e=>$('o').textContent=e)}
+function mload(){if($('v_msg').style.display=='none')return;api('/msg').then(x=>x.json()).then(l=>{$('mb').textContent=l.map(m=>m.w+': '+m.t).join('\n')||'(no messages)'}).catch(_=>{})}
 function msend(){var t=$('mt').value;if(!t)return;$('mt').value='';api('/msgsend?text='+encodeURIComponent(t)).then(_=>setTimeout(mload,300))}
-function cload(){if($('cd').className.indexOf('on')<0)return;api('/codes').then(x=>x.json()).then(function(l){
-$('cl').innerHTML=l.map(function(o){return '<div class=net><span>'+o.c+'/'+o.n+'</span><small>'+
-'<a href=# onclick="cren(\\''+o.c+'\\',\\''+o.n+'\\');return false">rename</a> &middot; '+
-'<a href=# onclick="cdel(\\''+o.c+'\\',\\''+o.n+'\\');return false">del</a></small></div>'}).join('')||'<div class=muted>no codes</div>'})}
+function scan(){$('nets').innerHTML='<div class=muted>scanning...</div>';api('/wifiscan').then(x=>x.json()).then(l=>{$('nets').innerHTML=l.map(n=>'<div class=net onclick="document.getElementById(\'ssid\').value=\''+n.s.replace(/'/g,'')+'\'"><span>'+n.s+'</span><small>'+n.r+'dBm'+(n.k?' saved':'')+'</small></div>').join('')||'<div class=muted>none</div>'}).catch(e=>$('nets').innerHTML='<div class=muted>'+e+'</div>')}
+function conn(){var s=$('ssid').value;if(!s)return;$('wm').textContent='saving...';api('/wificonnect?ssid='+encodeURIComponent(s)+'&pw='+encodeURIComponent($('pw').value)).then(x=>x.text()).then(t=>$('wm').textContent=t).catch(e=>$('wm').textContent=e)}
+function cload(){if($('v_codes').style.display=='none')return;api('/codes').then(x=>x.json()).then(l=>{$('cl').innerHTML=l.map(o=>'<div class=net><span>'+o.c+'/'+o.n+'</span><small><a href=# onclick="cren(\''+o.c+'\',\''+o.n+'\');return false">rename</a> . <a href=# onclick="cdel(\''+o.c+'\',\''+o.n+'\');return false">del</a></small></div>').join('')||'<div class=muted>no codes</div>'})}
 function cren(c,n){var t=prompt('New name',n);if(!t)return;api('/coderename?cat='+c+'&name='+encodeURIComponent(n)+'&to='+encodeURIComponent(t)).then(_=>cload())}
 function cdel(c,n){if(!confirm('Delete '+n+'?'))return;api('/codedel?cat='+c+'&name='+encodeURIComponent(n)).then(_=>cload())}
-function upl(){var c=$('ucat').value||'ir',n=$('uname').value,b=$('ubody').value;if(!n||!b){$('um').textContent='need name + content';return}
-fetch('/codeupload?pin='+encodeURIComponent(pin())+'&cat='+encodeURIComponent(c)+'&name='+encodeURIComponent(n),{method:'POST',body:b})
-.then(x=>x.text()).then(t=>{$('um').textContent=t;$('ubody').value='';cload()}).catch(e=>$('um').textContent=''+e)}
+function upl(){var c=$('ucat').value||'ir',n=$('uname').value,b=$('ubody').value;if(!n||!b){$('um').textContent='need name + content';return}fetch('/codeupload?pin='+encodeURIComponent(pin())+'&cat='+encodeURIComponent(c)+'&name='+encodeURIComponent(n),{method:'POST',body:b}).then(x=>x.text()).then(t=>{$('um').textContent=t;$('ubody').value='';cload()}).catch(e=>$('um').textContent=''+e)}
 st();setInterval(st,8000);setInterval(mload,3000);
 </script></body></html>"""
 
