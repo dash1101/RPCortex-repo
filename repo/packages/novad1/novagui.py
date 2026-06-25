@@ -1658,6 +1658,7 @@ class NovaUI:
         self._idle_t0 = 0
         self._dimmed = False
         self._low_warned = False
+        self._last_sig = None
 
     def _now(self):
         try:
@@ -1760,10 +1761,19 @@ class NovaUI:
             scr.next = None
             self._apply(nx)
             dirty = True
-        if (now - self._last_render) >= 1000:    # keep the clock/signal live
+        # Re-render only when the status bar's VISIBLE state actually changes (the
+        # minute, wifi/battery/notify/save icons) — not every second. A full redraw
+        # is tens of ms of non-yielding work; doing it 1x/sec was starving the
+        # serial shell's keystroke reader on the shared event loop.
+        st = self._get_state(now)
+        pwr = st.get('power') or {}
+        sig = (st.get('time'), st.get('wifi'), st.get('notify'), st.get('saving'),
+               pwr.get('pct') if pwr else None, pwr.get('usb') if pwr else None,
+               pwr.get('low') if pwr else None)
+        if sig != self._last_sig:
+            self._last_sig = sig
             dirty = True
         # Low-battery popup (once per low->ok transition; needs a configured battery).
-        pwr = self._get_state(now).get('power') or {}
         if pwr.get('low'):
             if not self._low_warned and not self._dimmed:
                 self._low_warned = True
