@@ -200,6 +200,7 @@ class Menu(Screen):
             if idx >= len(self.items):
                 break
             label, fac = self.items[idx]
+            label = label[:(c.w - 14) // _ADV]      # truncate to fit (no overflow)
             y = _TOP + i * _ROWH
             if idx == self.sel:
                 c.fill_rect(0, y - 1, c.w, _ROWH, 1)
@@ -318,7 +319,7 @@ class TextScreen(Screen):
             idx = self.top + i
             if idx >= len(self.lines):
                 break
-            c.text(2, _TOP + i * _ROWH, self.lines[idx][:21], 1)
+            c.text(2, _TOP + i * _ROWH, self.lines[idx][:16], 1)
 
     def on_event(self, e):
         rows = 4
@@ -343,7 +344,7 @@ class RunningScreen(Screen):
         self.done = False
 
     def draw(self, c):
-        c.text(4, _TOP + 2, self.title[:20], 1)
+        c.text(4, _TOP + 2, self.title[:16], 1)
         if self.done:
             c.text(4, _TOP + 14, 'Cancelled.' if self.cancelled else 'Done.', 1)
         else:
@@ -489,13 +490,13 @@ class WiFiScreen(Screen):
             import net
             st = net.status()
             if st.get('connected'):
-                return 'Online: ' + str(st.get('ssid', '?'))[:13]
+                return 'Online: ' + str(st.get('ssid', '?'))[:7]
             return 'Offline'
         except Exception:
             return 'net n/a'
 
     def draw(self, c):
-        c.text(2, _TOP, self._status_line()[:21], 1)
+        c.text(2, _TOP, self._status_line()[:16], 1)
         if self.nets:
             rows = (c.h - _TOP - _ROWH) // _ROWH
             if self.sel < self.top:
@@ -516,7 +517,7 @@ class WiFiScreen(Screen):
                 else:
                     c.text(2, y, row, 1)
         else:
-            c.text(2, _TOP + _ROWH, self.msg[:21], 1)
+            c.text(2, _TOP + _ROWH, self.msg[:16], 1)
             c.text(2, c.h - _FH, 'OK=scan BACK=exit', 1)
 
     def tick(self, dt_ms=0):
@@ -925,7 +926,7 @@ class MessagesScreen(Screen):
         if not view:
             c.text(2, _TOP, '(listening...)', 1)
         for i, m in enumerate(view):
-            c.text(2, _TOP + i * _ROWH, m[:21], 1)
+            c.text(2, _TOP + i * _ROWH, m[:16], 1)
         c.text(2, c.h - _FH, 'Sel=ping BACK=exit', 1)
 
     def tick(self, dt_ms=0):
@@ -970,6 +971,81 @@ class MessagesScreen(Screen):
                 except Exception:
                     pass
             return e
+        return None
+
+
+class PinScreen(Screen):
+    """6-digit PIN entry via the rotary encoder. mode='verify' locks the UI (can't
+    be escaped except by the correct PIN); mode='set' stores a new PIN.
+    RECOVERY: the serial shell is NOT gated by this, so `reg set Apps.NovaD1_PIN ""`
+    always clears it — and a verify screen auto-dismisses when the PIN is cleared."""
+    fullscreen = True
+
+    def __init__(self, mode='verify', on_done=None):
+        self.title = 'PIN'
+        self.mode = mode
+        self.digits = [0, 0, 0, 0, 0, 0]
+        self.pos = 0
+        self.msg = ''
+        self.on_done = on_done
+        self.next = None
+
+    def draw(self, c):
+        ttl = 'SET PIN' if self.mode == 'set' else 'ENTER PIN'
+        c.text((c.w - len(ttl) * _ADV) // 2, 3, ttl, 1)
+        bw, gap = 14, 4
+        total = 6 * bw + 5 * gap
+        x0 = (c.w - total) // 2
+        y = 26
+        for i in range(6):
+            x = x0 + i * (bw + gap)
+            if i == self.pos:
+                c.fill_rect(x, y - 1, bw, _FH + 4, 1); tc = 0
+            else:
+                c.rect(x, y - 1, bw, _FH + 4, 1); tc = 1
+            c.char(x + (bw - _ADV) // 2 + 1, y + 1, ord(str(self.digits[i])), tc)
+        foot = self.msg or 'turn=digit Sel=ok'
+        c.text((c.w - len(foot[:16]) * _ADV) // 2, c.h - _FH, foot[:16], 1)
+
+    def tick(self, dt_ms=0):
+        # Live serial recovery: if the stored PIN is cleared, drop the lock.
+        if self.mode == 'verify' and not _reg('Apps.NovaD1_PIN', ''):
+            self.next = 'back'
+        return False
+
+    def _submit(self):
+        pin = ''.join(str(d) for d in self.digits)
+        if self.mode == 'set':
+            _save_reg('Apps.NovaD1_PIN', pin)
+            if self.on_done:
+                try:
+                    self.on_done(pin)
+                except Exception:
+                    pass
+            return 'back'
+        stored = _reg('Apps.NovaD1_PIN', '')
+        if not stored or pin == stored:
+            return 'back'                       # unlock
+        self.msg = 'Wrong PIN'
+        self.digits = [0, 0, 0, 0, 0, 0]
+        self.pos = 0
+        return None
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.digits[self.pos] = (self.digits[self.pos] + 1) % 10
+        elif e == ev.ROT_CCW:
+            self.digits[self.pos] = (self.digits[self.pos] - 1) % 10
+        elif e == ev.SELECT:
+            if self.pos < 5:
+                self.pos += 1
+            else:
+                return self._submit()
+        elif e == ev.BACK:
+            if self.pos > 0:
+                self.pos -= 1
+            elif self.mode == 'set':
+                return 'back'                   # cancel a set (verify can't escape)
         return None
 
 
@@ -1191,6 +1267,37 @@ def _mk_test(key, label):
     return lambda: ModuleTestScreen(key, label)
 
 
+def _power_lock():
+    return PinScreen('verify') if _reg('Apps.NovaD1_PIN', '') else None
+
+
+def _power_sleep():
+    # Dim the screen now (and lock if a PIN is set). NOT machine.lightsleep — that
+    # can drop USB-CDC/peripherals and look like a brick.
+    if _active_ui is not None:
+        _active_ui._dimmed = True
+        try:
+            _active_ui.display.contrast(0)
+        except Exception:
+            pass
+    return _power_lock()
+
+
+def _power_exit():
+    if _active_ui is not None:
+        _active_ui.stop()
+    return None
+
+
+def _power_menu():
+    return Menu('Power', [
+        ('Lock Now', _power_lock),
+        ('Sleep', _power_sleep),
+        ('Reboot', lambda: CommandScreen('Reboot', 'sreboot')),
+        ('Exit Nova', _power_exit),
+    ])
+
+
 def _logs_screen():
     try:
         import novalog
@@ -1223,6 +1330,7 @@ def _all_apps():
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', _scripts_screen))
+    apps.append(('power', 'Power', _power_menu))
     return apps
 
 
@@ -1347,6 +1455,7 @@ class SettingsScreen(Screen):
             ('push', 'Brightness', DisplayScreen),
             ('push', 'Set Time', TimeScreen),
             ('push', 'WiFi', WiFiScreen),
+            ('push', 'Set PIN', lambda: PinScreen('set')),
             ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
             ('cycle', 'Home', 'Apps.NovaD1_HomeStyle', ['gallery', 'menu'], 'gallery', None),
             ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
@@ -1356,7 +1465,9 @@ class SettingsScreen(Screen):
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             # OS-level actions (run a shell command, show output)
             ('action', 'Check Updates', 'update check'),
+            ('action', 'Update Nova', 'pkg upgrade'),
             ('action', 'NTP Sync', 'ntp sync'),
+            ('action', 'Web Info', 'novad1 web'),
             ('action', 'System Info', 'sysinfo'),
         ]
 

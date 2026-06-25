@@ -13,6 +13,7 @@
 _state = 'off'
 _started = False
 _paused = False           # set while a foreground scan owns the STA interface
+_synced = False           # NTP-on-first-connect one-shot
 
 
 def state():
@@ -63,7 +64,16 @@ async def manager():
                 await asyncio.sleep_ms(400)
                 continue
             if wlan.isconnected():
-                _state = 'connected'
+                if _state != 'connected':
+                    _state = 'connected'
+                    global _synced
+                    if not _synced:             # one-shot NTP sync on first connect
+                        _synced = True
+                        try:
+                            import novartc
+                            novartc.online_sync()
+                        except Exception:
+                            pass
                 await asyncio.sleep_ms(5000)
                 continue
             saved = _saved()

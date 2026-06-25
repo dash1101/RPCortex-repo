@@ -401,6 +401,8 @@ def _boot_or_recover(ui, novagui):
         except Exception:
             pass
         ui.stack = novagui.make_boot_stack(ui.stack[0])
+        if _reg('Apps.NovaD1_PIN'):            # gate the UI behind the PIN if set
+            ui.stack.insert(1, novagui.PinScreen('verify'))
         _nlog('Nova D1 GUI started')
 
 
@@ -433,6 +435,11 @@ async def _gui_service():
             set_web(True)                     # auto-host the control panel
         if first:
             first = False
+            try:
+                import novartc
+                novartc.boot_sync()           # DS3231 -> RTC if present (offline time)
+            except Exception:
+                pass
             if not _booted and not _reg('Apps.NovaD1_LastError'):
                 # Screen ON immediately — paint the splash before any settle/boot
                 # work so the user sees it ASAP (hides the Nova-side boot time; the

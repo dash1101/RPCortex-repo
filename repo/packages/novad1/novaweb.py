@@ -216,8 +216,13 @@ async def _handle_async(conn):
         if path == '/status':
             await _asend(stream, '200 OK', 'application/json', _status_json())
         elif path == '/cmd':
-            pin = _reg('Apps.NovaD1_Web_PIN', '')
-            if pin and q.get('pin', '') != pin:
+            # Mandatory PIN: command exec is remote root-ish, so it ALWAYS needs a
+            # configured PIN (reuses the UI login PIN if no web-specific one set).
+            pin = _reg('Apps.NovaD1_Web_PIN', '') or _reg('Apps.NovaD1_PIN', '')
+            if not pin:
+                await _asend(stream, '403 Forbidden', 'text/plain',
+                             'No PIN set. On the device: reg set Apps.NovaD1_Web_PIN <digits>')
+            elif q.get('pin', '') != pin:
                 await _asend(stream, '403 Forbidden', 'text/plain', 'PIN required')
             else:
                 cmd = q.get('c', '').strip()

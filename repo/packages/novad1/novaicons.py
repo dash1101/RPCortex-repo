@@ -154,12 +154,18 @@ def _chat(c, cx, cy, r):              # Messages — speech bubble
         c.pixel(cx - r // 2 + i * (r // 2), cy - r // 3, 1)
 
 
+def _power(c, cx, cy, r):             # power symbol (ring + break + stem)
+    c.circle(cx, cy, r - 1, 1)
+    c.fill_rect(cx - 2, cy - r - 1, 5, 4, 0)
+    c.vline(cx, cy - r - 1, r + 2, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
     'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
-    'check': _check, 'msg': _chat,
+    'check': _check, 'msg': _chat, 'power': _power,
 }
 
 
