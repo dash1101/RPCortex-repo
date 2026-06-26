@@ -647,6 +647,7 @@ def novad1(args=None):
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
         multi("  novad1 notify <t>  Push a notification to the Nova UI")
         multi("  novad1 web on|off  Phone control panel over WiFi")
+        multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
         multi("  Tips: LED is WS2812 on GPIO48 by default — reg set")
@@ -670,6 +671,8 @@ def novad1(args=None):
         _notify(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'perf':
         _perf(info, ok, warn, error, multi)
+    elif cmd in ('wifiprobe', 'pcap'):
+        _wifiprobe(info, ok, warn, error, multi)
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
@@ -688,6 +691,56 @@ def novad1(args=None):
         _gui(info, ok, warn, error, multi, bg=('--bg' in rest or 'bg' == rest))
     else:
         warn("Unknown subcommand '{}'. Try: novad1 help".format(cmd))
+
+
+def _wifiprobe(info, ok, warn, error, multi):
+    """Probe whether this firmware can capture 802.11 frames (-> .pcap). The
+    make-or-break question for WiFi pcap: stock MicroPython has no promiscuous
+    API; real sniffing needs a custom firmware with an esp_wifi C binding. This
+    reports exactly what THIS board exposes so we know which path we're on."""
+    info("=== Nova D1 — WiFi capture capability probe ===", p="NovaD1")
+    import sys
+    try:
+        import os
+        u = os.uname()
+        multi("  firmware : {} {}".format(getattr(u, 'sysname', '?'), getattr(u, 'release', '?')))
+        multi("  machine  : {}".format(getattr(u, 'machine', '?')))
+    except Exception as e:
+        multi("  firmware : (uname unavailable: {})".format(e))
+    multi("  platform : {}".format(sys.platform))
+    found = []
+    try:
+        import network
+        for n in dir(network.WLAN):
+            ln = n.lower()
+            if 'promisc' in ln or 'monitor' in ln or 'sniff' in ln:
+                found.append('WLAN.' + n)
+    except Exception as e:
+        multi("  network  : (unavailable: {})".format(e))
+    have_espnow = False
+    try:
+        import espnow  # noqa
+        have_espnow = True
+    except Exception:
+        have_espnow = False
+    free_kb = 0
+    try:
+        import gc
+        free_kb = gc.mem_free() // 1024
+    except Exception:
+        pass
+    multi("  WLAN sniff API : {}".format(', '.join(found) if found else 'NONE'))
+    multi("  espnow (L2)    : {}".format('present' if have_espnow else 'absent'))
+    multi("  free RAM       : {} KB  (PSRAM shows as MBs)".format(free_kb))
+    multi("")
+    if found:
+        ok("Capture hook present -> real .pcap is possible! Note these API names.", p="NovaD1")
+    else:
+        warn("No promiscuous/monitor API in this firmware.", p="NovaD1")
+        multi("  Real 802.11 sniffing needs a CUSTOM Nova D1 firmware with an esp_wifi")
+        multi("  promiscuous C module (ESP-IDF build). The .pcap WRITER (novapcap) is")
+        multi("  already in place for when that lands. Meanwhile a scan-based WiFi")
+        multi("  SURVEY (APs / channel / RSSI -> CSV) is the achievable recon now.")
 
 
 if __name__ == '__main__':

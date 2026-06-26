@@ -137,7 +137,7 @@
     },
     {
       "name": "NovaD1",
-      "ver": "0.28.0",
+      "ver": "0.29.0",
       "desc": "Nova D1 multi-tool \u2014 scripting (nova API + button-grid remotes), Flipper .ir, IR/Sub-GHz/LoRa codes, NFC, GPS, messaging, web panel.",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/novad1.pkg"
