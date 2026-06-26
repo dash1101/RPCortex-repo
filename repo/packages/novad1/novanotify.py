@@ -25,9 +25,12 @@ def enabled():
 
 
 def _ts():
+    # Apply System.TZ_Offset (whole hours) like the status-bar clock, so a
+    # notification's time matches the wall clock instead of UTC/RTC.
     try:
         import utime
-        t = utime.localtime()
+        off = int(_reg('System.TZ_Offset', 0))
+        t = utime.localtime(utime.time() + off * 3600)
         return '{:02d}:{:02d}'.format(t[3], t[4])
     except Exception:
         return '--:--'

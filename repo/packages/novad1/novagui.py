@@ -1357,6 +1357,25 @@ class NFCScreen(Screen):
         return None
 
 
+def _nfc_emulate(text):
+    """Fire a saved card. Emulation (TgInitAsTarget) is the NEXT increment, so for
+    now this surfaces the UID + an honest 'coming' note instead of pretending."""
+    try:
+        import novanfc, novanotify
+        uid = novanfc.hexs(novanfc.parse(text).uid())
+        novanotify.notify('Emulate ' + uid[:14] + ' (next build)')
+    except Exception:
+        pass
+
+
+def _nfc_app():
+    """NFC home: a list of SAVED cards (run/emulate from flash) + a '+ New' entry to
+    scan & save — same shape as the IR/Sub-GHz/LoRa apps, so the app opens to a menu
+    instead of jumping straight into scanning."""
+    return CodeListScreen('NFC', 'nfc', _nfc_emulate,
+                          capture_factory=NFCScreen, fire_label='emulate')
+
+
 class CodeListScreen(Screen):
     """Browse saved code files for a tool and FIRE them (load hex/timing from a
     file and transmit — no capture needed). Optional '+ New' opens a capture
@@ -1423,7 +1442,7 @@ class CodeListScreen(Screen):
             else:
                 try:
                     self.fire(txt)
-                    self.msg = 'sent: ' + r[:9]
+                    self.msg = self.fire_label + ': ' + r[:9]
                 except Exception:
                     self.msg = 'fire failed'
             self._confirm = None
@@ -2134,7 +2153,7 @@ def _all_apps():
         if k == 'gps':
             apps.append((k, 'GPS', GPSScreen))
         elif k == 'pn532':
-            apps.append((k, 'NFC', NFCScreen))
+            apps.append((k, 'NFC', _nfc_app))            # saved cards + '+ New' scan
         elif k == 'ir_rx':
             apps.append(('ir', 'IR', _ir_app))          # record/replay + code library
         elif k == 'ir_tx':
