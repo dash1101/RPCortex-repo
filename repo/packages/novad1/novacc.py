@@ -95,7 +95,94 @@ def fire_timing(times, freq_mhz=None):
             pass
 
 
+_DEFAULT_PRESET = 'FuriHalSubGhzPresetOok650Async'
+
+
+def parse_flipper(text):
+    """Parse a Flipper .sub. RAW file -> {'freq_mhz','preset','protocol':'RAW',
+    'raw':[abs us...]} (raw alternates mark/space starting mark; we drop the sign,
+    fire_timing re-applies the on/off pattern). Decoded Key file -> adds
+    {'key','bit','te'} (replaying a decoded protocol needs a per-protocol encoder =
+    a later increment; RAW covers most captures)."""
+    freq_mhz = None
+    preset = _DEFAULT_PRESET
+    proto = ''
+    raw = []
+    key = None
+    bit = None
+    te = None
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line or line[0] == '#' or ':' not in line:
+            continue
+        k, v = line.split(':', 1)
+        k = k.strip()
+        v = v.strip()
+        if k == 'Frequency':
+            try:
+                freq_mhz = int(v) / 1000000.0
+            except ValueError:
+                pass
+        elif k == 'Preset':
+            preset = v
+        elif k == 'Protocol':
+            proto = v
+        elif k == 'RAW_Data':
+            for tok in v.split():
+                try:
+                    raw.append(abs(int(tok)))
+                except ValueError:
+                    pass
+        elif k == 'Key':
+            key = v
+        elif k == 'Bit':
+            try:
+                bit = int(v)
+            except ValueError:
+                pass
+        elif k == 'TE':
+            try:
+                te = int(v)
+            except ValueError:
+                pass
+    out = {'freq_mhz': freq_mhz, 'preset': preset, 'protocol': proto}
+    if raw:
+        out['raw'] = raw
+    if key is not None:
+        out['key'] = key
+        out['bit'] = bit
+        out['te'] = te
+    return out
+
+
+def to_flipper(name, times, freq_mhz=None, preset=None):
+    """Build a Flipper RAW .sub from our abs timing list (times[0]=first mark).
+    Re-applies signs (+ mark, - space), splits into <=512-value RAW_Data lines,
+    frequency in Hz — exactly what a Flipper expects."""
+    freq = int((freq_mhz or _FREQ_MHZ) * 1000000)
+    lines = ['Filetype: Flipper SubGhz RAW File', 'Version: 1',
+             'Frequency: {}'.format(freq),
+             'Preset: {}'.format(preset or _DEFAULT_PRESET), 'Protocol: RAW']
+    signed = []
+    for i in range(len(times)):
+        t = abs(int(times[i]))
+        signed.append(t if (i % 2 == 0) else -t)
+    i = 0
+    while i < len(signed):
+        lines.append('RAW_Data: ' + ' '.join(str(x) for x in signed[i:i + 512]))
+        i += 512
+    return '\n'.join(lines) + '\n'
+
+
 def fire_text(text, freq_mhz=None):
+    """Fire a saved sub-GHz code: a Flipper RAW .sub (interop) OR our plain comma/
+    newline timing list. Decoded-protocol .sub Key files aren't replayable yet."""
+    if 'Filetype: Flipper SubGhz' in text or 'RAW_Data:' in text:
+        d = parse_flipper(text)
+        raw = d.get('raw')
+        if not raw:
+            return False                         # decoded Key file: not yet encodable
+        return fire_timing(raw, freq_mhz or d.get('freq_mhz'))
     from_text = []
     for tok in text.replace('\n', ',').split(','):
         tok = tok.strip()

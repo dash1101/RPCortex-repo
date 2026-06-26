@@ -68,8 +68,18 @@ def perf_stats():
     ui = _active_ui
     if ui is None:
         return None
+    try:
+        idle_s = (ui._now() - ui._idle_t0) // 1000
+    except Exception:
+        idle_s = -1
     d = {'render_us': ui._render_us, 'render_max_us': ui._render_max,
-         'shows': ui._shows, 'dimmed': ui._dimmed}
+         'shows': ui._shows, 'dimmed': ui._dimmed,
+         # screen-timeout diagnostics: discriminate idle-never-crosses vs
+         # contrast-not-dark vs a stale/0 timer setting shadowing the default.
+         'level': ui._level, 'idle_s': idle_s,
+         'dim_s': _int_reg('Apps.NovaD1_DimSec', 15),
+         'off_s': _int_reg('Apps.NovaD1_OffSec', 60),
+         'lock_s': _int_reg('Apps.NovaD1_LockSec', 5)}
     ui._render_max = 0                           # reset the peak each read
     return d
 
@@ -1925,7 +1935,17 @@ class NovaUI:
                 full = int(_reg('Apps.NovaD1_Contrast', 255))
                 d.contrast(full // 6 if full // 6 > 0 else 1)
             else:
+                # contrast(0) on an SH1106 is dim, NOT off — lit pixels stay faintly
+                # visible. So also BLANK the framebuffer once -> a truly black screen,
+                # still 100% recoverable (no power-off command, no brick). Wake
+                # re-renders via the invalidate in level 0.
                 d.contrast(0)
+                try:
+                    self.canvas.clear(0)
+                    d.invalidate()
+                    d.show(self.canvas)
+                except Exception:
+                    pass
         except Exception:
             pass
 

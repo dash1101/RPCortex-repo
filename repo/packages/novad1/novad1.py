@@ -585,12 +585,62 @@ def _perf(info, ok, warn, error, multi):
             multi("  GUI render: {} us (peak since last: {} us)".format(
                 p['render_us'], p['render_max_us']))
             multi("  renders: {}   screen-dimmed: {}".format(p['shows'], p['dimmed']))
+            # Screen-timeout diagnostics (why isn't it shutting off?):
+            lvl = {0: '0 active', 1: '1 dimmed', 2: '2 off'}.get(p.get('level'), p.get('level'))
+            multi("  screen level: {}   idle: {} s".format(lvl, p.get('idle_s')))
+            multi("  timers(s): dim={} off={} lock={}".format(
+                p.get('dim_s'), p.get('off_s'), p.get('lock_s')))
+            multi("  -> sit idle and re-run: if idle resets to ~0 each time, phantom")
+            multi("     input is keeping it awake; if off=0 the timer is disabled.")
         else:
             multi("  GUI not running (open the Nova GUI to measure).")
     except Exception as e:
         warn("perf: {}".format(e))
-    multi("  (A render that blocks > ~15ms is what stutters the shell. Spin the")
-    multi("   encoder / open an app, then run this again to read the peak.)")
+    multi("  (A render that blocks > ~15ms stutters the shell. Spin the encoder /")
+    multi("   open an app, then re-run to read the peak.)")
+
+
+def _fire(info, ok, warn, error, multi, arg):
+    """Fire a saved code by category+name — one entry point for the shell, scripts,
+    and the web panel (run a code without opening its GUI app)."""
+    parts = arg.split(None, 1)
+    if len(parts) < 2:
+        multi("  Usage: novad1 fire <cat> <name>")
+        multi("    cat: ir | subghz | lora    e.g. novad1 fire ir tv.ir")
+        return
+    cat = parts[0].strip().lower()
+    name = parts[1].strip()
+    import novastore
+    txt = novastore.read_code(cat, name)
+    if txt is None:
+        error("No such code: {}/{}".format(cat, name), p="NovaD1")
+        return
+    fired = False
+    try:
+        if cat == 'ir':
+            import novair
+            sigs = novair.parse_flipper(txt)
+            for sig in sigs:
+                _n, fr, du, times = sig
+                novair.replay(times, fr, du)
+            fired = bool(sigs)
+        elif cat == 'subghz':
+            import novacc
+            fired = novacc.fire_text(txt)
+        elif cat == 'lora':
+            import novamsg
+            novamsg.send(txt.strip())
+            fired = True
+        else:
+            error("Can't fire category '{}' (ir|subghz|lora).".format(cat), p="NovaD1")
+            return
+    except Exception as e:
+        error("fire error: {}".format(e), p="NovaD1")
+        return
+    if fired:
+        ok("Fired {}/{}".format(cat, name), p="NovaD1")
+    else:
+        warn("Nothing fired (empty/unsupported code).", p="NovaD1")
 
 
 def _logs(info, ok, warn, error, multi, rest=''):
@@ -646,6 +696,7 @@ def novad1(args=None):
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
         multi("  novad1 notify <t>  Push a notification to the Nova UI")
+        multi("  novad1 fire <cat> <name>  Fire a saved code (ir|subghz|lora)")
         multi("  novad1 web on|off  Phone control panel over WiFi")
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
@@ -673,6 +724,9 @@ def novad1(args=None):
         _perf(info, ok, warn, error, multi)
     elif cmd in ('wifiprobe', 'pcap'):
         _wifiprobe(info, ok, warn, error, multi)
+    elif cmd == 'fire':
+        rest_cs = (args or '').strip().split(None, 1)
+        _fire(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
