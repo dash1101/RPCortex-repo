@@ -44,6 +44,39 @@ def _spi():
                        miso=machine.Pin(_pin('spi_miso', 13)))
 
 
+def present():
+    """Quick CC1101 detect: read the VERSION status register over SPI. True if a
+    chip answers (so the UI can refuse to 'transmit' into thin air)."""
+    import machine
+    try:
+        import novamsg
+        novamsg.pause()
+    except Exception:
+        pass
+    spi = None
+    try:
+        spi = _spi()
+        cs = machine.Pin(_pin('cc_cs', 10), machine.Pin.OUT, value=1)
+        cs.value(0)
+        spi.write(bytes([0x31 | 0xC0]))          # VERSION reg, burst+status read
+        v = spi.read(1)[0]
+        cs.value(1)
+        return v not in (0x00, 0xFF)              # 0x00/0xFF = nothing on the bus
+    except Exception:
+        return False
+    finally:
+        try:
+            if spi is not None:
+                spi.deinit()
+        except Exception:
+            pass
+        try:
+            import novamsg
+            novamsg.resume()
+        except Exception:
+            pass
+
+
 def fire_timing(times, freq_mhz=None):
     """Transmit a raw OOK timing list (us; times[0]=first mark). Best-effort."""
     import machine
@@ -174,23 +207,36 @@ def to_flipper(name, times, freq_mhz=None, preset=None):
     return '\n'.join(lines) + '\n'
 
 
-def fire_text(text, freq_mhz=None):
-    """Fire a saved sub-GHz code: a Flipper RAW .sub (interop) OR our plain comma/
-    newline timing list. Decoded-protocol .sub Key files aren't replayable yet."""
+def _timings_from(text):
+    """Extract (timings, freq_mhz) from a Flipper RAW .sub OR our plain timing list.
+    Returns (None, None) if nothing usable (e.g. a decoded Key file)."""
     if 'Filetype: Flipper SubGhz' in text or 'RAW_Data:' in text:
         d = parse_flipper(text)
-        raw = d.get('raw')
-        if not raw:
-            return False                         # decoded Key file: not yet encodable
-        return fire_timing(raw, freq_mhz or d.get('freq_mhz'))
-    from_text = []
+        return d.get('raw'), d.get('freq_mhz')
+    out = []
     for tok in text.replace('\n', ',').split(','):
         tok = tok.strip()
         if tok:
             try:
-                from_text.append(int(tok))
+                out.append(int(tok))
             except ValueError:
                 pass
-    if not from_text:
+    return (out or None), None
+
+
+def fire_text(text, freq_mhz=None, repeats=1, cancel=None):
+    """Fire a saved sub-GHz code: a Flipper RAW .sub (interop) OR our plain timing
+    list. `repeats` re-sends the burst (many remotes need 3-5x); `cancel()` is
+    checked BETWEEN bursts so a long/repeated TX can be aborted (a single burst is
+    too timing-critical to interrupt mid-air). Key-file protocols aren't encodable
+    yet -> False."""
+    timings, ffreq = _timings_from(text)
+    if not timings:
         return False
-    return fire_timing(from_text, freq_mhz)
+    cancel = cancel or (lambda: False)
+    fired = False
+    for _ in range(max(1, int(repeats))):
+        if cancel():
+            break
+        fired = fire_timing(timings, freq_mhz or ffreq) or fired
+    return fired

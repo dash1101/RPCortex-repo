@@ -1390,12 +1390,16 @@ class CodeListScreen(Screen):
     """Browse saved code files for a tool and FIRE them (load hex/timing from a
     file and transmit — no capture needed). Optional '+ New' opens a capture
     screen. Codes live in the Nova store (flash, SD-backed). fire_fn(text)."""
-    def __init__(self, title, cat, fire_fn, capture_factory=None, fire_label='fire'):
+    def __init__(self, title, cat, fire_fn, capture_factory=None, fire_label='fire',
+                 fire_screen=None):
         self.title = title
         self.cat = cat
         self.fire = fire_fn
         self.capf = capture_factory
         self.fire_label = fire_label
+        self.fire_screen = fire_screen          # (name, text) -> Screen to PUSH (so
+        #                                         a blocking TX runs on its own screen
+        #                                         with status + cancel, not inline)
         self.sel = 0
         self.top = 0
         self.msg = ''
@@ -1449,12 +1453,16 @@ class CodeListScreen(Screen):
             txt = novastore.read_code(self.cat, r)
             if txt is None:
                 self.msg = 'read failed'
-            else:
-                try:
-                    self.fire(txt)
-                    self.msg = self.fire_label + ': ' + r[:9]
-                except Exception:
-                    self.msg = 'fire failed'
+                self._confirm = None
+                return None
+            if self.fire_screen is not None:
+                self._confirm = None
+                return self.fire_screen(r, txt)  # push a run screen (status+cancel)
+            try:
+                self.fire(txt)
+                self.msg = self.fire_label + ': ' + r[:9]
+            except Exception:
+                self.msg = 'fire failed'
             self._confirm = None
             return None
         elif e == ev.HOME:                      # native delete (HOME, confirm)
@@ -1664,10 +1672,139 @@ def _ir_app():
     return IRFilesScreen()
 
 
+class SubGhzFireScreen(Screen):
+    """Transmit a saved Sub-GHz code on its OWN screen — checks the CC1101 is there
+    first, shows a live 'Transmitting...' status (so it never looks frozen), and
+    BACK cancels (between bursts; a single burst is too timing-critical to cut
+    mid-air). Fixes: silent freeze / no cancel / no module check on the old inline
+    fire."""
+    def __init__(self, name, text):
+        self.title = 'Sub-GHz TX'
+        self.name = name
+        self.text = text
+        self.state = 'check'
+        self.msg = 'checking module...'
+        self._cancel = False
+
+    def draw(self, c):
+        c.text(2, _TOP, 'Sub-GHz TX', 1)
+        c.text(2, _TOP + _ROWH, self.name[:21], 1)
+        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
+        c.text(2, c.h - _FH, ('BACK=exit' if self.state == 'done' else 'BACK=cancel'), 1)
+
+    def tick(self, dt_ms=0):
+        if self.state == 'check':
+            try:
+                import novacc
+                ok = novacc.present()
+            except Exception:
+                ok = False
+            if not ok:
+                self.msg = 'No CC1101 found'
+                self.state = 'done'
+            else:
+                self.msg = 'Transmitting...'     # shown BEFORE the blocking burst
+                self.state = 'tx'
+            return True
+        if self.state == 'tx':
+            try:
+                import novacc
+                fired = novacc.fire_text(self.text, repeats=4,
+                                         cancel=lambda: self._cancel)
+                self.msg = ('Cancelled' if self._cancel
+                            else ('Sent' if fired else 'TX failed'))
+            except Exception:
+                self.msg = 'TX error'
+            self.state = 'done'
+            return True
+        return False
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME):
+            self._cancel = True                  # abort between bursts, then exit
+            return e
+        return None
+
+
 def _subghz_app():
-    import novacc
-    return CodeListScreen('Sub-GHz', 'subghz', lambda t: novacc.fire_text(t),
-                          fire_label='TX')
+    return CodeListScreen('Sub-GHz', 'subghz', lambda t: None, fire_label='TX',
+                          fire_screen=lambda n, t: SubGhzFireScreen(n, t))
+
+
+class BlePingScreen(Screen):
+    """Broadcast a 'device nearby' pairing advertisement so YOUR phone shows the
+    pairing card. NON-BLOCKING — the BLE radio advertises on its own while this
+    screen counts down, so the UI never freezes; BACK stops immediately. Point it
+    at your own phone (own-device / authorized use)."""
+    def __init__(self, platform='apple', model=None, secs=12):
+        self.title = 'BLE Ping'
+        self.platform = platform
+        self.model = model
+        self.secs = secs
+        self.msg = 'starting...'
+        self._t0 = None
+        self._done = False
+
+    def draw(self, c):
+        c.text(2, _TOP, 'BLE Ping: ' + self.platform, 1)
+        c.text(2, _TOP + _ROWH, (self.model or 'default')[:21], 1)
+        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
+        c.text(2, c.h - _FH, 'BACK=stop', 1)
+
+    def tick(self, dt_ms=0):
+        import utime
+        if self._done:
+            return False
+        if self._t0 is None:
+            try:
+                import novable
+                if not novable.available():
+                    self.msg = 'no BLE on board'
+                    self._done = True
+                    return True
+                m = novable.start_ping(self.platform, self.model)
+                self.model = m or self.model
+                self._t0 = utime.ticks_ms()
+                self.msg = 'advertising...'
+            except Exception:
+                self.msg = 'BLE error'
+                self._done = True
+            return True
+        left = self.secs - utime.ticks_diff(utime.ticks_ms(), self._t0) // 1000
+        if left <= 0:
+            self._stop()
+            self.msg = 'done'
+            self._done = True
+            return True
+        nm = 'check your phone ({}s)'.format(left)
+        if nm != self.msg:
+            self.msg = nm
+            return True
+        return False
+
+    def _stop(self):
+        try:
+            import novable
+            novable.stop()
+        except Exception:
+            pass
+
+    def animating(self):
+        return not self._done                    # keep ticking for the countdown
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME):
+            self._stop()
+            return e
+        return None
+
+
+def _ble_app():
+    return Menu('BLE', [
+        ('Scan nearby', lambda: ModuleTestScreen('bt', 'Bluetooth')),
+        ('Ping iPhone', lambda: BlePingScreen('apple')),
+        ('Ping Android', lambda: BlePingScreen('android')),
+    ])
 
 
 def _lora_tx_app():
@@ -2182,6 +2319,8 @@ def _all_apps():
             apps.append((k, 'Sub-GHz', _subghz_app))    # load + fire OOK codes
         elif k == 'sx1276':
             apps.append((k, 'LoRa TX', _lora_tx_app))   # fire saved LoRa payloads
+        elif k == 'bt':
+            apps.append((k, 'BLE', _ble_app))           # scan + ping (Apple/Android)
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('wifi', 'WiFi', WiFiScreen))

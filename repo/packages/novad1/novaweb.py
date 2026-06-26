@@ -227,10 +227,11 @@ body{margin:0;background:#070b16;color:#dbe8ff;font:15px/1.45 -apple-system,Sego
 .tile{background:#0e1830;border:1px solid #24406e;border-radius:14px;padding:20px 12px;text-align:center;font-size:16px}
 .tile:active{background:#1a2c52}.tile .i{font-size:24px;display:block;margin-bottom:6px}
 .view{display:none}
-button{background:#13203a;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px;width:100%}
+button{background:#13203a;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:15px;font-size:16px;width:100%}
 button:active{background:#21407a}.b{background:#1c3a6e;border-color:#2f5aa0;font-weight:600}
 .row{display:flex;gap:8px;margin:8px 0}
-input,textarea{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:13px;font-size:15px;width:100%}
+input,textarea{flex:1;background:#0c1326;color:#dbe8ff;border:1px solid #24406e;border-radius:12px;padding:16px;font-size:17px;width:100%}
+textarea{min-height:120px;line-height:1.4}
 pre{background:#05080f;border:1px solid #1b2c4a;border-radius:12px;padding:11px;font-size:13px;white-space:pre-wrap;word-break:break-word;min-height:70px;color:#b6e6bd}
 .net{display:flex;justify-content:space-between;padding:11px;border:1px solid #21345c;border-radius:10px;margin:6px 0;background:#0e1830}
 .net small{color:#8aa0c4}.net small a{color:#7fd1ff}.muted{color:#8aa0c4;font-size:12px;margin-top:6px}
@@ -408,10 +409,14 @@ async def _handle_async(conn):
             elif path == '/msgsend':
                 try:
                     import novamsg
-                    novamsg.send(q.get('text', '').strip() or 'ping')
+                    if not novamsg.radio_ok():
+                        await _asend(stream, '200 OK', 'text/plain',
+                                     'LoRa radio not detected (check the SX1276 + wiring)')
+                    else:
+                        novamsg.send(q.get('text', '').strip() or 'ping')
+                        await _asend(stream, '200 OK', 'text/plain', 'sent')
                 except Exception:
-                    pass
-                await _asend(stream, '200 OK', 'text/plain', 'sent')
+                    await _asend(stream, '200 OK', 'text/plain', 'send error')
             elif path == '/wificonnect':
                 msg = _wifi_join(q.get('ssid', '').strip(), q.get('pw', ''))
                 await _asend(stream, '200 OK', 'text/plain', msg)

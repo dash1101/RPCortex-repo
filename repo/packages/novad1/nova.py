@@ -104,6 +104,19 @@ def nfc_read():
     return novamods.pn532_read_uid()
 
 
+def ble_ping(platform='apple', model=None, secs=8):
+    """Broadcast a 'device nearby' pairing advertisement (Apple/iOS or Android Fast
+    Pair) for a bounded time — the Flipper-style BLE ping, runnable from a script so
+    cross-tool ping scripts port to the D1. Point it at your own phone."""
+    import novable
+    return novable.ping(platform, model, secs)
+
+
+def ble_scan(secs=5):
+    import novable
+    return novable.scan(int(secs * 1000))
+
+
 def do(action):
     """Execute a button-grid action string. Returns a short status string."""
     a = (action or '').strip().split(None, 1)
@@ -121,6 +134,14 @@ def do(action):
             return 'LoRa sent'
         if cmd == 'subghz':
             return 'SubGHz sent' if subghz_send(arg) else 'SubGHz failed'
+        if cmd == 'ble':
+            # 'ble ping apple airpods' / 'ble ping android headphones' / 'ble scan'
+            p = arg.split()
+            if p and p[0] == 'scan':
+                return 'BLE: {} devices'.format(len(ble_scan()))
+            sub = p[1] if len(p) > 1 else 'apple'      # platform
+            mdl = p[2] if len(p) > 2 else None         # model
+            return 'BLE ping ' + str(ble_ping(sub, mdl))
         if cmd == 'notify':
             notify(arg)
             return 'notified'

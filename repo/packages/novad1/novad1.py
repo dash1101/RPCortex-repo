@@ -643,6 +643,39 @@ def _fire(info, ok, warn, error, multi, arg):
         warn("Nothing fired (empty/unsupported code).", p="NovaD1")
 
 
+def _ble(info, ok, warn, error, multi, arg):
+    """BLE: scan nearby devices, or ping your phone with a pairing popup. Jamming
+    isn't possible on this radio (and is illegal); this is bounded own-device use."""
+    import novable
+    if not novable.available():
+        error("BLE not available on this board.", p="NovaD1")
+        return
+    parts = arg.split()
+    sub = parts[0].lower() if parts else 'scan'
+    if sub == 'scan':
+        info("=== BLE scan (5s) ===", p="NovaD1")
+        devs = novable.scan(5000)
+        if not devs:
+            multi("  (none found)")
+        for d in devs[:25]:
+            multi("  {:>4} dBm  {}  {}".format(d['rssi'], d['mac'], (d['name'] or '')[:16]))
+        multi("  {} device(s).".format(len(devs)))
+    elif sub == 'ping':
+        platform = parts[1].lower() if len(parts) > 1 else 'apple'
+        model = parts[2].lower() if len(parts) > 2 else None
+        info("Pinging {} ~8s — watch YOUR phone for the popup...".format(platform), p="NovaD1")
+        m = novable.ping(platform, model, 8)
+        if m:
+            ok("Ping sent (model '{}'). Point it at your own phone.".format(m), p="NovaD1")
+        else:
+            warn("Ping failed.", p="NovaD1")
+    elif sub == 'stop':
+        novable.stop()
+        ok("BLE advertising stopped.", p="NovaD1")
+    else:
+        multi("  Usage: novad1 ble scan | ping [apple|android] [model] | stop")
+
+
 def _logs(info, ok, warn, error, multi, rest=''):
     import novalog
     r = rest.strip().lower()
@@ -697,6 +730,7 @@ def novad1(args=None):
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
         multi("  novad1 notify <t>  Push a notification to the Nova UI")
         multi("  novad1 fire <cat> <name>  Fire a saved code (ir|subghz|lora)")
+        multi("  novad1 ble scan|ping [apple|android]  Scan / ping your phone")
         multi("  novad1 web on|off  Phone control panel over WiFi")
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
@@ -727,6 +761,8 @@ def novad1(args=None):
     elif cmd == 'fire':
         rest_cs = (args or '').strip().split(None, 1)
         _fire(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd == 'ble':
+        _ble(info, ok, warn, error, multi, rest)
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
