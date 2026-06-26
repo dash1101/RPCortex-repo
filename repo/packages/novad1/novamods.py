@@ -469,6 +469,43 @@ def _pn532_uid(t):
     return None
 
 
+def _pn532_card(t):
+    """Parse an InListPassiveTarget reply into {uid, atqa, sak} (bytes/int).
+    Layout after the 0xD5 0x4B NbTg header: Tg, SENS_RES(2)=ATQA, SEL_RES=SAK,
+    UIDLength, UID...  NOTE: ATQA byte order here is exactly what the PN532 reports;
+    Flipper prints ATQA big-endian (NTAG '00 44', Classic 1K '00 04'). If a scanned
+    card's ATQA comes out reversed vs a real Flipper, swap the two atqa bytes in the
+    READ path (device-verified, not assumed)."""
+    for i in range(len(t) - 8):
+        if t[i] == 0xD5 and t[i + 1] == 0x4B and t[i + 2] >= 1:
+            atqa = bytes(t[i + 4:i + 6])
+            sak = t[i + 6]
+            ulen = t[i + 7]
+            if 0 < ulen <= 10 and (i + 8 + ulen) <= len(t):
+                return {'uid': bytes(t[i + 8:i + 8 + ulen]), 'atqa': atqa, 'sak': sak}
+    return None
+
+
+def pn532_read_card(cancel=None):
+    """One bounded poll for a full anticollision result: {uid, atqa, sak} or None.
+    The basis for saving a Flipper .nfc (UID/ATQA/SAK level). Memory dump (NTAG
+    pages / Classic blocks via InDataExchange) is a later increment."""
+    cancel = cancel or (lambda: False)
+    try:
+        i2c = _i2c()
+        if _PN532_ADDR not in i2c.scan():
+            return None
+        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        i2c.readfrom(_PN532_ADDR, 7)            # ACK
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        return _pn532_card(i2c.readfrom(_PN532_ADDR, 25))
+    except Exception:
+        return None
+
+
 # --- Bluetooth (BLE scan, generator) — ESP32 only ---------------------------
 def test_bt(cfg, cancel=None):
     cancel = cancel or (lambda: False)

@@ -1273,26 +1273,35 @@ class GPSScreen(Screen):
 
 
 class NFCScreen(Screen):
-    """NFC reader (PN532) — poll for a tag, show its UID, Select saves it to the
-    Nova store (build a tag library). Fires a notification on a new read."""
+    """NFC reader (PN532) — poll for a tag, show UID + identified type, Select
+    saves a real Flipper .nfc file (UID/ATQA/SAK level) to the Nova store so it
+    interops with a Flipper Zero. Fires a notification on a new read. Full memory
+    dump (NTAG pages / Classic blocks) + emulate/clone are the next increments."""
     def __init__(self):
         self.title = 'NFC'
+        self.card = None
         self.uid = None
-        self.saved = False
+        self.kind = ''
+        self.saved = None        # filename once saved
         self._acc = 0
 
     def draw(self, c):
         y = _TOP
         c.text(2, y, 'NFC reader', 1); y += _ROWH
         if self.uid:
-            c.text(2, y, 'UID:', 1); y += _ROWH
-            c.text(2, y, self.uid[:16], 1); y += _ROWH
-            if len(self.uid) > 16:
-                c.text(2, y, self.uid[16:32], 1)
+            c.text(2, y, self.kind[:21], 1); y += _ROWH
+            c.text(2, y, self.uid[:21], 1); y += _ROWH
+            if len(self.uid) > 21:
+                c.text(2, y, self.uid[21:42], 1); y += _ROWH
         else:
             c.text(2, y, 'tap a tag...', 1)
-        foot = 'Saved!' if self.saved else ('Sel=save BACK=exit' if self.uid else 'BACK=exit')
-        c.text(2, c.h - _FH, foot[:16], 1)
+        if self.saved:
+            foot = 'Saved .nfc'
+        elif self.uid:
+            foot = 'Sel=save BACK=exit'
+        else:
+            foot = 'BACK=exit'
+        c.text(2, c.h - _FH, foot[:21], 1)
 
     def tick(self, dt_ms=0):
         self._acc += dt_ms or 16
@@ -1300,14 +1309,17 @@ class NFCScreen(Screen):
             return False
         self._acc = 0
         try:
-            import novamods
-            u = novamods.pn532_read_uid()
-            if u and u != self.uid:
-                self.uid = u
-                self.saved = False
+            import novamods, novanfc
+            card = novamods.pn532_read_card()
+            if card and (self.card is None or card['uid'] != self.card['uid']):
+                self.card = card
+                self.uid = novanfc.hexs(card['uid'])
+                dt2, sub = novanfc.identify(card['sak'], card['atqa'])
+                self.kind = sub or dt2
+                self.saved = None
                 try:
                     import novanotify
-                    novanotify.notify('NFC tag ' + u[:14])
+                    novanotify.notify('NFC ' + self.kind[:10] + ' ' + self.uid[:11])
                 except Exception:
                     pass
                 return True
@@ -1316,12 +1328,17 @@ class NFCScreen(Screen):
         return False
 
     def on_event(self, e):
-        if e == ev.SELECT and self.uid:
+        if e == ev.SELECT and self.card:
             try:
-                import novad1
-                with open(novad1._nova_base() + '/tags.txt', 'a') as f:
-                    f.write(self.uid + '\n')
-                self.saved = True
+                import novanfc, novastore
+                card = self.card
+                # UID-level save as a valid ISO14443-3A .nfc (Flipper-compatible).
+                # When the memory-dump increment lands, NTAG/Classic dumps save as
+                # their full device type instead.
+                doc = novanfc.build_iso14443a(card['uid'], card['atqa'], card['sak'])
+                name = 'card_' + novanfc.hexs(card['uid'], '').lower() + '.nfc'
+                novastore.save_code('nfc', name, doc.to_text())
+                self.saved = name
             except Exception:
                 pass
             return None
