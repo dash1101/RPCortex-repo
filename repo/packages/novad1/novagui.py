@@ -41,6 +41,13 @@ def _save_reg(key, value):
         return False
 
 
+def _int_reg(key, default=0):
+    try:
+        return int(_reg(key, default) or 0)
+    except (TypeError, ValueError):
+        return default
+
+
 # The running UI, so screens (Display/Time) can reach the live display/hardware.
 _active_ui = None
 # Set when the home app list/style changes so the runner rebuilds the home live
@@ -1799,7 +1806,10 @@ class NovaUI:
         self._state_t = -100000
         self._last_render = 0
         self._idle_t0 = 0
-        self._dimmed = False
+        self._level = 0              # idle power tier: 0 active, 1 dimmed, 2 off
+        self._dimmed = False         # = level >= 1 (kept for existing call sites)
+        self._locked = False         # a PIN lock screen is currently pushed
+        self._lock_scr = None
         self._low_warned = False
         self._last_sig = None
         self._render_us = 0          # last render time (us) — perf instrumentation
@@ -1851,28 +1861,33 @@ class NovaUI:
         self._apply(self.stack[-1].on_event(e))
         return True
 
-    def sleep_display(self):
-        """Screen sleep via CONTRAST 0 (near-black) — NOT power-off. This is 100%
-        recoverable: the panel is never in a state that needs a command to come
-        back, so any render restores it (power(False) could leave a dark panel that
-        won't wake — the reported brick). The loop keeps polling input."""
-        self._dimmed = True
+    def _set_level(self, level):
+        """Idle power tier via CONTRAST only — NEVER power-off, so it's 100%
+        recoverable (power(False) could leave a panel that won't wake — the reported
+        brick). 0 = active (full brightness), 1 = dimmed (low but readable), 2 = off
+        (near-black). The loop keeps polling input the whole time."""
+        if level == self._level:
+            return
+        self._level = level
+        self._dimmed = level >= 1
+        d = self.display
         try:
-            self.display.contrast(0)
+            if level == 0:
+                d.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
+                d.invalidate()                   # force a full redraw next frame
+            elif level == 1:
+                full = int(_reg('Apps.NovaD1_Contrast', 255))
+                d.contrast(full // 6 if full // 6 > 0 else 1)
+            else:
+                d.contrast(0)
         except Exception:
             pass
 
+    def sleep_display(self):
+        self._set_level(2)
+
     def _wake_display(self):
-        self._dimmed = False
-        d = self.display
-        try:
-            d.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))
-        except Exception:
-            pass
-        try:
-            d.invalidate()                       # force a full redraw next frame
-        except Exception:
-            pass
+        self._set_level(0)
 
     def _loop_once(self, prev, sleep_ms):
         now = self._now()
@@ -1884,6 +1899,7 @@ class NovaUI:
         e = self.source.poll()
         if e is not None and self._dimmed:       # WAKE only — swallow everything queued
             self._wake_display()
+            self._idle_t0 = now                  # reset idle so it doesn't re-dim at once
             dirty = True
             while self.source.poll() is not None:
                 pass
@@ -1935,15 +1951,35 @@ class NovaUI:
                 dirty = True
         else:
             self._low_warned = False
-        # Screen-off (burn-in/power saver): power the OLED down after DimSec idle.
-        if not self._dimmed:
-            try:
-                dim_s = int(_reg('Apps.NovaD1_DimSec', 0) or 0)
-            except Exception:
-                dim_s = 0
-            if dim_s > 0 and (now - self._idle_t0) >= dim_s * 1000:
-                self.sleep_display()
-        if self._dimmed:
+        # Idle power tiers: active -> dim (DimSec) -> off (OffSec) -> lock
+        # (OffSec+LockSec, only if a PIN is set). 0 disables a tier. All via
+        # contrast, never power-off, so it's always recoverable.
+        idle = now - self._idle_t0
+        dim_s = _int_reg('Apps.NovaD1_DimSec', 15)
+        off_s = _int_reg('Apps.NovaD1_OffSec', 60)
+        lock_s = _int_reg('Apps.NovaD1_LockSec', 5)
+        if off_s > 0 and idle >= off_s * 1000:
+            target = 2
+        elif dim_s > 0 and idle >= dim_s * 1000:
+            target = 1
+        else:
+            target = 0
+        if target != self._level:
+            self._set_level(target)
+            if target == 0:
+                dirty = True
+        # Auto-lock a short while after the screen goes off (needs a set PIN).
+        if (target == 2 and not self._locked and off_s > 0 and lock_s >= 0
+                and _reg('Apps.NovaD1_PIN', '')
+                and idle >= (off_s + lock_s) * 1000):
+            self._lock_scr = PinScreen('verify')
+            self.stack.append(self._lock_scr)
+            self._locked = True
+        # The user entered the PIN -> the lock screen popped itself off the stack.
+        if self._locked and self._lock_scr is not None and self._lock_scr not in self.stack:
+            self._locked = False
+            self._lock_scr = None
+        if self._level >= 2:
             dirty = False                        # screen off — skip rendering
         if dirty:
             try:
@@ -1960,12 +1996,14 @@ class NovaUI:
         # so when the UI is idle it must CEDE cpu (long nap) or it starves the shell's
         # keystroke reader (choppy typing). When you're actually using the UI (recent
         # input) or animating, nap short so the UI stays snappy.
-        if self._dimmed:
-            nap = 400
+        if self._level >= 2:
+            nap = 400                           # off -> deep idle, cede the loop
         elif scr.animating():
             nap = 16                            # smooth animation frames
         elif (now - self._idle_t0) < 1500:
             nap = 33                            # just interacted -> responsive UI
+        elif self._level == 1:
+            nap = 250                           # dimmed but visible -> slow refresh
         else:
             nap = 160                           # idle -> hand the loop to the shell
         return now, nap
@@ -2211,7 +2249,9 @@ class SettingsScreen(Screen):
         self.rows = [
             ('head', 'DISPLAY'),
             ('push', 'Brightness', DisplayScreen),
-            ('cycle', 'Auto-Off', 'Apps.NovaD1_DimSec', ['0', '15', '30', '60', '120'], '0', None),
+            ('cycle', 'Dim After', 'Apps.NovaD1_DimSec', ['0', '5', '15', '30', '60'], '15', None),
+            ('cycle', 'Screen Off', 'Apps.NovaD1_OffSec', ['0', '30', '60', '120', '300'], '60', None),
+            ('cycle', 'Auto-Lock', 'Apps.NovaD1_LockSec', ['0', '5', '15', '30', '60'], '5', None),
             ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
             ('head', 'HOME'),

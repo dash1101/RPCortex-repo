@@ -1,16 +1,29 @@
 # Desc: Nova D1 UI canvas — 1-bit MONO_VLSB framebuffer + drawing primitives.
 # File: /Packages/NovaD1/novacanvas.py
 #
-# Pure Python (runs identically on MicroPython AND CPython, so the PC mock render
-# is pixel-true to the panel). The buffer layout is MONO_VLSB — exactly what the
-# SH1106/SSD1306 page memory expects — so a driver just streams `buf` out.
+# The buffer layout is MONO_VLSB — exactly what the SH1106/SSD1306 page memory
+# expects — so a driver just streams `buf` out.
 #   byte index = (y >> 3) * width + x   ;   bit = 1 << (y & 7)   (a column of 8px)
 #
-# Text uses the shared 6x8 font in novafont (NOT framebuf), so device == mock.
-# char()/text() take an optional scale (scale=2 doubles each pixel for big text).
+# SPEED: on-device the heavy primitives (fill/pixel/line/rect/blit) run through
+# MicroPython's native C `framebuf` module, which wraps the SAME bytearray with
+# the SAME MONO_VLSB layout — so the output is byte-identical to the pure-Python
+# path, but a full-screen redraw is ~10-50x faster (the difference between a
+# choppy ~4fps UI and a smooth one, and it stops a redraw from starving the
+# shared event loop). Text keeps the custom 6x8 novafont via a cached GLYPH BLIT
+# (each glyph rendered once into a tiny FrameBuffer, then C-blitted), so device
+# == mock visually. On CPython (the PC mock render) `framebuf` is absent, so it
+# transparently falls back to the pure-Python primitives below — pixel-true.
 # MicroPython-safe: no f-strings, positional split, .format() only.
 
 import novafont as _f
+
+try:
+    import framebuf as _fb
+    _HAVE_FB = True
+except ImportError:
+    _fb = None
+    _HAVE_FB = False
 
 
 class Canvas:
@@ -19,13 +32,25 @@ class Canvas:
         self.h = h
         self.pages = h // 8
         self.buf = bytearray(w * self.pages)
+        # Native framebuf over the SAME buffer (MONO_VLSB) when available.
+        if _HAVE_FB:
+            self.fb = _fb.FrameBuffer(self.buf, w, h, _fb.MONO_VLSB)
+        else:
+            self.fb = None
+        self._glyphs = {}               # code -> tiny FrameBuffer (lit-pixel blit)
 
     def clear(self, c=0):
+        if self.fb is not None:
+            self.fb.fill(1 if c else 0)
+            return
         v = 0xff if c else 0x00
         for i in range(len(self.buf)):
             self.buf[i] = v
 
     def pixel(self, x, y, c=1):
+        if self.fb is not None:
+            self.fb.pixel(x, y, c)
+            return
         if x < 0 or x >= self.w or y < 0 or y >= self.h:
             return
         idx = (y >> 3) * self.w + x
@@ -36,14 +61,23 @@ class Canvas:
             self.buf[idx] &= (~bit) & 0xff
 
     def hline(self, x, y, n, c=1):
+        if self.fb is not None:
+            self.fb.hline(x, y, n, c)
+            return
         for i in range(n):
             self.pixel(x + i, y, c)
 
     def vline(self, x, y, n, c=1):
+        if self.fb is not None:
+            self.fb.vline(x, y, n, c)
+            return
         for i in range(n):
             self.pixel(x, y + i, c)
 
     def line(self, x0, y0, x1, y1, c=1):
+        if self.fb is not None:
+            self.fb.line(x0, y0, x1, y1, c)
+            return
         dx = abs(x1 - x0); dy = -abs(y1 - y0)
         sx = 1 if x0 < x1 else -1
         sy = 1 if y0 < y1 else -1
@@ -59,10 +93,16 @@ class Canvas:
                 err += dx; y0 += sy
 
     def rect(self, x, y, w, h, c=1):
+        if self.fb is not None:
+            self.fb.rect(x, y, w, h, c)
+            return
         self.hline(x, y, w, c); self.hline(x, y + h - 1, w, c)
         self.vline(x, y, h, c); self.vline(x + w - 1, y, h, c)
 
     def fill_rect(self, x, y, w, h, c=1):
+        if self.fb is not None:
+            self.fb.fill_rect(x, y, w, h, c)
+            return
         # Byte-level fill (per page band), not per-pixel — ~8x fewer ops, which
         # keeps full-screen UI redraws fast enough to animate smoothly.
         if w <= 0 or h <= 0:
@@ -95,6 +135,7 @@ class Canvas:
             yy = ptop + 8
 
     def circle(self, cx, cy, r, c=1):
+        # Calls self.pixel — fast automatically when framebuf-backed.
         x = r; y = 0; err = 1 - r
         while x >= y:
             self.pixel(cx + x, cy + y, c); self.pixel(cx + y, cy + x, c)
@@ -113,10 +154,28 @@ class Canvas:
             dx = int((r * r - dy * dy) ** 0.5)
             self.hline(cx - dx, cy + dy, 2 * dx + 1, c)
 
+    def _glyph(self, code, gi):
+        # Build (once) a tiny WIDTHx8 MONO_VLSB FrameBuffer for this glyph. The
+        # novafont DATA is ALREADY column-major MONO_VLSB (DATA[gi+col] is the
+        # column byte, bit 1<<row = pixel), so it IS a valid glyph buffer.
+        g = self._glyphs.get(code)
+        if g is None:
+            gbuf = bytearray(_f.DATA[gi:gi + _f.WIDTH])
+            g = _fb.FrameBuffer(gbuf, _f.WIDTH, 8, _fb.MONO_VLSB)
+            self._glyphs[code] = g          # keeps gbuf alive too
+        return g
+
     def char(self, x, y, code, c=1, scale=1):
         if code < _f.FIRST or code > _f.FIRST + 0x5e:
             code = ord('?')
         gi = (code - _f.FIRST) * _f.WIDTH
+        # Fast path: normal (c=1, scale=1) text -> one C blit, key=0 so only the
+        # lit pixels draw (transparent background, matching the per-pixel path).
+        if self.fb is not None and c and scale == 1:
+            self.fb.blit(self._glyph(code, gi), x, y, 0)
+            return
+        # Fallback: c=0 (knockout text on a filled row), scaled text, or no
+        # framebuf. pixel()/fill_rect() are still C-fast when framebuf-backed.
         for col in range(_f.WIDTH):
             bits = _f.DATA[gi + col]
             for row in range(_f.HEIGHT):
