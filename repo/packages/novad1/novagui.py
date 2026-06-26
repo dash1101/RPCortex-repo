@@ -1330,12 +1330,22 @@ class NFCScreen(Screen):
     def on_event(self, e):
         if e == ev.SELECT and self.card:
             try:
-                import novanfc, novastore
+                import novamods, novanfc, novastore
                 card = self.card
-                # UID-level save as a valid ISO14443-3A .nfc (Flipper-compatible).
-                # When the memory-dump increment lands, NTAG/Classic dumps save as
-                # their full device type instead.
-                doc = novanfc.build_iso14443a(card['uid'], card['atqa'], card['sak'])
+                dt2, sub = novanfc.identify(card['sak'], card['atqa'])
+                doc = None
+                if dt2 == novanfc.DT_ULTRALIGHT:
+                    # Full NTAG/Ultralight memory dump -> complete .nfc.
+                    dump = novamods.pn532_dump_ntag()
+                    if dump and dump.get('pages'):
+                        doc = novanfc.build_ultralight(
+                            dump['uid'], dump['atqa'], dump['sak'], dump['ntag_type'],
+                            dump['pages'], signature=dump.get('signature'),
+                            mifare_version=dump.get('mifare_version'))
+                if doc is None:
+                    # UID-level fallback (UID-only systems, Classic until its dump
+                    # increment, or a partial read): a valid ISO14443-3A .nfc.
+                    doc = novanfc.build_iso14443a(card['uid'], card['atqa'], card['sak'])
                 name = 'card_' + novanfc.hexs(card['uid'], '').lower() + '.nfc'
                 novastore.save_code('nfc', name, doc.to_text())
                 self.saved = name

@@ -488,8 +488,7 @@ def _pn532_card(t):
 
 def pn532_read_card(cancel=None):
     """One bounded poll for a full anticollision result: {uid, atqa, sak} or None.
-    The basis for saving a Flipper .nfc (UID/ATQA/SAK level). Memory dump (NTAG
-    pages / Classic blocks via InDataExchange) is a later increment."""
+    The basis for saving a Flipper .nfc (UID/ATQA/SAK level)."""
     cancel = cancel or (lambda: False)
     try:
         i2c = _i2c()
@@ -502,6 +501,84 @@ def pn532_read_card(cancel=None):
         if not _pn532_ready(i2c, cancel, 12):
             return None
         return _pn532_card(i2c.readfrom(_PN532_ADDR, 25))
+    except Exception:
+        return None
+
+
+# --- full memory dump (NTAG / Ultralight) -----------------------------------
+# storage-size byte (GET_VERSION[6]) -> (type name, total pages).
+_NTAG_VER = {0x0F: ('NTAG213', 45), 0x11: ('NTAG215', 135), 0x13: ('NTAG216', 231),
+             0x0B: ('Mifare Ultralight 11', 20), 0x0E: ('Mifare Ultralight 21', 41)}
+
+
+def _pn532_dataex(i2c, body, cancel, rdlen=40):
+    """InDataExchange (0xD4 0x40 Tg=1 <body>) to the selected target. Returns the
+    raw reply bytes. Mirrors the proven InListPassiveTarget handshake."""
+    i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x40, 0x01] + list(body)))
+    if not _pn532_ready(i2c, cancel, 12):
+        return None
+    i2c.readfrom(_PN532_ADDR, 7)                # ACK
+    if not _pn532_ready(i2c, cancel, 12):
+        return None
+    return i2c.readfrom(_PN532_ADDR, rdlen)
+
+
+def _dataex_payload(r):
+    """Pull the data from a 0xD5 0x41 <status> <data...> InDataExchange reply, or
+    None on a non-zero status / malformed frame."""
+    if not r:
+        return None
+    for i in range(len(r) - 2):
+        if r[i] == 0xD5 and r[i + 1] == 0x41:
+            if r[i + 2] != 0x00:
+                return None
+            return bytes(r[i + 3:])
+    return None
+
+
+def pn532_dump_ntag(cancel=None):
+    """Full NTAG/Ultralight dump -> {uid, atqa, sak, ntag_type, pages[],
+    mifare_version, signature} or None. Selects the card, reads GET_VERSION for the
+    exact chip + page count, then walks memory with READ (0x30, 4 pages/read).
+    DEVICE-PENDING: the InDataExchange choreography is hardware-only (CPython tests
+    cover the framing/parse logic)."""
+    cancel = cancel or (lambda: False)
+    try:
+        i2c = _i2c()
+        if _PN532_ADDR not in i2c.scan():
+            return None
+        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        i2c.readfrom(_PN532_ADDR, 7)
+        if not _pn532_ready(i2c, cancel, 12):
+            return None
+        card = _pn532_card(i2c.readfrom(_PN532_ADDR, 25))
+        if not card:
+            return None
+        ver = _dataex_payload(_pn532_dataex(i2c, [0x60], cancel, 30))   # GET_VERSION
+        ntype, total = 'NTAG215', 135
+        mver = None
+        if ver and len(ver) >= 8:
+            mver = bytes(ver[:8])
+            ntype, total = _NTAG_VER.get(ver[6], ('NTAG215', 135))
+        sig = _dataex_payload(_pn532_dataex(i2c, [0x3C, 0x00], cancel, 48))  # READ_SIG
+        sig = bytes(sig[:32]) if (sig and len(sig) >= 32) else None
+        pages = []
+        p = 0
+        while p < total and not cancel():
+            data = _dataex_payload(_pn532_dataex(i2c, [0x30, p], cancel, 30))  # READ
+            if not data or len(data) < 16:
+                break
+            for k in range(4):
+                if p + k < total:
+                    pages.append(bytes(data[k * 4:k * 4 + 4]))
+            p += 4
+        card['ntag_type'] = ntype
+        card['pages'] = pages
+        card['mifare_version'] = mver
+        card['signature'] = sig
+        return card
     except Exception:
         return None
 
