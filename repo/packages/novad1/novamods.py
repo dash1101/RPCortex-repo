@@ -537,25 +537,21 @@ def _dataex_payload(r):
 
 
 def pn532_dump_ntag(cancel=None):
-    """Full NTAG/Ultralight dump -> {uid, atqa, sak, ntag_type, pages[],
-    mifare_version, signature} or None. Selects the card, reads GET_VERSION for the
-    exact chip + page count, then walks memory with READ (0x30, 4 pages/read).
-    DEVICE-PENDING: the InDataExchange choreography is hardware-only (CPython tests
-    cover the framing/parse logic)."""
+    """GENERATOR: full NTAG/Ultralight dump. Reads GET_VERSION (exact chip + page
+    count) + the signature, then walks memory with READ (0x30, 4 pages/read).
+    Yields ('progress', done_pages, total) so a tap-to-save never blocks the UI, then
+    ('done', card) with pages[]/mifare_version/signature, or ('fail', None).
+    DEVICE-PENDING: the InDataExchange choreography is hardware-only (mock-tested)."""
     cancel = cancel or (lambda: False)
     try:
         i2c = _i2c()
         if _PN532_ADDR not in i2c.scan():
-            return None
-        i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
-        if not _pn532_ready(i2c, cancel, 12):
-            return None
-        i2c.readfrom(_PN532_ADDR, 7)
-        if not _pn532_ready(i2c, cancel, 12):
-            return None
-        card = _pn532_card(i2c.readfrom(_PN532_ADDR, 25))
+            yield ('fail', None)
+            return
+        card = _pn532_select(i2c, cancel)
         if not card:
-            return None
+            yield ('fail', None)
+            return
         ver = _dataex_payload(_pn532_dataex(i2c, [0x60], cancel, 30))   # GET_VERSION
         ntype, total = 'NTAG215', 135
         mver = None
@@ -566,6 +562,7 @@ def pn532_dump_ntag(cancel=None):
         sig = bytes(sig[:32]) if (sig and len(sig) >= 32) else None
         pages = []
         p = 0
+        yield ('progress', 0, total)
         while p < total and not cancel():
             data = _dataex_payload(_pn532_dataex(i2c, [0x30, p], cancel, 30))  # READ
             if not data or len(data) < 16:
@@ -574,13 +571,14 @@ def pn532_dump_ntag(cancel=None):
                 if p + k < total:
                     pages.append(bytes(data[k * 4:k * 4 + 4]))
             p += 4
+            yield ('progress', len(pages), total)
         card['ntag_type'] = ntype
         card['pages'] = pages
         card['mifare_version'] = mver
         card['signature'] = sig
-        return card
+        yield ('done', card)
     except Exception:
-        return None
+        yield ('fail', None)
 
 
 # --- full memory dump (Mifare Classic, known/default keys) ------------------

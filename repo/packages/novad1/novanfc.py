@@ -185,14 +185,15 @@ def identify(sak, atqa, mem_pages=None):
     """Best-effort card classification from SAK/ATQA (+ optional page count).
     Returns (device_type, sub_type_or_None). Conservative: anything unrecognised
     is ISO14443-3A (we still capture UID/ATQA/SAK)."""
-    a = 0
-    if atqa:
-        a = (atqa[0] << 8) | (atqa[1] if len(atqa) > 1 else 0)
     if sak in _CLASSIC_BY_SAK:
         return DT_CLASSIC, _CLASSIC_BY_SAK[sak][0]
-    if sak == 0x00 and (a & 0x00ff) == 0x44:        # Ultralight/NTAG family
-        sub = _NTAG_BY_PAGES.get(mem_pages or 0, 'NTAG215')
-        return DT_ULTRALIGHT, sub
+    # NTAG/Ultralight: SAK 0x00 + ATQA containing 0x44. Order-AGNOSTIC on purpose —
+    # the path chosen here decides whether we do a full page dump, and the PN532's
+    # SENS_RES byte order isn't device-confirmed yet; a swap must NOT silently
+    # demote an NTAG to UID-only. Classic ATQAs (0x0002/0x0004) lack 0x44 and are
+    # already caught by SAK above, so checking membership is safe.
+    if sak == 0x00 and atqa and 0x44 in bytes(atqa):
+        return DT_ULTRALIGHT, _NTAG_BY_PAGES.get(mem_pages or 0, 'NTAG215')
     return DT_ISO3A, None
 
 
