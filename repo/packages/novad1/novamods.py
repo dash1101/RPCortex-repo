@@ -583,6 +583,108 @@ def pn532_dump_ntag(cancel=None):
         return None
 
 
+# --- full memory dump (Mifare Classic, known/default keys) ------------------
+# The most common default keys. Kept SMALL to bound dump time (each miss costs a
+# re-select + auth round-trip). A card whose sector uses none of these reads as '??'.
+_DEFAULT_KEYS = (
+    b'\xff\xff\xff\xff\xff\xff', b'\xa0\xa1\xa2\xa3\xa4\xa5',
+    b'\xd3\xf7\xd3\xf7\xd3\xf7', b'\x00\x00\x00\x00\x00\x00',
+    b'\xb0\xb1\xb2\xb3\xb4\xb5', b'\x4d\x3a\x99\xc3\x51\xdd',
+    b'\x1a\x98\x2c\x7e\x45\x9a', b'\xaa\xbb\xcc\xdd\xee\xff',
+)
+
+
+def _mc_type(sak):
+    if sak in (0x18, 0x98):
+        return 256, '4K'
+    if sak == 0x09:
+        return 20, 'Mini'
+    return 64, '1K'
+
+
+def _mc_nsectors(total):
+    return 40 if total == 256 else total // 4    # 4K = 32x4-block + 8x16-block
+
+
+def _mc_sector_first(sec):
+    return sec * 4 if sec < 32 else 128 + (sec - 32) * 16
+
+
+def _mc_sector_nblocks(sec):
+    return 4 if sec < 32 else 16
+
+
+def _pn532_select(i2c, cancel):
+    """InListPassiveTarget -> card dict, or None. A FAILED Mifare auth halts the
+    card, so we re-select before each auth attempt to clear the halt."""
+    i2c.writeto(_PN532_ADDR, _pn532_frame([0xD4, 0x4A, 0x01, 0x00]))
+    if not _pn532_ready(i2c, cancel, 12):
+        return None
+    i2c.readfrom(_PN532_ADDR, 7)
+    if not _pn532_ready(i2c, cancel, 12):
+        return None
+    return _pn532_card(i2c.readfrom(_PN532_ADDR, 25))
+
+
+def _classic_auth(i2c, block, key, uid, cancel, key_type=0x60):
+    # InDataExchange MIFARE auth: [0x60/0x61, block, key(6), uid(4)]. Status 0 = ok.
+    r = _pn532_dataex(i2c, [key_type, block] + list(key) + list(uid[:4]), cancel, 20)
+    return _dataex_payload(r) is not None
+
+
+def pn532_dump_classic(cancel=None):
+    """GENERATOR: full Mifare Classic dump via a default-key dictionary. Yields
+    ('progress', done_blocks, total) frequently (so the UI stays responsive and BACK
+    can cancel mid-dump), then a final ('done', card) with card['blocks'] (16-byte
+    bytes per block, or the '??'*16 string when no default key opens the sector), or
+    ('fail', None). DEVICE-PENDING: PN532 auth/read choreography is hardware-only."""
+    cancel = cancel or (lambda: False)
+    unknown = ' '.join(['??'] * 16)
+    try:
+        i2c = _i2c()
+        if _PN532_ADDR not in i2c.scan():
+            yield ('fail', None)
+            return
+        card = _pn532_select(i2c, cancel)
+        if not card:
+            yield ('fail', None)
+            return
+        uid = card['uid']
+        total, mc_type = _mc_type(card['sak'])
+        nsec = _mc_nsectors(total)
+        blocks = [unknown] * total
+        done = 0
+        yield ('progress', 0, total)
+        for sec in range(nsec):
+            if cancel():
+                break
+            first = _mc_sector_first(sec)
+            nb = _mc_sector_nblocks(sec)
+            authed = False
+            for kt in (0x60, 0x61):
+                if authed or cancel():
+                    break
+                for key in _DEFAULT_KEYS:
+                    if cancel():
+                        break
+                    if _pn532_select(i2c, cancel) and _classic_auth(i2c, first, key, uid, cancel, kt):
+                        authed = True
+                        break
+                    yield ('progress', done, total)   # stay responsive during search
+            for off in range(nb):
+                if authed and not cancel():
+                    data = _dataex_payload(_pn532_dataex(i2c, [0x30, first + off], cancel, 30))
+                    if data and len(data) >= 16:
+                        blocks[first + off] = bytes(data[:16])
+                done += 1
+                yield ('progress', done, total)
+        card['mc_type'] = mc_type
+        card['blocks'] = blocks
+        yield ('done', card)
+    except Exception:
+        yield ('fail', None)
+
+
 # --- Bluetooth (BLE scan, generator) — ESP32 only ---------------------------
 def test_bt(cfg, cancel=None):
     cancel = cancel or (lambda: False)

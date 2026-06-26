@@ -1339,30 +1339,96 @@ class NFCScreen(Screen):
 
     def on_event(self, e):
         if e == ev.SELECT and self.card:
-            try:
-                import novamods, novanfc, novastore
-                card = self.card
-                dt2, sub = novanfc.identify(card['sak'], card['atqa'])
-                doc = None
-                if dt2 == novanfc.DT_ULTRALIGHT:
-                    # Full NTAG/Ultralight memory dump -> complete .nfc.
-                    dump = novamods.pn532_dump_ntag()
-                    if dump and dump.get('pages'):
-                        doc = novanfc.build_ultralight(
-                            dump['uid'], dump['atqa'], dump['sak'], dump['ntag_type'],
-                            dump['pages'], signature=dump.get('signature'),
-                            mifare_version=dump.get('mifare_version'))
-                if doc is None:
-                    # UID-level fallback (UID-only systems, Classic until its dump
-                    # increment, or a partial read): a valid ISO14443-3A .nfc.
-                    doc = novanfc.build_iso14443a(card['uid'], card['atqa'], card['sak'])
-                name = 'card_' + novanfc.hexs(card['uid'], '').lower() + '.nfc'
-                novastore.save_code('nfc', name, doc.to_text())
-                self.saved = name
-            except Exception:
-                pass
-            return None
+            return NfcSaveScreen(self.card)      # cooperative dump+save (progress+cancel)
         if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class NfcSaveScreen(Screen):
+    """Reads a tapped card fully and saves a .nfc — on its OWN screen with live
+    progress + cancel, so a slow Mifare Classic dump (sector-by-sector) never
+    freezes the UI. NTAG/Ultralight = full page dump; Classic = default-key block
+    dump (unreadable sectors saved as '??'); anything else = UID-level."""
+    def __init__(self, card):
+        self.title = 'NFC Save'
+        self.card = card
+        self.state = 'init'
+        self.msg = 'reading...'
+        self.saved = None
+        self._cancel = False
+        self._gen = None
+
+    def draw(self, c):
+        import novanfc
+        dt2, sub = novanfc.identify(self.card['sak'], self.card['atqa'])
+        c.text(2, _TOP, 'Save: ' + (sub or dt2)[:15], 1)
+        c.text(2, _TOP + _ROWH, novanfc.hexs(self.card['uid'])[:21], 1)
+        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
+        c.text(2, c.h - _FH, ('BACK=exit' if self.state == 'done' else 'BACK=cancel'), 1)
+
+    def _save(self, doc):
+        import novanfc, novastore
+        name = 'card_' + novanfc.hexs(self.card['uid'], '').lower() + '.nfc'
+        novastore.save_code('nfc', name, doc.to_text())
+        self.saved = name
+        self.msg = 'Saved ' + name[:14]
+
+    def tick(self, dt_ms=0):
+        import novamods, novanfc
+        if self.state == 'init':
+            dt2, sub = novanfc.identify(self.card['sak'], self.card['atqa'])
+            if dt2 == novanfc.DT_ULTRALIGHT:
+                self.state = 'ntag'
+                self.msg = 'reading NTAG...'
+            elif dt2 == novanfc.DT_CLASSIC:
+                self._gen = novamods.pn532_dump_classic(lambda: self._cancel)
+                self.state = 'classic'
+                self.msg = 'reading sectors...'
+            else:
+                self.state = 'uid'
+            return True
+        if self.state == 'ntag':
+            dump = novamods.pn532_dump_ntag(lambda: self._cancel)
+            if dump and dump.get('pages'):
+                self._save(novanfc.build_ultralight(
+                    dump['uid'], dump['atqa'], dump['sak'], dump['ntag_type'],
+                    dump['pages'], signature=dump.get('signature'),
+                    mifare_version=dump.get('mifare_version')))
+            else:
+                self._save(novanfc.build_iso14443a(
+                    self.card['uid'], self.card['atqa'], self.card['sak']))
+            self.state = 'done'
+            return True
+        if self.state == 'classic':
+            try:
+                ev2 = next(self._gen)
+            except StopIteration:
+                ev2 = ('fail', None)
+            if ev2[0] == 'progress':
+                self.msg = 'block {}/{}'.format(ev2[1], ev2[2])
+                return True
+            if ev2[0] == 'done' and ev2[1] is not None:
+                d = ev2[1]
+                self._save(novanfc.build_classic(
+                    d['uid'], d['atqa'], d['sak'], d['mc_type'], d['blocks']))
+            else:
+                self.msg = 'read failed'
+            self.state = 'done'
+            return True
+        if self.state == 'uid':
+            self._save(novanfc.build_iso14443a(
+                self.card['uid'], self.card['atqa'], self.card['sak']))
+            self.state = 'done'
+            return True
+        return False
+
+    def animating(self):
+        return self.state not in ('done',)       # keep ticking through the dump
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME):
+            self._cancel = True
             return e
         return None
 
