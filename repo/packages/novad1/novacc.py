@@ -207,12 +207,60 @@ def to_flipper(name, times, freq_mhz=None, preset=None):
     return '\n'.join(lines) + '\n'
 
 
+def _key_to_int(key_hex):
+    val = 0
+    for tok in (key_hex or '').split():
+        try:
+            val = (val << 8) | int(tok, 16)
+        except ValueError:
+            pass
+    return val
+
+
+def _encode_princeton(val, bits, te, guard=30):
+    """Princeton / PT2262 (exact, per the Flipper firmware encoder): each data bit
+    MSB-first -> bit 1 = (te*3 high, te low), bit 0 = (te high, te*3 low); then a
+    stop pulse te high + guard low (te*guard, default 30). Returns our abs timing
+    list (alternating mark/space starting with a mark)."""
+    out = []
+    i = bits - 1
+    while i >= 0:
+        if (val >> i) & 1:
+            out.append(te * 3)
+            out.append(te)
+        else:
+            out.append(te)
+            out.append(te * 3)
+        i -= 1
+    out.append(te)                # stop pulse (high)
+    out.append(te * guard)        # guard (low)
+    return out
+
+
+def encode_decoded(protocol, key_hex, bits, te):
+    """Encode a DECODED Flipper .sub (Protocol/Key/Bit/TE) into a raw timing list so
+    it can be replayed. Princeton is supported (the most common fixed-code OOK);
+    others (CAME, NICE FLO, ...) return None until added. Returns timings or None."""
+    if not te or not bits:
+        return None
+    p = (protocol or '').strip().lower()
+    if p == 'princeton':
+        return _encode_princeton(_key_to_int(key_hex), bits, te)
+    return None
+
+
 def _timings_from(text):
-    """Extract (timings, freq_mhz) from a Flipper RAW .sub OR our plain timing list.
-    Returns (None, None) if nothing usable (e.g. a decoded Key file)."""
+    """Extract (timings, freq_mhz) from a Flipper RAW .sub, a DECODED Key-file .sub
+    (Princeton encoded to timings), OR our plain timing list. (None, None) if not
+    replayable (e.g. an unsupported decoded protocol)."""
     if 'Filetype: Flipper SubGhz' in text or 'RAW_Data:' in text:
         d = parse_flipper(text)
-        return d.get('raw'), d.get('freq_mhz')
+        if d.get('raw'):
+            return d['raw'], d.get('freq_mhz')
+        enc = encode_decoded(d.get('protocol'), d.get('key'), d.get('bit'), d.get('te'))
+        if enc:
+            return enc, d.get('freq_mhz')
+        return None, None
     out = []
     for tok in text.replace('\n', ',').split(','):
         tok = tok.strip()
@@ -225,11 +273,11 @@ def _timings_from(text):
 
 
 def fire_text(text, freq_mhz=None, repeats=1, cancel=None):
-    """Fire a saved sub-GHz code: a Flipper RAW .sub (interop) OR our plain timing
-    list. `repeats` re-sends the burst (many remotes need 3-5x); `cancel()` is
-    checked BETWEEN bursts so a long/repeated TX can be aborted (a single burst is
-    too timing-critical to interrupt mid-air). Key-file protocols aren't encodable
-    yet -> False."""
+    """Fire a saved sub-GHz code: a Flipper RAW .sub, a DECODED Key-file .sub
+    (Princeton is encoded to timings; other protocols not yet -> False), OR our plain
+    timing list. `repeats` re-sends the burst (many remotes need 3-5x); `cancel()` is
+    checked BETWEEN bursts so a long/repeated TX can be aborted (a single burst is too
+    timing-critical to interrupt mid-air)."""
     timings, ffreq = _timings_from(text)
     if not timings:
         return False
