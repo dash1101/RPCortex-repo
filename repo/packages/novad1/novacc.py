@@ -237,15 +237,48 @@ def _encode_princeton(val, bits, te, guard=30):
     return out
 
 
+def _came_header_te(bits):
+    # CAME preamble length (in te units) depends on bit count (per Flipper firmware).
+    return {24: 76, 42: 76, 12: 47, 18: 47, 25: 36}.get(bits, 16)
+
+
+def _encode_came_like(val, bits, te, header_te):
+    """CAME / NICE FLO family (exact bit timing per the Flipper firmware): te_short=te,
+    te_long=te*2; MSB-first, bit 1 = (low te_long, high te_short), bit 0 = (low
+    te_short, high te_long); a start high pulse precedes the data and the long header
+    low (te*header_te) is placed TRAILING so that on repeat it becomes the next
+    frame's preamble (our TX is mark-first, so a leading low can't start the list —
+    repeats carry the preamble; first frame lacks it, like a dropped first press)."""
+    te_long = te * 2
+    out = [te]                                    # start bit (high)
+    i = bits - 1
+    while i >= 0:
+        if (val >> i) & 1:
+            out.append(te_long)                   # low
+            out.append(te)                        # high
+        else:
+            out.append(te)                        # low
+            out.append(te_long)                   # high
+        i -= 1
+    out.append(te * header_te)                    # header/inter-frame low (preamble)
+    return out
+
+
 def encode_decoded(protocol, key_hex, bits, te):
     """Encode a DECODED Flipper .sub (Protocol/Key/Bit/TE) into a raw timing list so
-    it can be replayed. Princeton is supported (the most common fixed-code OOK);
-    others (CAME, NICE FLO, ...) return None until added. Returns timings or None."""
+    it can be replayed. Supported: Princeton/PT2262, CAME, NICE FLO (the common
+    fixed-code OOK remotes/gates). Other protocols return None until added.
+    DEVICE-PENDING: exact on-air timing is hardware-only; logic matches the firmware."""
     if not te or not bits:
         return None
+    val = _key_to_int(key_hex)
     p = (protocol or '').strip().lower()
     if p == 'princeton':
-        return _encode_princeton(_key_to_int(key_hex), bits, te)
+        return _encode_princeton(val, bits, te)
+    if p == 'came':
+        return _encode_came_like(val, bits, te, _came_header_te(bits))
+    if p in ('nice flo', 'nice_flo', 'niceflo'):
+        return _encode_came_like(val, bits, te, 36)
     return None
 
 
