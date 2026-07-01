@@ -1936,6 +1936,101 @@ class LedScreen(Screen):
         return None
 
 
+class BatteryScreen(Screen):
+    """Live battery status — %, a bar, voltage, USB/charging. A real app in place of
+    the battery hardware-test. Reads novapower once a second."""
+    def __init__(self):
+        self.title = 'Battery'
+        self._acc = 0
+        self.d = None
+        self._read()
+
+    def _read(self):
+        try:
+            import novapower
+            self.d = novapower.read()
+        except Exception:
+            self.d = None
+
+    def draw(self, c):
+        c.text(2, _TOP, 'Battery', 1)
+        d = self.d or {}
+        if not d.get('have'):
+            c.text(2, _TOP + _ROWH, 'No battery detected', 1)
+            c.text(2, _TOP + 2 * _ROWH, 'set Apps.NovaD1_PIN_battery', 1)
+        else:
+            pct = d.get('pct', 0)
+            bw = c.w - 8
+            c.rect(2, _TOP + _ROWH, bw, 11, 1)
+            c.fill_rect(4, _TOP + _ROWH + 2, int((bw - 4) * pct / 100), 7, 1)
+            c.text(2, _TOP + 2 * _ROWH + 2, '{}%   {:.2f} V'.format(pct, d.get('volts', 0)), 1)
+            usb = d.get('usb')
+            usbs = 'charging' if usb else ('on battery' if usb is not None else 'USB ?')
+            c.text(2, _TOP + 3 * _ROWH + 2, usbs + ('  LOW' if d.get('low') else ''), 1)
+        c.text(2, c.h - _FH, 'BACK = exit', 1)
+
+    def tick(self, dt_ms=0):
+        self._acc += dt_ms or 16
+        if self._acc >= 1000:
+            self._acc = 0
+            self._read()
+            return True
+        return False
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class EnvironmentScreen(Screen):
+    """Live temperature + humidity (DHT11) with min/max. A real app in place of the
+    DHT hardware-test."""
+    def __init__(self):
+        self.title = 'Environment'
+        self._acc = 0
+        self.t = None
+        self.h = None
+        self.tmin = None
+        self.tmax = None
+
+    def _read(self):
+        try:
+            import novamods
+            r = novamods.read_dht()
+        except Exception:
+            r = None
+        if r:
+            self.t, self.h = r
+            self.tmin = self.t if self.tmin is None else min(self.tmin, self.t)
+            self.tmax = self.t if self.tmax is None else max(self.tmax, self.t)
+
+    def draw(self, c):
+        c.text(2, _TOP, 'Environment', 1)
+        if self.t is None:
+            c.text(2, _TOP + _ROWH, 'reading...', 1)
+            c.text(2, _TOP + 2 * _ROWH, '(no DHT? check pin)', 1)
+        else:
+            c.text(2, _TOP + _ROWH, 'Temp:  {} C'.format(self.t), 1)
+            c.text(2, _TOP + 2 * _ROWH, 'Humid: {} %'.format(self.h), 1)
+            if self.tmin is not None:
+                c.text(2, _TOP + 3 * _ROWH + 2, 'min {}  max {}'.format(self.tmin, self.tmax), 1)
+        c.text(2, c.h - _FH, 'BACK = exit', 1)
+
+    def tick(self, dt_ms=0):
+        self._acc += dt_ms or 16
+        if self.t is None or self._acc >= 2000:
+            self._acc = 0
+            self._read()
+            return True
+        return False
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
 
@@ -2490,10 +2585,14 @@ def _all_apps():
             apps.append((k, 'BLE', _ble_app))           # scan + ping (Apple/Android)
         elif k == 'led':
             apps.append((k, 'LED', LedScreen))          # real WS2812 colour control
+        elif k == 'dht11':
+            apps.append((k, 'Environment', EnvironmentScreen))  # live temp/humidity
+        elif k == 'battery':
+            apps.append((k, 'Battery', BatteryScreen))   # live %, voltage, charging
         elif k in _DIAG_ONLY:
             continue                                    # -> Diagnostics app
         else:
-            apps.append((k, l, _mk_test(k, l)))         # dht11, battery (real apps next)
+            apps.append((k, l, _mk_test(k, l)))
     apps.append(('diag', 'Diagnostics', _diag_app))
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('msg', 'Messages', MessagesScreen))

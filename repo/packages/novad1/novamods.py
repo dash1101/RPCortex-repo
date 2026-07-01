@@ -109,6 +109,19 @@ def test_dht11(cfg, cancel=None):
                   'Humid: {} %'.format(d.humidity())]
 
 
+def read_dht():
+    """Read the DHT11 -> (temp_c, humidity_pct), or None. The Environment app's
+    reusable read (vs the one-shot test)."""
+    try:
+        m = _machine()
+        import dht
+        d = dht.DHT11(m.Pin(_pin('dht', 2)))
+        d.measure()
+        return d.temperature(), d.humidity()
+    except Exception:
+        return None
+
+
 def test_battery(cfg, cancel=None):
     m = _machine()
     adc = m.ADC(m.Pin(_pin('battery', 1)))
