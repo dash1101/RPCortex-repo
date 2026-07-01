@@ -227,6 +227,18 @@ def _wrap(s, ncols):
     return out or ['']
 
 
+def _scroll_tri(c, x, y, up):
+    """A tiny 5px up/down triangle — a 'more above/below' scroll hint for lists."""
+    if up:
+        c.hline(x + 2, y, 1)
+        c.hline(x + 1, y + 1, 3)
+        c.hline(x, y + 2, 5)
+    else:
+        c.hline(x, y, 5)
+        c.hline(x + 1, y + 1, 3)
+        c.hline(x + 2, y + 2, 1)
+
+
 class Menu(Screen):
     """Classic vertical list — kept as a fallback home + used for sub-menus."""
     def __init__(self, title, items):
@@ -260,6 +272,10 @@ class Menu(Screen):
                 c.text(4, y, label, 1)
                 if fac is None:
                     c.text(c.w - _ADV - 2, y, 'x', 1)
+        if self.top > 0:
+            _scroll_tri(c, c.w - 6, _TOP, True)          # more items above
+        if self.top + rows < len(self.items):
+            _scroll_tri(c, c.w - 6, c.h - 4, False)      # more items below
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -2607,7 +2623,10 @@ def _all_apps():
 def make_boot_stack(home):
     """Boot order: home at the bottom, then the check, then the splash on top —
     splash plays -> pops to check -> check runs -> pops to home."""
-    return [home, BootCheckScreen(), SplashScreen()]
+    # home at the bottom, splash on top. The splash plays while the boot work runs on
+    # the loop, then pops to home. The old visible System Check is hidden (it added
+    # boot time + covered the splash); run the SysCheck app on demand instead.
+    return [home, SplashScreen()]
 
 
 def _home_keys():
@@ -2799,6 +2818,10 @@ class SettingsScreen(Screen):
             else:
                 v = self._val(r)
                 c.text(c.w - len(v) * _ADV - 2, y, v, tc)
+        if self.top > 0:
+            _scroll_tri(c, c.w - 5, _TOP, True)          # more settings above
+        if self.top + rows < len(self.rows):
+            _scroll_tri(c, c.w - 5, c.h - 4, False)      # more settings below
 
     def on_event(self, e):
         if e == ev.ROT_CW:

@@ -424,25 +424,29 @@ def _seed_scripts():
         pass
 
 
-def _boot_or_recover(ui, novagui):
-    """Set up the initial screen stack: recovered-error flash, or the once-per-boot
-    splash + system check, or just home."""
+def _boot_or_recover(ui, novagui, fresh=True):
+    """Initial screen stack. On a FRESH GUI start the splash ALWAYS plays (100% of
+    the time) — even after a stored error, which now shows AFTER the splash. A
+    crash-respawn (fresh=False) just flashes the error, no re-splash."""
     global _booted
     last = _reg('Apps.NovaD1_LastError')
     if last:
         _clear_err()
-        ui.stack.append(novagui.ErrorScreen(last))
-    elif not _booted:
+    if fresh:
         _booted = True
         try:
             import novasound
             novasound.chime()          # boot chime (gated + try-excepted inside)
         except Exception:
             pass
-        ui.stack = novagui.make_boot_stack(ui.stack[0])
+        ui.stack = novagui.make_boot_stack(ui.stack[0])     # [home, Splash]
+        if last:
+            ui.stack.insert(1, novagui.ErrorScreen(last))   # seen after the splash
         if _reg('Apps.NovaD1_PIN'):            # gate the UI behind the PIN if set
             ui.stack.insert(1, novagui.PinScreen('verify'))
         _nlog('Nova D1 GUI started')
+    elif last:
+        ui.stack.append(novagui.ErrorScreen(last))
 
 
 async def _gui_service():
@@ -483,6 +487,7 @@ async def _gui_service():
                 asyncio.create_task(novastore.backup_mover())
         except Exception:
             pass
+        fresh = first                         # True only on the first launch (not respawns)
         if first and _reg('Apps.NovaD1_Web', 'off') == 'on':
             set_web(True)                     # auto-host the control panel
         if first:
@@ -493,28 +498,26 @@ async def _gui_service():
             except Exception:
                 pass
             _seed_scripts()                   # example button-grid scripts (once)
-            if not _booted and not _reg('Apps.NovaD1_LastError'):
-                # Screen ON immediately — paint the splash before any settle/boot
-                # work so the user sees it ASAP (hides the Nova-side boot time; the
-                # OS POST happens before this service starts, OLED dark then).
+            # Screen ON immediately with the splash — ALWAYS on a fresh start, so it
+            # shows 100% of the time (a stored error now shows after it, not instead).
+            try:
+                import novasplash
+                novasplash.draw(ui.canvas, 0.5)
+                ui.display.show(ui.canvas)
+            except Exception:
+                pass
+            # Optional extra settle hold (default 0 — the splash already gives ~1.5s
+            # of light loop activity, covering the boot work, before any heavy probe).
+            try:
+                d = int(_reg('Apps.NovaD1_Boot_Delay', 0))
+            except (TypeError, ValueError):
+                d = 0
+            if d > 0:
                 try:
-                    import novasplash
-                    novasplash.draw(ui.canvas, 0.5)
-                    ui.display.show(ui.canvas)
+                    await asyncio.sleep_ms(d)
                 except Exception:
                     pass
-                # Optional extra settle hold (default 0 — the animated splash already
-                # gives ~1.5s of light loop activity before any heavy probe).
-                try:
-                    d = int(_reg('Apps.NovaD1_Boot_Delay', 0))
-                except (TypeError, ValueError):
-                    d = 0
-                if d > 0:
-                    try:
-                        await asyncio.sleep_ms(d)
-                    except Exception:
-                        pass
-        _boot_or_recover(ui, novagui)
+        _boot_or_recover(ui, novagui, fresh)
         try:
             await ui.run_async()
             if getattr(ui, '_stop', False):
