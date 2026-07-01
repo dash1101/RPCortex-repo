@@ -282,6 +282,25 @@ def test_led(cfg, cancel=None):
             pass
 
 
+def set_led(r, g, b):
+    """Set the status LED to an (r,g,b) colour — WS2812/NeoPixel, or plain on/off in
+    gpio mode. Best-effort; returns True on success. This is the 'app' control (vs
+    the cycling hardware test), used by the LED app + scripts."""
+    try:
+        m = _machine()
+        pin = _pin('led', 48)
+        if str(_reg('Apps.NovaD1_LED_Mode', 'rgb')).lower() in ('gpio', 'plain'):
+            m.Pin(pin, m.Pin.OUT).value(1 if (r or g or b) else 0)
+            return True
+        import neopixel
+        np = neopixel.NeoPixel(m.Pin(pin, m.Pin.OUT), 1)
+        np[0] = (r & 0xff, g & 0xff, b & 0xff)
+        np.write()
+        return True
+    except Exception:
+        return False
+
+
 # --- IR receive (generator, cancel-anytime) ---------------------------------
 def test_ir_rx(cfg, cancel=None):
     cancel = cancel or (lambda: False)

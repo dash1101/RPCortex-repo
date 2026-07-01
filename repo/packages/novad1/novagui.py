@@ -1876,6 +1876,66 @@ def _ble_app():
     ])
 
 
+class LedScreen(Screen):
+    """Control the WS2812 status LED — turn the encoder to pick a colour (applied
+    LIVE so the LED changes as you turn), Select to keep it. A real app in place of
+    the old LED hardware-test."""
+    COLORS = [('Off', (0, 0, 0)), ('Red', (120, 0, 0)), ('Orange', (120, 45, 0)),
+              ('Yellow', (110, 110, 0)), ('Green', (0, 120, 0)), ('Cyan', (0, 110, 110)),
+              ('Blue', (0, 0, 150)), ('Purple', (95, 0, 130)), ('Pink', (130, 20, 70)),
+              ('White', (90, 90, 90)), ('Warm', (120, 65, 20))]
+
+    def __init__(self):
+        self.title = 'LED'
+        self.sel = 0
+        self.msg = 'turn = pick   Sel = set'
+        self._apply()
+
+    def _apply(self):
+        try:
+            import novamods
+            novamods.set_led(*self.COLORS[self.sel][1])
+        except Exception:
+            pass
+
+    def draw(self, c):
+        name, (r, g, b) = self.COLORS[self.sel]
+        c.text(2, _TOP, 'Status LED', 1)
+        c.text(2, _TOP + _ROWH, name, 1)
+        c.rect(c.w - 40, _TOP - 1, 34, 2 * _ROWH, 1)         # swatch frame
+        if r or g or b:
+            c.fill_rect(c.w - 38, _TOP + 1, 30, 2 * _ROWH - 4, 1)
+        else:
+            c.text(c.w - 33, _TOP + _ROWH - 3, 'off', 1)
+        n = len(self.COLORS)                                 # palette position dots
+        y = _TOP + 2 * _ROWH + 3
+        for i in range(n):
+            x = 2 + i * 7
+            if i == self.sel:
+                c.fill_rect(x, y, 5, 5, 1)
+            else:
+                c.rect(x, y, 5, 5, 1)
+        c.text(2, c.h - _FH, self.msg[:21], 1)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(self.COLORS)
+            self._apply()
+            self.msg = 'turn = pick   Sel = set'
+            return None
+        if e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(self.COLORS)
+            self._apply()
+            self.msg = 'turn = pick   Sel = set'
+            return None
+        if e == ev.SELECT:
+            self.msg = 'set: ' + self.COLORS[self.sel][0]
+            return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
 
@@ -2390,6 +2450,8 @@ def _all_apps():
             apps.append((k, 'LoRa TX', _lora_tx_app))   # fire saved LoRa payloads
         elif k == 'bt':
             apps.append((k, 'BLE', _ble_app))           # scan + ping (Apple/Android)
+        elif k == 'led':
+            apps.append((k, 'LED', LedScreen))          # real WS2812 colour control
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('wifi', 'WiFi', WiFiScreen))
