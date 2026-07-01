@@ -2430,9 +2430,47 @@ def _scripts_screen():
     return Menu('Scripts', items)
 
 
+# App categories — used by the 'folders' home + a future app manager. An app's key
+# maps to one category; unknown keys fall to Tools.
+_CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System')
+_APP_CAT = {
+    'pn532': 'Wireless', 'bt': 'Wireless', 'cc1101': 'Wireless', 'sx1276': 'Wireless',
+    'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless',
+    'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
+    'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
+    'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
+}
+# A representative icon per category (reuses an app icon so folders look distinct).
+_CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'scripts', 'System': 'settings'}
+
+# Modules that are pure hardware probes (no real 'app') — folded into Diagnostics
+# instead of cluttering the home.
+_DIAG_ONLY = ('buzzer', 'vibration', 'ibutton', 'sdcard')
+
+
+def _app_category(key):
+    return _APP_CAT.get(key, 'Tools')
+
+
+def _diag_app():
+    """Diagnostics: run any module's hardware self-test (absorbs the old per-module
+    test icons, and keeps every module reachable for bring-up)."""
+    import novamods
+    items = []
+    for k, label, _fn in novamods.MODULES:
+        if k == 'ir_tx':
+            continue
+        items.append((label, _mk_test(k, label)))
+    return Menu('Diagnostics', items)
+
+
+def _mk_folder(cat, apps):
+    return lambda: IconGallery(cat, list(apps))
+
+
 def _all_apps():
-    """Every possible home app: (key, label, factory). Modules + built-in apps.
-    GPS uses the live coordinates app (not just the detect test)."""
+    """Every possible home app: (key, label, factory). Modules + built-in apps. Real
+    apps replace the raw hardware tests; pure probes go to the Diagnostics app."""
     import novamods
     apps = []
     for k, l, _fn in novamods.MODULES:
@@ -2452,8 +2490,11 @@ def _all_apps():
             apps.append((k, 'BLE', _ble_app))           # scan + ping (Apple/Android)
         elif k == 'led':
             apps.append((k, 'LED', LedScreen))          # real WS2812 colour control
+        elif k in _DIAG_ONLY:
+            continue                                    # -> Diagnostics app
         else:
-            apps.append((k, l, _mk_test(k, l)))
+            apps.append((k, l, _mk_test(k, l)))         # dht11, battery (real apps next)
+    apps.append(('diag', 'Diagnostics', _diag_app))
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('notes', 'Notifications', NotificationsScreen))
@@ -2591,7 +2632,7 @@ class SettingsScreen(Screen):
             ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
             ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306'], 'sh1106', None),
             ('head', 'HOME'),
-            ('cycle', 'Layout', 'Apps.NovaD1_HomeStyle', ['gallery', 'menu'], 'gallery', None),
+            ('cycle', 'Layout', 'Apps.NovaD1_HomeStyle', ['folders', 'gallery', 'menu'], 'folders', None),
             ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
             ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
             ('cycle', 'Notify', 'Apps.NovaD1_Notify', ['on', 'off'], 'on', None),
@@ -2710,7 +2751,28 @@ def build_home(modules=None, style=None):
         triples.append((key, label, fac if present else None))
     triples.append(('settings', 'Settings', _settings_menu))
     if style is None:
-        style = _reg('Apps.NovaD1_HomeStyle', 'gallery')
+        style = _reg('Apps.NovaD1_HomeStyle', 'folders')
     if style == 'menu':
         return Menu('Nova D1', [(l, f) for _k, l, f in triples])
+    if style == 'folders':
+        return _build_folder_home(triples)
     return IconGallery('Nova D1', triples)
+
+
+def _build_folder_home(triples):
+    """Group apps by category into folders — the top level shows a folder per
+    category (Wireless / Sensors / Tools / System); opening one shows just that
+    category's apps. Friendlier than one long ring of 18+ icons. Uncategorised or
+    empty -> the flat gallery."""
+    by_cat = {}
+    for key, label, fac in triples:
+        by_cat.setdefault(_app_category(key), []).append((key, label, fac))
+    items = []
+    for cat in _CATEGORIES:
+        apps = by_cat.get(cat)
+        if apps:
+            items.append((_CAT_ICON.get(cat, 'app'),
+                          '{} ({})'.format(cat, len(apps)), _mk_folder(cat, apps)))
+    if len(items) < 2:
+        return IconGallery('Nova D1', triples)
+    return IconGallery('Nova D1', items)

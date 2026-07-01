@@ -766,10 +766,11 @@ def novad1(args=None):
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':
-        st = 'menu' if rest.startswith('m') else ('gallery' if rest.startswith('g') else None)
+        st = ('folders' if rest.startswith('f') else 'menu' if rest.startswith('m')
+              else 'gallery' if rest.startswith('g') else None)
         if st is None:
-            multi("  Home style: {}".format(_reg('Apps.NovaD1_HomeStyle', 'gallery')))
-            multi("  novad1 style gallery | menu")
+            multi("  Home style: {}".format(_reg('Apps.NovaD1_HomeStyle', 'folders')))
+            multi("  novad1 style folders | gallery | menu")
         else:
             try:
                 import regedit
