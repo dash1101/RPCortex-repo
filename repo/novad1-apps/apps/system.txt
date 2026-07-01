@@ -1,0 +1,8 @@
+title: System
+# Shortcuts to common shell commands, one tap each.
+Sys Info = run sysinfo
+Uptime = run uptime
+NTP Sync = run ntp sync
+Free RAM = run free
+WiFi Status = run wifi status
+Reboot = run sreboot

@@ -1,0 +1,9 @@
+title: BLE Pranks
+# Ping nearby phones with fake pairing popups (point at your own device).
+# Each line is: Label = action   (button-grid script-app; runs on Nova D1.)
+iPhone AirPods = ble ping apple airpods
+iPhone Pro = ble ping apple airpods_pro
+Android = ble ping android headphones
+Android Bose = ble ping android bose
+Scan nearby = ble scan
+Stop = ble stop

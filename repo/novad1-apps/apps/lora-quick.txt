@@ -1,0 +1,8 @@
+title: LoRa Quick
+# One-tap encrypted LoRa messages to your other Nova D1s.
+Ping = lora ping
+On my way = lora omw
+SOS = lora SOS SOS SOS
+Yes = lora yes
+No = lora no
+Notify me = notify LoRa test
