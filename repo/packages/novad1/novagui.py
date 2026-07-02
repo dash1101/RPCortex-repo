@@ -2559,8 +2559,41 @@ _CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'scripts', 'System': '
 _DIAG_ONLY = ('buzzer', 'vibration', 'ibutton', 'sdcard')
 
 
+# Installed script-apps -> their auto-derived category (filled by _script_apps()).
+_SCRIPT_CATS = {}
+
+
 def _app_category(key):
+    if key in _SCRIPT_CATS:
+        return _SCRIPT_CATS[key]
     return _APP_CAT.get(key, 'Tools')
+
+
+def _mk_script_app(title, btns):
+    return lambda: ButtonGridScreen(title, list(btns))
+
+
+def _script_apps():
+    """Installed button-grid script-apps (from the scripts store) as HOME apps,
+    auto-categorised by content — so an app you download/drop in appears on the home
+    in the right folder, not just in the Scripts list."""
+    out = []
+    _SCRIPT_CATS.clear()
+    try:
+        import nova
+        import novastore
+        import novaappcfg
+        for name in novastore.list_codes('scripts'):
+            txt = novastore.read_code('scripts', name) or ''
+            title, btns = nova.parse_buttons(txt)
+            if not btns:
+                continue                              # only button grids are apps
+            key = 'script_' + name
+            _SCRIPT_CATS[key] = novaappcfg.auto_category('buttons', txt)
+            out.append((key, (title or name)[:12], _mk_script_app(title or name, btns)))
+    except Exception:
+        pass
+    return out
 
 
 def _diag_app():
@@ -2617,6 +2650,7 @@ def _all_apps():
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', ScriptsScreen))
     apps.append(('power', 'Power', _power_menu))
+    apps.extend(_script_apps())              # installed script-apps -> home (auto-cat)
     return apps
 
 
@@ -2863,10 +2897,15 @@ def build_home(modules=None, style=None):
     Apps.NovaD1_HomeStyle = 'gallery' (default) | 'menu' picks the layout."""
     modules = modules or {}
     apps = _all_apps()                       # (key, label, factory) triples
+    # Script-apps (installed) always show — the home config only picks/orders the
+    # built-in apps, so a freshly installed app is never hidden by an old config.
+    scripts = [a for a in apps if a[0].startswith('script_')]
+    apps = [a for a in apps if not a[0].startswith('script_')]
     enabled = _home_keys()
     if enabled is not None:
         order = {k: i for i, k in enumerate(enabled)}
         apps = sorted([a for a in apps if a[0] in order], key=lambda a: order[a[0]])
+    apps = apps + scripts
     triples = []
     for key, label, fac in apps:
         present = modules.get(key, True)
