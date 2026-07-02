@@ -50,4 +50,21 @@ t.eq(AC.auto_category('buttons', ''), 'Tools', 'empty -> Tools default')
 t.eq(AC.category({'category': 'Sensors', 'kind': 'buttons'}), 'Sensors', 'explicit category wins')
 t.eq(AC.category({'category': 'auto', 'kind': 'buttons'}, 'A = lora hi\n'), 'Wireless', 'auto resolves from content')
 
+# --- novaappstore fetch + install (fake net reads the local store) ---
+import types
+def _fake_curl(url):
+    return open(os.path.join(STORE, url.split('/repo/novad1-apps/', 1)[1])).read()
+sys.modules['net'] = types.SimpleNamespace(curl=_fake_curl)
+import novaappstore
+import novastore
+_saved = {}
+novastore.save_code = lambda cat, n, txt: _saved.__setitem__((cat, n), txt)
+novastore.list_codes = lambda cat: [k[1] for k in _saved if k[0] == cat]
+
+got = novaappstore.fetch_index()
+t.ok(got is not None and len(got) == len(apps), 'fetch_index returns all apps')
+nm = novaappstore.install(got[0])
+t.ok(nm and ('scripts', nm) in _saved, 'install saves the entry to the scripts store')
+t.ok('ble' in _saved[('scripts', nm)].lower(), 'installed content is the app body')
+
 sys.exit(t.done())

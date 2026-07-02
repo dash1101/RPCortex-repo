@@ -2611,6 +2611,7 @@ _APP_CAT = {
     'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless',
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
+    'store': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
@@ -2674,6 +2675,104 @@ def _mk_folder(cat, apps):
     return lambda: IconGallery(cat, list(apps))
 
 
+class AppStoreScreen(Screen):
+    """Browse + install Nova apps from the online store (repo/novad1-apps). Fetches
+    the index over WiFi — shows 'Fetching...' while it does (HTTPS on the D1 is a few
+    seconds) — lists the apps, Select installs one; it lands on the home in its
+    auto-category. Cooperative status; the network calls block (async is a later win)."""
+    def __init__(self):
+        self.title = 'App Store'
+        self.state = 'init'
+        self.msg = 'Sel=install  BACK=exit'
+        self.apps = []
+        self.installed = set()
+        self.sel = 0
+        self.top = 0
+
+    def draw(self, c):
+        c.text(2, _TOP, 'App Store', 1)
+        if self.state in ('init', 'fetch'):
+            c.text(2, _TOP + 2 * _ROWH, 'Fetching store...', 1)
+            return
+        if self.state == 'error':
+            c.text(2, _TOP + _ROWH, self.msg[:21], 1)
+            c.text(2, _TOP + 2 * _ROWH, 'need WiFi + web PIN', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        if not self.apps:
+            c.text(2, _TOP + _ROWH, '(no apps found)', 1)
+            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            return
+        rows = (c.h - _TOP - _FH) // _ROWH
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= len(self.apps):
+                break
+            a = self.apps[idx]
+            y = _TOP + i * _ROWH
+            inst = ' *' if (a.get('dir', '') + '.txt') in self.installed else ''
+            label = (a.get('name', '?') + inst)[:(c.w - 8) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+            else:
+                c.text(4, y, label, 1)
+        if self.top + rows < len(self.apps):
+            _scroll_tri(c, c.w - 6, c.h - _FH - 5, False)
+        c.text(2, c.h - _FH, self.msg[:21], 1)
+
+    def tick(self, dt_ms=0):
+        if self.state == 'init':
+            self.state = 'fetch'                  # render "Fetching..." first
+            return True
+        if self.state == 'fetch':
+            try:
+                import novaappstore
+                apps = novaappstore.fetch_index()
+                self.installed = novaappstore.installed_names()
+            except Exception:
+                apps = None
+            if apps is None:
+                self.msg = 'fetch failed'
+                self.state = 'error'
+            else:
+                self.apps = apps
+                self.state = 'list'
+            return True
+        if self.state == 'installing':
+            try:
+                import novaappstore
+                name = novaappstore.install(self.apps[self.sel])
+                self.msg = 'Installed (on home)!' if name else 'install failed'
+                if name:
+                    self.installed.add(name)
+            except Exception:
+                self.msg = 'install error'
+            self.state = 'list'
+            return True
+        return False
+
+    def on_event(self, e):
+        if self.state == 'list' and self.apps:
+            if e == ev.ROT_CW:
+                self.sel = (self.sel + 1) % len(self.apps)
+                return None
+            if e == ev.ROT_CCW:
+                self.sel = (self.sel - 1) % len(self.apps)
+                return None
+            if e == ev.SELECT:
+                self.msg = 'Installing...'
+                self.state = 'installing'
+                return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _all_apps():
     """Every possible home app: (key, label, factory). Modules + built-in apps. Real
     apps replace the raw hardware tests; pure probes go to the Diagnostics app."""
@@ -2705,6 +2804,7 @@ def _all_apps():
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('diag', 'Diagnostics', _diag_app))
+    apps.append(('store', 'App Store', AppStoreScreen))   # browse + install apps
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('notes', 'Notifications', NotificationsScreen))
