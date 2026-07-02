@@ -1,9 +1,10 @@
 {
   "repo": "Nova D1 app store",
+  "format": "app.cfg",
   "version": 1,
   "apps": [
-    {"name": "BLE Pranks", "file": "apps/ble-pranks.txt", "category": "Wireless", "kind": "buttons", "author": "dash", "desc": "Ping nearby phones with fake pairing popups (your own devices)."},
-    {"name": "LoRa Quick", "file": "apps/lora-quick.txt", "category": "Wireless", "kind": "buttons", "author": "dash", "desc": "One-tap encrypted LoRa messages to your other Nova D1s."},
-    {"name": "System", "file": "apps/system.txt", "category": "System", "kind": "buttons", "author": "dash", "desc": "Shortcuts to common shell commands, one tap each."}
+    {"dir": "ble-pranks", "name": "BLE Pranks", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Ping nearby phones with fake pairing popups (your own devices)."},
+    {"dir": "lora-quick", "name": "LoRa Quick", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "One-tap encrypted LoRa messages to your other Nova D1s."},
+    {"dir": "system", "name": "System", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Shortcuts to common shell commands, one tap each."}
   ]
 }
