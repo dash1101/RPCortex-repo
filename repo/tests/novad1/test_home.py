@@ -53,4 +53,22 @@ t.ok('diag' in keys, 'Diagnostics app present')
 for probe in novagui._DIAG_ONLY:
     t.ok(probe not in keys, '{} folded into Diagnostics (not a home app)'.format(probe))
 
+# --- App Manager v2: reorder (grab + move) + enable/disable, both persisting ---
+import novainput as ev
+saved = {}
+_shims.set_reg({})
+sys.modules['regedit'].save = lambda k, v: saved.__setitem__(k, v) or True
+m = novagui.ManageAppsScreen([('a', 'Alpha'), ('b', 'Beta'), ('c', 'Gamma'), ('d', 'Delta')],
+                             ['a', 'b', 'c', 'd'])
+m.on_event(ev.HOME)                       # grab Alpha
+m.on_event(ev.ROT_CW)
+m.on_event(ev.ROT_CW)                     # move it down twice
+t.eq(m._order, ['b', 'c', 'a', 'd'], 'reorder moves the grabbed item')
+t.eq(saved.get('Apps.NovaD1_Home'), 'b,c,a,d', 'reorder persists to Apps.NovaD1_Home')
+m.on_event(ev.HOME)                       # drop
+t.ok(not m._moving, 'Home drops the item')
+m.sel = 0
+m.on_event(ev.SELECT)                     # disable 'b'
+t.ok('b' not in saved['Apps.NovaD1_Home'].split(','), 'disable removes from saved set')
+
 sys.exit(t.done())

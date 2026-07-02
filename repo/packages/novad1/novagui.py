@@ -681,31 +681,93 @@ class WiFiScreen(Screen):
         return None
 
 
-class ManageAppsScreen(Menu):
-    """Toggle which apps show on the home shelf (persisted to the registry)."""
+class ManageAppsScreen(Screen):
+    """Manage the home apps: Select toggles an app on/off, Home grabs it to REORDER
+    (then turn to move it, Home again to drop). Order + enabled set persist to
+    Apps.NovaD1_Home (which also sets the order within each home folder)."""
     def __init__(self, all_apps, enabled):
-        self._all = all_apps                 # list of (key, label)
-        self._on = set(enabled)
-        items = [(self._row(k, l), None) for k, l in all_apps]
-        Menu.__init__(self, 'Manage Apps', items)
+        self.title = 'Manage Apps'
+        self._label = {}
+        keys = []
+        for k, l in all_apps:
+            self._label[k] = l
+            keys.append(k)
+        self._on = set(enabled) or set(keys)
+        # order: enabled apps first (in their saved order), then the rest.
+        order = [k for k in enabled if k in self._label]
+        self._order = order + [k for k in keys if k not in order]
+        self.sel = 0
+        self.top = 0
+        self._moving = False
 
-    def _row(self, key, label):
-        return ('[x] ' if key in self._on else '[ ] ') + label
+    def _save(self):
+        _save_reg('Apps.NovaD1_Home', ','.join(k for k in self._order if k in self._on))
+        _mark_home_dirty()
+
+    def draw(self, c):
+        rows = (c.h - _TOP) // _ROWH
+        n = len(self._order)
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + rows:
+            self.top = self.sel - rows + 1
+        for i in range(rows):
+            idx = self.top + i
+            if idx >= n:
+                break
+            k = self._order[idx]
+            y = _TOP + i * _ROWH
+            mark = '[x] ' if k in self._on else '[ ] '
+            label = (mark + self._label.get(k, k))[:(c.w - 10) // _ADV]
+            if idx == self.sel:
+                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                c.text(4, y, label, 0)
+                c.text(c.w - _ADV - 2, y, '=' if self._moving else '>', 0)
+            else:
+                c.text(4, y, label, 1)
+        if self.top > 0:
+            _scroll_tri(c, c.w - 6, _TOP, True)
+        if self.top + rows < n:
+            _scroll_tri(c, c.w - 6, c.h - 4, False)
 
     def on_event(self, e):
-        if e == ev.SELECT:
-            key, label = self._all[self.sel]
-            if key in self._on:
-                if len(self._on) > 1:
-                    self._on.discard(key)
+        n = len(self._order)
+        if e == ev.ROT_CW:
+            if self._moving and self.sel < n - 1:
+                self._order[self.sel], self._order[self.sel + 1] = \
+                    self._order[self.sel + 1], self._order[self.sel]
+                self.sel += 1
+                self._save()
             else:
-                self._on.add(key)
-            self.items[self.sel] = (self._row(key, label), None)
-            order = [k for k, _l in self._all if k in self._on]
-            _save_reg('Apps.NovaD1_Home', ','.join(order))
-            _mark_home_dirty()             # rebuild the home on exit (no reboot)
+                self.sel = (self.sel + 1) % n
             return None
-        return Menu.on_event(self, e)       # rotation/scroll + BACK/HOME
+        if e == ev.ROT_CCW:
+            if self._moving and self.sel > 0:
+                self._order[self.sel], self._order[self.sel - 1] = \
+                    self._order[self.sel - 1], self._order[self.sel]
+                self.sel -= 1
+                self._save()
+            else:
+                self.sel = (self.sel - 1) % n
+            return None
+        if e == ev.SELECT:
+            k = self._order[self.sel]
+            if k in self._on:
+                if len(self._on) > 1:
+                    self._on.discard(k)
+            else:
+                self._on.add(k)
+            self._save()
+            return None
+        if e == ev.HOME:
+            self._moving = not self._moving        # grab / drop for reordering
+            return None
+        if e == ev.BACK:
+            if self._moving:
+                self._moving = False
+                return None
+            return 'back'
+        return None
 
 
 class DisplayScreen(Screen):
@@ -2773,7 +2835,7 @@ class SettingsScreen(Screen):
     def __init__(self):
         self.title = 'Settings'
         self.top = 0
-        all_for_cfg = [(k, l) for k, l, _f2 in _all_apps()]
+        all_for_cfg = [(k, l) for k, l, _f2 in _all_apps() if not k.startswith('script_')]
         cur = _home_keys() or [k for k, _l in all_for_cfg]
         self.rows = [
             ('head', 'DISPLAY'),
