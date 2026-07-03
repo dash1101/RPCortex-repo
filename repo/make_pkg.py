@@ -71,8 +71,8 @@ def make_pkg(source_dir, out_dir, compile_py=True):
         for root, dirs, files in os.walk(source_dir):
             dirs[:] = [d for d in sorted(dirs) if d != '__pycache__']
             for fname in sorted(files):
-                if fname.endswith('.pyc'):
-                    continue
+                if fname.endswith('.pyc') or fname.endswith('.md'):
+                    continue  # .pyc = build junk; .md = dev docs (no on-device reader)
                 fpath = os.path.join(root, fname)
                 rel   = os.path.relpath(fpath, parent).replace('\\', '/')
                 
