@@ -10,13 +10,7 @@
 _MARK = 0xE5            # payload[0] flag: this message is encrypted
 
 
-def _reg(key, default=''):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v not in (None, '') else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
 def have_key():

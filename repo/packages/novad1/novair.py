@@ -15,13 +15,7 @@ _END_GAP_US = 12000
 _MAX_EDGES = 400
 
 
-def _reg(key, default):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v not in (None, '') else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
 def _pin(name, d):

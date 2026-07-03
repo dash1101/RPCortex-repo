@@ -23,22 +23,10 @@ _TOP = _BARH + 2           # body starts below the status bar + rule
 _ROWH = _FH + 2            # menu row height (font-agnostic)
 
 
-def _reg(key, default=None):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v not in (None, '') else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
-def _save_reg(key, value):
-    try:
-        import regedit
-        regedit.save(key, value)
-        return True
-    except Exception:
-        return False
+from novacore import save_reg as _save_reg
 
 
 def _int_reg(key, default=0):

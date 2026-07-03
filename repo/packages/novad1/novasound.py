@@ -10,13 +10,7 @@
 _CHIME = ((1047, 60), (1319, 60), (1568, 60), (2093, 110))
 
 
-def _reg(key, default):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v not in (None, '') else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
 def chime():

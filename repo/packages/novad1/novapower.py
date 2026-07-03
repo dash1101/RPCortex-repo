@@ -12,13 +12,7 @@ _cache = {'t': None, 'd': None}
 _EMPTY = {'have': False, 'pct': 0, 'volts': 0.0, 'usb': None, 'low': False}
 
 
-def _reg(key, default=''):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v not in (None, '') else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
 def _pinnum(key):

@@ -52,13 +52,7 @@ def _out():
         return p, p, p, p, p
 
 
-def _reg(key, default=None):
-    try:
-        import regedit
-        v = regedit.read(key)
-        return v if v else default
-    except Exception:
-        return default
+from novacore import reg as _reg
 
 
 def _ensure_dir(p):
