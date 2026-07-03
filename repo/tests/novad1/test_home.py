@@ -71,4 +71,42 @@ m.sel = 0
 m.on_event(ev.SELECT)                     # disable 'b'
 t.ok('b' not in saved['Apps.NovaD1_Home'].split(','), 'disable removes from saved set')
 
+# --- Category reassignment: override layer, persistence, folder placement ---
+reg = {}
+sys.modules['regedit'].read = lambda k: reg.get(k)
+sys.modules['regedit'].save = lambda k, v: reg.__setitem__(k, v) or True
+novagui._load_cat_overrides()
+t.eq(novagui._app_category('gps'), 'Sensors', 'gps default folder is Sensors')
+novagui._set_cat_override('gps', 'Tools')
+t.eq(novagui._app_category('gps'), 'Tools', 'override moves gps to Tools')
+t.ok('gps:Tools' in reg.get('Apps.NovaD1_AppCats', ''), 'override persisted to the registry')
+novagui._CAT_OVERRIDE.clear()
+novagui._load_cat_overrides()             # reload from disk
+t.eq(novagui._app_category('gps'), 'Tools', 'override survives a reload')
+home3 = novagui.build_home({})
+fol = {it[1].split(' (')[0]: it for it in home3.items}
+t.ok('gps' in [x[0] for x in fol['Tools'][2]().items], 'reassigned app is in the Tools folder')
+novagui._set_cat_override('gps', None)     # 'auto' clears it
+t.eq(novagui._app_category('gps'), 'Sensors', 'clearing the override restores the default')
+
+# manager: grab an app, SELECT cycles its folder (and persists)
+reg.clear()
+novagui._CAT_OVERRIDE.clear()
+m2 = novagui.ManageAppsScreen([('pn532', 'NFC'), ('gps', 'GPS')], ['pn532', 'gps'])
+m2.sel = 1                                 # GPS
+m2.on_event(ev.HOME)                       # grab -> edit mode
+m2.on_event(ev.SELECT)                     # cycle folder
+t.ok(novagui._app_category('gps') != 'Sensors', 'SELECT-while-grabbed changes the folder')
+t.ok('gps:' in reg.get('Apps.NovaD1_AppCats', ''), 'manager folder change persists')
+
+# shell path: novad1 apps cat <key> <folder>
+import novad1 as ND
+reg.clear(); novagui._CAT_OVERRIDE.clear()
+def _sink(*a, **k):
+    pass
+ND._apps(_sink, _sink, _sink, _sink, _sink, 'cat pn532 Tools')
+t.ok('pn532:Tools' in reg.get('Apps.NovaD1_AppCats', ''), 'shell apps cat sets an override')
+ND._apps(_sink, _sink, _sink, _sink, _sink, 'cat pn532 auto')
+t.ok('pn532' not in reg.get('Apps.NovaD1_AppCats', ''), 'shell apps cat auto clears it')
+
 sys.exit(t.done())

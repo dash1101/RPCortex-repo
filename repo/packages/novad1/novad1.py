@@ -318,6 +318,7 @@ def _status(info, ok, warn, error, multi):
 def _apps(info, ok, warn, error, multi, rest=''):
     """Homepage config: choose which apps show on the shelf (Apps.NovaD1_Home)."""
     import novagui
+    novagui._load_cat_overrides()
     allapps = [(k, l) for k, l, _f in novagui._all_apps()]
     raw = _reg('Apps.NovaD1_Home')
     enabled = [k.strip() for k in raw.split(',') if k.strip()] if raw else None
@@ -348,12 +349,31 @@ def _apps(info, ok, warn, error, multi, rest=''):
         except Exception:
             pass
         ok("Home reset to all apps.", p="NovaD1"); return
+    if act == 'cat':
+        cp = key.split(None, 1)
+        appkey = cp[0].strip() if cp and cp[0].strip() else ''
+        catname = cp[1].strip() if len(cp) > 1 else ''
+        if not appkey:
+            error("Usage: novad1 apps cat <key> <Wireless|Sensors|Tools|System|auto>")
+            return
+        if appkey not in valid and not appkey.startswith('script_'):
+            error("Unknown app '{}'. See: novad1 apps".format(appkey)); return
+        canon = {c.lower(): c for c in novagui._CATEGORIES}
+        if catname.lower() in ('auto', 'default', 'clear', ''):
+            novagui._set_cat_override(appkey, None)
+            ok("'{}' folder reset to its default.".format(appkey), p="NovaD1")
+        elif catname.lower() in canon:
+            novagui._set_cat_override(appkey, canon[catname.lower()])
+            ok("'{}' moved to {}.".format(appkey, canon[catname.lower()]), p="NovaD1")
+        else:
+            error("Folder must be Wireless, Sensors, Tools, System, or auto.")
+        return
     info("=== Nova D1 — home apps ===", p="NovaD1")
     for k, l in allapps:
         on = (enabled is None) or (k in enabled)
-        multi("  [{}] {:10} {}".format('x' if on else ' ', k, l))
+        multi("  [{}] {:10} {:8} {}".format('x' if on else ' ', k, novagui._app_category(k), l))
     multi("")
-    multi("  novad1 apps show <key> | hide <key> | reset")
+    multi("  novad1 apps show <key> | hide <key> | cat <key> <folder> | reset")
 
 
 def _save_err(msg):
@@ -679,6 +699,55 @@ def _ble(info, ok, warn, error, multi, arg):
         multi("  Usage: novad1 ble scan | ping [apple|android] [model] | stop")
 
 
+def _store(info, ok, warn, error, multi, arg):
+    """Browse + install Nova apps from the online store (repo/novad1-apps). The
+    shell/scripting route to the same catalogue the App Store screen uses — so the
+    store isn't GUI-only. Installed apps land on the home, auto-categorised."""
+    import novaappstore
+    parts = arg.split(None, 1)
+    sub = parts[0].strip().lower() if parts and parts[0].strip() else 'list'
+    if sub in ('list', 'ls'):
+        info("Fetching the app store (WiFi + HTTPS)...", p="NovaD1")
+        apps = novaappstore.fetch_index()
+        if apps is None:
+            error("Couldn't reach the store. Check WiFi is connected.", p="NovaD1")
+            return
+        installed = novaappstore.installed_names()
+        info("=== Nova D1 app store ({} apps) ===".format(len(apps)), p="NovaD1")
+        for a in apps:
+            mark = '  [installed]' if (a.get('dir', '') + '.txt') in installed else ''
+            multi("  {:<13} {:<9} {}{}".format(
+                (a.get('name') or '?')[:13], (a.get('category') or '')[:9],
+                (a.get('desc') or '')[:30], mark))
+        multi("  novad1 store install <name>")
+    elif sub == 'install':
+        name = parts[1].strip() if len(parts) > 1 else ''
+        if not name:
+            error("Usage: novad1 store install <name>", p="NovaD1")
+            return
+        apps = novaappstore.fetch_index()
+        if apps is None:
+            error("Couldn't reach the store. Check WiFi is connected.", p="NovaD1")
+            return
+        low = name.lower()
+        app = None
+        for a in apps:
+            if (a.get('name') or '').lower() == low or (a.get('dir') or '').lower() == low:
+                app = a
+                break
+        if not app:
+            error("No app '{}'. Run 'novad1 store' to see the list.".format(name), p="NovaD1")
+            return
+        info("Installing {}...".format(app.get('name')), p="NovaD1")
+        entry = novaappstore.install(app)
+        if entry:
+            ok("Installed '{}'. It's on the home now.".format(app.get('name')), p="NovaD1")
+        else:
+            error("Install failed (download or save error).", p="NovaD1")
+    else:
+        multi("  novad1 store [list] | install <name>")
+
+
 def _logs(info, ok, warn, error, multi, rest=''):
     import novalog
     r = rest.strip().lower()
@@ -734,6 +803,7 @@ def novad1(args=None):
         multi("  novad1 notify <t>  Push a notification to the Nova UI")
         multi("  novad1 fire <cat> <name>  Fire a saved code (ir|subghz|lora)")
         multi("  novad1 ble scan|ping [apple|android]  Scan / ping your phone")
+        multi("  novad1 store       Browse + install apps (store install <name>)")
         multi("  novad1 web on|off  Phone control panel over WiFi")
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
@@ -766,6 +836,9 @@ def novad1(args=None):
         _fire(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'ble':
         _ble(info, ok, warn, error, multi, rest)
+    elif cmd == 'store':
+        rest_cs = (args or '').strip().split(None, 1)
+        _store(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd == 'web':
         _web(info, ok, warn, error, multi, rest)
     elif cmd == 'style':

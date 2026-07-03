@@ -682,9 +682,10 @@ class WiFiScreen(Screen):
 
 
 class ManageAppsScreen(Screen):
-    """Manage the home apps: Select toggles an app on/off, Home grabs it to REORDER
-    (then turn to move it, Home again to drop). Order + enabled set persist to
-    Apps.NovaD1_Home (which also sets the order within each home folder)."""
+    """Manage the home apps. Not grabbed: SELECT toggles an app on/off. HOME grabs the
+    app to EDIT it — then turn to reorder, SELECT cycles which folder it lives in
+    (Wireless/Sensors/Tools/System, or back to its default), HOME drops it. Order +
+    enabled set persist to Apps.NovaD1_Home; folder reassignments to Apps.NovaD1_AppCats."""
     def __init__(self, all_apps, enabled):
         self.title = 'Manage Apps'
         self._label = {}
@@ -705,7 +706,7 @@ class ManageAppsScreen(Screen):
         _mark_home_dirty()
 
     def draw(self, c):
-        rows = (c.h - _TOP) // _ROWH
+        rows = max(1, (c.h - _TOP - _FH) // _ROWH)   # reserve a footer line
         n = len(self._order)
         if self.sel < self.top:
             self.top = self.sel
@@ -725,10 +726,15 @@ class ManageAppsScreen(Screen):
                 c.text(c.w - _ADV - 2, y, '=' if self._moving else '>', 0)
             else:
                 c.text(4, y, label, 1)
+        body_bot = _TOP + rows * _ROWH
         if self.top > 0:
             _scroll_tri(c, c.w - 6, _TOP, True)
         if self.top + rows < n:
-            _scroll_tri(c, c.w - 6, c.h - 4, False)
+            _scroll_tri(c, c.w - 6, body_bot - 4, False)
+        # footer: mode-aware controls (shows the app's folder while editing it)
+        k = self._order[self.sel]
+        foot = ('turn=move  SEL=' + _app_category(k)) if self._moving else 'SEL on/off  HOME edit'
+        c.text(2, c.h - _FH, foot[:(c.w - 4) // _ADV], 1)
 
     def on_event(self, e):
         n = len(self._order)
@@ -752,15 +758,26 @@ class ManageAppsScreen(Screen):
             return None
         if e == ev.SELECT:
             k = self._order[self.sel]
-            if k in self._on:
+            if self._moving:
+                # grabbed => SELECT cycles the app's home folder; the last step (None)
+                # clears the override, restoring its built-in/auto category.
+                seq = list(_CATEGORIES) + [None]
+                cur = _CAT_OVERRIDE.get(k)
+                try:
+                    i = seq.index(cur)
+                except ValueError:
+                    i = len(seq) - 1
+                _set_cat_override(k, seq[(i + 1) % len(seq)])
+            elif k in self._on:
                 if len(self._on) > 1:
                     self._on.discard(k)
+                    self._save()
             else:
                 self._on.add(k)
-            self._save()
+                self._save()
             return None
         if e == ev.HOME:
-            self._moving = not self._moving        # grab / drop for reordering
+            self._moving = not self._moving        # grab an app: turn=reorder, SELECT=folder
             return None
         if e == ev.BACK:
             if self._moving:
@@ -2624,10 +2641,44 @@ _DIAG_ONLY = ('buzzer', 'vibration', 'ibutton', 'sdcard')
 
 # Installed script-apps -> their auto-derived category (filled by _script_apps()).
 _SCRIPT_CATS = {}
+_CAT_OVERRIDE = {}   # user reassignments (persisted): key -> Category
+
+
+def _load_cat_overrides():
+    """Load user category reassignments from Apps.NovaD1_AppCats ('key:Cat,key2:Cat2').
+    Called once per home build so a reassigned app lands in the chosen folder."""
+    _CAT_OVERRIDE.clear()
+    raw = _reg('Apps.NovaD1_AppCats', '') or ''
+    for part in raw.split(','):
+        if ':' in part:
+            k, c = part.split(':', 1)
+            k = k.strip()
+            c = c.strip()
+            if k and c in _CATEGORIES:
+                _CAT_OVERRIDE[k] = c
+    return _CAT_OVERRIDE
+
+
+def _save_cat_overrides():
+    _save_reg('Apps.NovaD1_AppCats',
+              ','.join('{}:{}'.format(k, c) for k, c in _CAT_OVERRIDE.items()))
+
+
+def _set_cat_override(key, cat):
+    """cat in _CATEGORIES pins the app to that home folder; None/'auto' clears the
+    override (back to the built-in/auto category). Persists + marks the home dirty."""
+    if cat and cat in _CATEGORIES:
+        _CAT_OVERRIDE[key] = cat
+    else:
+        _CAT_OVERRIDE.pop(key, None)
+    _save_cat_overrides()
+    _mark_home_dirty()
 
 
 def _app_category(key):
-    if key in _SCRIPT_CATS:
+    if key in _CAT_OVERRIDE:      # user reassignment wins
+        return _CAT_OVERRIDE[key]
+    if key in _SCRIPT_CATS:       # auto-derived for installed script-apps
         return _SCRIPT_CATS[key]
     return _APP_CAT.get(key, 'Tools')
 
@@ -3059,6 +3110,7 @@ def build_home(modules=None, style=None):
     Apps.NovaD1_HomeStyle = 'gallery' (default) | 'menu' picks the layout."""
     modules = modules or {}
     apps = _all_apps()                       # (key, label, factory) triples
+    _load_cat_overrides()                    # user reassignments -> _app_category
     # Script-apps (installed) always show — the home config only picks/orders the
     # built-in apps, so a freshly installed app is never hidden by an old config.
     scripts = [a for a in apps if a[0].startswith('script_')]

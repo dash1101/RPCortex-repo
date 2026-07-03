@@ -67,4 +67,21 @@ nm = novaappstore.install(got[0])
 t.ok(nm and ('scripts', nm) in _saved, 'install saves the entry to the scripts store')
 t.ok('ble' in _saved[('scripts', nm)].lower(), 'installed content is the app body')
 
+# --- `novad1 store` shell command (thin glue over novaappstore) ---
+import novad1 as ND
+def _cap(bucket):
+    return lambda *a, **k: bucket.append(a[0] if a else '')
+L = []
+ND._store(_cap(L), _cap(L), _cap(L), _cap(L), _cap(L), 'list')
+t.ok(any('app store' in l.lower() for l in L), 'store list prints a header')
+t.ok(any((apps[0]['name'][:13]) in l for l in L), 'store list shows an app')
+before = len(_saved)
+L2 = []
+ND._store(_cap(L2), _cap(L2), _cap(L2), _cap(L2), _cap(L2), 'install ' + apps[-1]['name'])
+t.ok(any('installed' in l.lower() for l in L2), 'store install reports success')
+t.ok(len(_saved) >= before, 'store install wrote to the scripts store')
+L3 = []
+ND._store(_cap(L3), _cap(L3), _cap(L3), _cap(L3), _cap(L3), 'install NoSuchApp')
+t.ok(any('no app' in l.lower() for l in L3), 'store install rejects an unknown name')
+
 sys.exit(t.done())
