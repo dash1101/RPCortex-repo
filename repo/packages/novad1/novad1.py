@@ -649,9 +649,15 @@ def _fire(info, ok, warn, error, multi, arg):
             fired = bool(sigs)
         elif cat == 'subghz':
             import novacc
+            if not novacc.present():
+                error("Sub-GHz radio (CC1101) not detected — check the module.", p="NovaD1")
+                return
             fired = novacc.fire_text(txt)
         elif cat == 'lora':
             import novamsg
+            if not novamsg.present():
+                error("LoRa radio (SX1276) not detected — check the module.", p="NovaD1")
+                return
             novamsg.send(txt.strip())
             fired = True
         else:

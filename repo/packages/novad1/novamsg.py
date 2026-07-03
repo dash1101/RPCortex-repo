@@ -34,6 +34,15 @@ def radio_ok():
     return _lora is not None
 
 
+def present():
+    """True if the LoRa radio is up or can be brought up now (SX1276 detected). Used
+    to fail fast with a clear message before trying to transmit."""
+    try:
+        return _radio() is not None
+    except Exception:
+        return False
+
+
 def pause():
     global _paused
     _paused = True
