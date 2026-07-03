@@ -16,11 +16,15 @@ t.eq(novacore.reg('No.Key'), None, 'missing key -> None default')
 t.ok(novacore.save_reg('X.Y', 'z'), 'save_reg returns True on success')
 t.eq(novacore.reg('X.Y'), 'z', 'saved value round-trips')
 
-# every migrated module shares the one implementation (no more copies)
-for mod in ('novapower', 'novacc', 'novair', 'novartc', 'novasound', 'novanotify'):
+# every migrated module actually imports and shares the one implementation (no copies).
+# This import-exercises the whole set — ast.parse alone wouldn't prove the delegation
+# resolves at load time (the gap the browser sim's fetch-list would otherwise hide).
+for mod in ('novacc', 'novacrypt', 'novair', 'novalora', 'novamods', 'novanotify',
+            'novapower', 'novartc', 'novasound', 'novaweb', 'novad1'):
     m = __import__(mod)
     t.ok(getattr(m, '_reg', None) is novacore.reg, '{} delegates _reg to novacore'.format(mod))
 import novagui
+t.ok(novagui._reg is novacore.reg, 'novagui delegates _reg to novacore')
 t.ok(novagui._save_reg is novacore.save_reg, 'novagui delegates _save_reg to novacore')
 
 sys.exit(t.done())
