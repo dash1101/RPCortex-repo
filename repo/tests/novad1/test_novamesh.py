@@ -55,6 +55,28 @@ t.eq(M.parse_packet(fwd)['payload'], b'hi', 'forward preserves payload')
 t.eq(M.forward_copy({'src': 1, 'dst': 2, 'id': 3, 'ttl': 1, 'payload': b'x'}), None, 'ttl=1 is not forwarded')
 t.eq(M.forward_copy({'src': 1, 'dst': 2, 'id': 3, 'ttl': 0, 'payload': b'x'}), None, 'ttl=0 is not forwarded')
 
+# --- routing policy (multi-hop managed flood) ---
+def _pk(src, dst, mid, ttl):
+    return M.parse_packet(M.make_packet(src, dst, mid, 'x', ttl=ttl))
+
+deliver, fwd = M.route(_pk(9, M.BROADCAST, 1, 3), me=5)
+t.ok(deliver, 'broadcast is delivered')
+t.ok(fwd is not None and M.parse_packet(fwd)['ttl'] == 2, 'broadcast is relayed (ttl-1)')
+
+deliver, fwd = M.route(_pk(9, 5, 2, 3), me=5)
+t.ok(deliver, 'unicast to me is delivered')
+t.eq(fwd, None, 'unicast that reached me is NOT relayed')
+
+deliver, fwd = M.route(_pk(9, 7, 3, 3), me=5)
+t.ok(not deliver, "someone else's unicast is not delivered to me")
+t.ok(fwd is not None, "but it IS relayed toward its destination")
+
+deliver, fwd = M.route(_pk(9, 7, 4, 3), me=5, relay=False)
+t.eq(fwd, None, 'relay=False never forwards')
+
+deliver, fwd = M.route(_pk(9, M.BROADCAST, 5, 1), me=5)
+t.ok(deliver and fwd is None, 'ttl-exhausted broadcast is delivered but not relayed')
+
 # --- node_id from registry ---
 _shims.set_reg({'Apps.NovaD1_NodeID': '4660'})   # 0x1234
 t.eq(M.node_id(), 0x1234, 'node_id reads Apps.NovaD1_NodeID')

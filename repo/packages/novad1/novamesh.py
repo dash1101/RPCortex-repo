@@ -92,3 +92,17 @@ def forward_copy(pkt):
     if pkt['ttl'] <= 1:
         return None
     return make_packet(pkt['src'], pkt['dst'], pkt['id'], pkt['payload'], pkt['ttl'] - 1)
+
+
+def route(pkt, me, relay=True):
+    """Decide what a node should do with a freshly-received (already dedup'd) packet.
+    Pure logic so the multi-hop policy is testable without the radio/async loop.
+    Returns (deliver_to_inbox, forward_bytes|None):
+      - deliver: the packet is addressed to me or is a broadcast.
+      - forward: managed-flood relay — re-send (ttl-1) a broadcast or a packet bound
+        for someone else, so it reaches further nodes; a unicast that already reached
+        me is NOT relayed, and an exhausted ttl yields None. Dedup upstream stops loops."""
+    dst = pkt['dst']
+    deliver = (dst == me or dst == BROADCAST)
+    forward = forward_copy(pkt) if (relay and dst != me) else None
+    return deliver, forward

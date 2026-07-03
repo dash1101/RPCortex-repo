@@ -10,11 +10,17 @@
 
 _INBOX = []          # list of {ts, src, text, me?}
 _OUTQ = []           # pending outgoing (dst, text)
+_FWDQ = []           # pending relay: already-formed packet bytes (mesh multi-hop)
 _MAX = 30
 _paused = False
 _started = False
 _lora = None
 _msgid = 0
+
+
+def _relay_enabled():
+    from novacore import reg
+    return str(reg('Apps.NovaD1_Mesh_Relay', 'on')).lower() not in ('off', 'false', '0')
 
 
 def _ts():
@@ -99,24 +105,41 @@ async def manager():
             if raw:
                 pkt = novamesh.parse_packet(raw)
                 if pkt and pkt['src'] != me and seen.first_time(pkt['src'], pkt['id']):
-                    payload = pkt['payload']
-                    try:
-                        import novacrypt
-                        if novacrypt.is_encrypted(payload):
-                            pt = novacrypt.decrypt(payload) if novacrypt.have_key() else None
-                            txt = pt.decode('utf-8') if pt else '[encrypted]'
-                        else:
-                            txt = payload.decode('utf-8')
-                    except Exception:
-                        txt = '?'
-                    _INBOX.append({'ts': _ts(), 'src': pkt['src'], 'text': txt})
-                    if len(_INBOX) > _MAX:
-                        _INBOX.pop(0)
-                    try:
-                        import novanotify
-                        novanotify.notify('LoRa {}: {}'.format(pkt['src'], txt[:18]))
-                    except Exception:
-                        pass
+                    deliver, fwd = novamesh.route(pkt, me, _relay_enabled())
+                    if fwd is not None:
+                        _FWDQ.append(fwd)         # relay onward (mesh multi-hop)
+                    if deliver:
+                        payload = pkt['payload']
+                        try:
+                            import novacrypt
+                            if novacrypt.is_encrypted(payload):
+                                pt = novacrypt.decrypt(payload) if novacrypt.have_key() else None
+                                txt = pt.decode('utf-8') if pt else '[encrypted]'
+                            else:
+                                txt = payload.decode('utf-8')
+                        except Exception:
+                            txt = '?'
+                        _INBOX.append({'ts': _ts(), 'src': pkt['src'], 'text': txt})
+                        if len(_INBOX) > _MAX:
+                            _INBOX.pop(0)
+                        try:
+                            import novanotify
+                            novanotify.notify('LoRa {}: {}'.format(pkt['src'], txt[:18]))
+                        except Exception:
+                            pass
+            if _FWDQ and not _OUTQ:               # relay queued packets when the radio is free
+                fpkt = _FWDQ.pop(0)
+                try:
+                    import utime
+                    _lora.send_start(fpkt)
+                    t0 = utime.ticks_ms()
+                    while utime.ticks_diff(utime.ticks_ms(), t0) < 1500:
+                        if _lora.tx_done():
+                            break
+                        await asyncio.sleep_ms(15)
+                except Exception:
+                    pass
+                _lora.start_rx()
             if _OUTQ:
                 dst, text = _OUTQ.pop(0)
                 _msgid = (_msgid + 1) & 0xFFFF
