@@ -236,18 +236,21 @@ def _came_header_te(bits):
     return {24: 76, 42: 76, 12: 47, 18: 47, 25: 36}.get(bits, 16)
 
 
-def _encode_came_like(val, bits, te, header_te):
-    """CAME / NICE FLO family (exact bit timing per the Flipper firmware): te_short=te,
-    te_long=te*2; MSB-first, bit 1 = (low te_long, high te_short), bit 0 = (low
-    te_short, high te_long); a start high pulse precedes the data and the long header
-    low (te*header_te) is placed TRAILING so that on repeat it becomes the next
-    frame's preamble (our TX is mark-first, so a leading low can't start the list —
-    repeats carry the preamble; first frame lacks it, like a dropped first press)."""
+def _encode_came_like(val, bits, te, header_te, bit1_long_low=True):
+    """CAME / NICE FLO / Holtek / Ansonic family (exact bit timing per the Flipper
+    firmware): te_short=te, te_long=te*2; MSB-first; a start high pulse precedes the
+    data and the long header low (te*header_te) is placed TRAILING so on repeat it
+    becomes the next frame's preamble (our TX is mark-first — a leading low can't start
+    the list; repeats carry the preamble, first frame lacks it like a dropped press).
+    bit1_long_low=True (CAME/NICE/Holtek): bit 1 = (low te_long, high te_short);
+    False (Ansonic): bit 1 = (low te_short, high te_long) — the ratio is inverted."""
     te_long = te * 2
     out = [te]                                    # start bit (high)
     i = bits - 1
     while i >= 0:
-        if (val >> i) & 1:
+        one = (val >> i) & 1
+        long_low = one if bit1_long_low else (not one)
+        if long_low:
             out.append(te_long)                   # low
             out.append(te)                        # high
         else:
@@ -258,10 +261,32 @@ def _encode_came_like(val, bits, te, header_te):
     return out
 
 
+def _encode_linear(val, bits, te):
+    """Linear MegaCode (exact per Flipper firmware): te_short=te, te_long=te*3; MSB-
+    first, mark-first PWM — bit 1 = (high te_long, low te_short), bit 0 = (high te_short,
+    low te_long). The trailing inter-frame gap replaces the last bit's low with
+    te*42 (last bit 1) or te*44 (last bit 0)."""
+    out = []
+    last = 0
+    i = bits - 1
+    while i >= 0:
+        last = (val >> i) & 1
+        if last:
+            out.append(te * 3)                    # high (long)
+            out.append(te)                        # low (short)
+        else:
+            out.append(te)                        # high (short)
+            out.append(te * 3)                    # low (long)
+        i -= 1
+    out[-1] = te * (42 if last == 1 else 44)      # inter-frame guard (per firmware)
+    return out
+
+
 def encode_decoded(protocol, key_hex, bits, te):
-    """Encode a DECODED Flipper .sub (Protocol/Key/Bit/TE) into a raw timing list so
-    it can be replayed. Supported: Princeton/PT2262, CAME, NICE FLO (the common
-    fixed-code OOK remotes/gates). Other protocols return None until added.
+    """Encode a DECODED Flipper .sub (Protocol/Key/Bit/TE) into a raw timing list so it
+    can be replayed. Supported: Princeton/PT2262, CAME, NICE FLO, Holtek HT12X, Ansonic,
+    Linear (the common fixed-code OOK remotes/gates) — timing constants taken from the
+    Flipper firmware encoders. Other protocols return None until added.
     DEVICE-PENDING: exact on-air timing is hardware-only; logic matches the firmware."""
     if not te or not bits:
         return None
@@ -273,6 +298,12 @@ def encode_decoded(protocol, key_hex, bits, te):
         return _encode_came_like(val, bits, te, _came_header_te(bits))
     if p in ('nice flo', 'nice_flo', 'niceflo'):
         return _encode_came_like(val, bits, te, 36)
+    if p.startswith('holtek'):                    # Holtek HT12X — CAME-family bits, 36*te preamble
+        return _encode_came_like(val, bits, te, 36)
+    if p == 'ansonic':                            # CAME-family but inverted bit ratio, 35*te preamble
+        return _encode_came_like(val, bits, te, 35, bit1_long_low=False)
+    if p == 'linear':                             # Linear MegaCode — Princeton-ratio, mark-first
+        return _encode_linear(val, bits, te)
     return None
 
 
