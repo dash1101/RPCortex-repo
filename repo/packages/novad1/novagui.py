@@ -2126,6 +2126,75 @@ class EnvironmentScreen(Screen):
         return None
 
 
+class ClockScreen(Screen):
+    """A big clock (time + date) with a stopwatch. Turn to switch Clock <-> Stopwatch.
+    Stopwatch: SELECT = start / stop / reset. A real Tools app (reads the RTC; the
+    device shows local time, same source as the status-bar clock)."""
+    def __init__(self):
+        self.title = 'Clock'
+        self.view = 0            # 0 = clock, 1 = stopwatch
+        self.sw_ms = 0
+        self.sw_run = False
+        self._last_s = -1
+
+    def _lt(self):
+        try:
+            import utime
+            return utime.localtime()
+        except Exception:
+            return (2026, 1, 1, 0, 0, 0, 0, 0)
+
+    def _big(self, c, s):
+        sc = 2
+        x = max(0, (c.w - len(s) * _ADV * sc) // 2)
+        c.text(x, _TOP + 4, s, 1, sc)
+        return _TOP + 4 + _FH * sc
+
+    def draw(self, c):
+        if self.view == 0:
+            t = self._lt()
+            self._big(c, '{:02d}:{:02d}:{:02d}'.format(t[3], t[4], t[5]))
+            days = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+            dow = days[t[6]] if 0 <= t[6] < 7 else ''
+            ds = '{} {:04d}-{:02d}-{:02d}'.format(dow, t[0], t[1], t[2])
+            c.text(max(0, (c.w - len(ds) * _ADV) // 2), _TOP + 4 + _FH * 2 + 5, ds, 1)
+            c.text(2, c.h - _FH, 'turn: stopwatch', 1)
+        else:
+            cs = self.sw_ms // 10                    # centiseconds
+            self._big(c, '{:02d}:{:02d}.{:1d}'.format(cs // 6000, (cs // 100) % 60, (cs // 10) % 10))
+            foot = 'SEL stop' if self.sw_run else ('SEL reset  turn: clock' if self.sw_ms else 'SEL start  turn: clock')
+            c.text(2, c.h - _FH, foot, 1)
+
+    def tick(self, dt_ms=0):
+        if self.view == 1:
+            if self.sw_run:
+                self.sw_ms += dt_ms or 16
+                return True
+            return False
+        t = self._lt()                               # clock view: redraw on second change
+        if t[5] != self._last_s:
+            self._last_s = t[5]
+            return True
+        return False
+
+    def on_event(self, e):
+        if e in (ev.ROT_CW, ev.ROT_CCW):
+            self.view ^= 1
+            self._last_s = -1
+            return None
+        if e == ev.SELECT and self.view == 1:
+            if self.sw_run:
+                self.sw_run = False                  # stop
+            elif self.sw_ms:
+                self.sw_ms = 0                       # reset
+            else:
+                self.sw_run = True                   # start
+            return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
 
@@ -2628,7 +2697,7 @@ _APP_CAT = {
     'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless',
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
-    'store': 'Tools',
+    'store': 'Tools', 'clock': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
@@ -2862,6 +2931,7 @@ def _all_apps():
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', ScriptsScreen))
+    apps.append(('clock', 'Clock', ClockScreen))          # time + date + stopwatch
     apps.append(('power', 'Power', _power_menu))
     apps.extend(_script_apps())              # installed script-apps -> home (auto-cat)
     return apps

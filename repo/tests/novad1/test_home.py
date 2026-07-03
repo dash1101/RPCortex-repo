@@ -109,4 +109,36 @@ t.ok('pn532:Tools' in reg.get('Apps.NovaD1_AppCats', ''), 'shell apps cat sets a
 ND._apps(_sink, _sink, _sink, _sink, _sink, 'cat pn532 auto')
 t.ok('pn532' not in reg.get('Apps.NovaD1_AppCats', ''), 'shell apps cat auto clears it')
 
+# --- Clock app: view toggle, stopwatch start/stop/reset, and it renders ---
+class _FakeC:
+    w = 128
+    h = 64
+    def text(self, *a, **k):
+        pass
+    def hline(self, *a, **k):
+        pass
+    def fill_rect(self, *a, **k):
+        pass
+    def rect(self, *a, **k):
+        pass
+
+ck = novagui.ClockScreen()
+t.eq(ck.view, 0, 'clock starts in clock view')
+ck.draw(_FakeC())                          # clock view renders without error
+ck.on_event(ev.ROT_CW)
+t.eq(ck.view, 1, 'turn switches to stopwatch')
+ck.on_event(ev.SELECT)                     # start
+t.ok(ck.sw_run, 'SELECT starts the stopwatch')
+ck.tick(1000); ck.tick(500)
+t.eq(ck.sw_ms, 1500, 'stopwatch accumulates while running')
+ck.draw(_FakeC())                          # stopwatch view renders
+ck.on_event(ev.SELECT)                     # stop
+t.ok(not ck.sw_run, 'SELECT stops the stopwatch')
+ck.tick(1000)
+t.eq(ck.sw_ms, 1500, 'a stopped stopwatch does not accumulate')
+ck.on_event(ev.SELECT)                     # reset
+t.eq(ck.sw_ms, 0, 'SELECT resets a stopped stopwatch')
+t.eq(ck.on_event(ev.BACK), ev.BACK, 'BACK exits the clock')
+t.eq(novagui._app_category('clock'), 'Tools', 'clock is a Tools app')
+
 sys.exit(t.done())
