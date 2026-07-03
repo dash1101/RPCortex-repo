@@ -108,6 +108,35 @@ def _pulsedist(data_bytes, hdr_m, hdr_s, bit, one, zero, stop=True):
     return t
 
 
+def _merge_levels(levels):
+    """Merge a (level, dur) half-bit list into a mark/space timing list. Coalesces
+    adjacent same-level halves, then trims a leading idle space and a trailing space
+    so the list STARTS and ENDS on a mark (what an IR TX expects)."""
+    merged = []
+    for lv, d in levels:
+        if merged and merged[-1][0] == lv:
+            merged[-1][1] += d
+        else:
+            merged.append([lv, d])
+    if merged and merged[0][0] == 0:
+        merged.pop(0)
+    if merged and merged[-1][0] == 0:
+        merged.pop()
+    return [d for _lv, d in merged]
+
+
+def _manchester(bits, half, one_low_first):
+    """RC5-style bi-phase encode. one_low_first=True => logical '1' = space then mark
+    (rising mid-bit), '0' = mark then space. Returns merged mark/space timings."""
+    lv = []
+    for b in bits:
+        if (b == 1) == one_low_first:
+            lv.append((0, half)); lv.append((1, half))
+        else:
+            lv.append((1, half)); lv.append((0, half))
+    return _merge_levels(lv)
+
+
 def _hexbytes(s):
     out = []
     for tok in (s or '').split():
@@ -151,6 +180,38 @@ def encode(protocol, address, command):
             t.append(1200 if (val >> i) & 1 else 600)
             t.append(600)
         return 40000, t                          # Sony uses ~40 kHz
+    if p in ('RC5', 'RC5X'):
+        # Philips RC5: 14 bi-phase bits at 889 us/half, 36 kHz. Order: start1,
+        # start2 (RC5X: inverted 7th command bit), toggle, 5 addr, 6 cmd (MSB first).
+        addr = a[0] & 0x1F
+        cmd = c[0]
+        if p == 'RC5X':
+            s2 = 0 if (cmd & 0x40) else 1
+            cmd &= 0x3F
+        else:
+            s2 = 1
+            cmd &= 0x3F
+        bits = [1, s2, 0]                                     # start1, field, toggle=0
+        bits += [(addr >> i) & 1 for i in range(4, -1, -1)]
+        bits += [(cmd >> i) & 1 for i in range(5, -1, -1)]
+        return 36000, _manchester(bits, 889, True)
+    if p in ('RC6', 'RC6-MODE0', 'RC6_MODE0'):
+        # Philips RC6 Mode 0: 2666/889 leader, then bi-phase bits at 444 us/half
+        # (RC6 '1' = mark then space), 36 kHz. The toggle bit is DOUBLE width.
+        # Fields: start(1), 3 mode bits (000), toggle(0), 8 addr, 8 cmd (MSB first).
+        addr = a[0] & 0xFF
+        cmd = c[0] & 0xFF
+        bits = [1, 0, 0, 0, 0]                                # start, mode 000, toggle=0
+        bits += [(addr >> i) & 1 for i in range(7, -1, -1)]
+        bits += [(cmd >> i) & 1 for i in range(7, -1, -1)]
+        lv = [(1, 2666), (0, 889)]                           # leader
+        for i, b in enumerate(bits):
+            half = 888 if i == 4 else 444                    # toggle (index 4) is 2x wide
+            if b == 1:                                       # RC6 '1' = mark then space
+                lv.append((1, half)); lv.append((0, half))
+            else:
+                lv.append((0, half)); lv.append((1, half))
+        return 36000, _merge_levels(lv)
     return None
 
 
