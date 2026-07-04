@@ -79,8 +79,13 @@ is a pragmatic trade-off, and each is a candidate for a later, careful fix.
    `novaXX_codec` from `novaXX_hw`; deferred (not worth the churn vs. the risk today).
 
 4. **`novagui.py` is a ~3,200-line monolith** (~50 Screen classes). The biggest structural
-   smell in the suite. Splitting it blind is risky, so it's deferred — the intended shape
-   is `novagui/` broken up by screen category (radios / sensors / system / settings).
+   smell in the suite. The intended shape is **flat sibling modules** — `novaui.py` (the
+   leaf: Screen base + layout tokens + draw helpers + the input `ev` re-export) plus
+   `novagui_<category>.py` files (radios / sensors / system / settings) that import the
+   leaf; `novagui.py` keeps the orchestration (`build_home` / `_all_apps` / home config).
+   **Flat, not a `novagui/` package** — the browser sim and the on-device loader both
+   resolve modules by flat filename, so a package would break both. Split incrementally,
+   one category per commit (rebuild `.pkg` + suite + sim each time), never in one move.
 
 5. **`nova.py` spans two layers** — it both parses button-grid apps (codec) and dispatches
    their actions into the radios (orchestration).
