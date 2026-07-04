@@ -5,6 +5,7 @@
   "apps": [
     {"dir": "ble-pranks", "name": "BLE Pranks", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Ping nearby phones with fake pairing popups (your own devices)."},
     {"dir": "lora-quick", "name": "LoRa Quick", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "One-tap encrypted LoRa messages to your other Nova D1s."},
-    {"dir": "system", "name": "System", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Shortcuts to common shell commands, one tap each."}
+    {"dir": "system", "name": "System", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Shortcuts to common shell commands, one tap each."},
+    {"dir": "dice", "name": "Dice", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "Roll a die — SELECT rolls, BACK exits. Example of a kind:py app."}
   ]
 }

@@ -2640,6 +2640,28 @@ def _mk_script_app(title, btns):
     return lambda: ButtonGridScreen(title, list(btns))
 
 
+def _py_apps():
+    """Installed kind:py apps (from the 'pyapps' store) as HOME apps — full Nova-UI apps
+    (not button grids). Each file defines app() -> Screen via the novaapps loader, which
+    binds it to novaui (never novagui internals). TITLE/CATEGORY are optional."""
+    out = []
+    try:
+        import novastore
+        import novaapps
+        for name in novastore.list_codes('pyapps'):
+            src = novastore.read_code('pyapps', name) or ''
+            fac, meta = novaapps.load_py_app(src)
+            if fac is None:
+                continue                              # doesn't compile / no app() -> skip
+            key = 'pyapp_' + name
+            _SCRIPT_CATS[key] = meta.get('category') or 'Tools'
+            label = (meta.get('title') or name.rsplit('.', 1)[0])[:12]
+            out.append((key, label, fac))             # fac() -> a fresh Screen
+    except Exception:
+        pass
+    return out
+
+
 def _script_apps():
     """Installed button-grid script-apps (from the scripts store) as HOME apps,
     auto-categorised by content — so an app you download/drop in appears on the home
@@ -2817,7 +2839,8 @@ def _all_apps():
     apps.append(('scripts', 'Scripts', ScriptsScreen))
     apps.append(('clock', 'Clock', ClockScreen))          # time + date + stopwatch
     apps.append(('power', 'Power', _power_menu))
-    apps.extend(_script_apps())              # installed script-apps -> home (auto-cat)
+    apps.extend(_script_apps())              # installed button-grid script-apps -> home
+    apps.extend(_py_apps())                  # installed kind:py apps -> home
     return apps
 
 
@@ -3067,8 +3090,8 @@ def build_home(modules=None, style=None):
     _load_cat_overrides()                    # user reassignments -> _app_category
     # Script-apps (installed) always show — the home config only picks/orders the
     # built-in apps, so a freshly installed app is never hidden by an old config.
-    scripts = [a for a in apps if a[0].startswith('script_')]
-    apps = [a for a in apps if not a[0].startswith('script_')]
+    scripts = [a for a in apps if a[0].startswith('script_') or a[0].startswith('pyapp_')]
+    apps = [a for a in apps if not (a[0].startswith('script_') or a[0].startswith('pyapp_'))]
     enabled = _home_keys()
     if enabled is not None:
         order = {k: i for i, k in enumerate(enabled)}

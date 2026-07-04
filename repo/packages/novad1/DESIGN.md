@@ -109,6 +109,41 @@ blurry custom glyph is worse than a clear shared one. Categories borrow an app i
 - **In-app:** only the thing that changed redraws (see `tick`). No idle animation, no
   full-screen clears per frame (they flicker at speed) — redraw the row that changed.
 
+## Writing a kind:py app (installable full-UI apps)
+
+The app store carries two kinds: **`buttons`** (a button-grid remote — a `.txt` of
+`Label = action` lines) and **`py`** (a full Nova-UI app). A kind:py app is a `.py` that
+binds only to the **stable surface** — never to `novagui` internals — so it keeps working
+as the UI is refactored. The loader (`novaapps.load_py_app`) injects into its namespace:
+
+- `ui` — the `novaui` leaf: `ui.Screen`, `ui.Menu`, the layout tokens (`ui._TOP`,
+  `ui._ROWH`, `ui._ADV`, `ui._FH`), `ui._wrap`, `ui._scroll_tri`.
+- `ev` — input events (`ev.SELECT`, `ev.BACK`, …).
+- `nova` — the scripting API (`nova.ir_send`, `nova.lora_send`, `nova.notify`, …).
+
+Contract: define **`def app():`** returning a `Screen`; optional module-level **`TITLE`**
+(home label) and **`CATEGORY`** (home folder). Minimal example:
+
+```python
+TITLE = 'Hello'
+CATEGORY = 'Tools'
+
+class Hello(ui.Screen):
+    def draw(self, c):
+        c.text(4, ui._TOP, 'Hello, Nova!', 1)
+        c.text(4, c.h - ui._FH, 'BACK = exit', 1)
+    def on_event(self, e):
+        return e if e in (ev.BACK, ev.HOME) else None
+
+def app():
+    return Hello()
+```
+
+Installing puts it in the `pyapps` store; it then appears on the home in its `CATEGORY`.
+See `repo/novad1-apps/dice/` for a working example. **Security:** installing an app RUNS
+its code (it is `exec`'d) — the same trust posture as any script you install. MicroPython
+cannot sandbox this; install apps you trust.
+
 ## Anti-patterns (the "vibe-coded" tells to avoid)
 
 - Hard-coded pixel coordinates instead of the layout tokens.

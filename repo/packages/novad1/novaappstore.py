@@ -45,16 +45,18 @@ def install(app):
         content = _get(BASE + d + '/' + entry)
         if not content:
             return None
-        novastore.save_code('scripts', entry, content)
+        cat = 'pyapps' if cfg.get('kind') == 'py' else 'scripts'
+        novastore.save_code(cat, entry, content)     # button grids -> scripts, full apps -> pyapps
         return entry
     except Exception:
         return None
 
 
 def installed_names():
-    """Entry file names already in the scripts store (to show 'installed' state)."""
+    """Entry file names already installed (to show 'installed' state) — button-grid apps
+    live in the scripts store, kind:py apps in the pyapps store."""
     try:
         import novastore
-        return set(novastore.list_codes('scripts'))
+        return set(novastore.list_codes('scripts')) | set(novastore.list_codes('pyapps'))
     except Exception:
         return set()
