@@ -6,6 +6,11 @@
     {"dir": "ble-pranks", "name": "BLE Pranks", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Ping nearby phones with fake pairing popups (your own devices)."},
     {"dir": "lora-quick", "name": "LoRa Quick", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "One-tap encrypted LoRa messages to your other Nova D1s."},
     {"dir": "system", "name": "System", "ver": "1.0.0", "category": "auto", "kind": "buttons", "desc": "Shortcuts to common shell commands, one tap each."},
-    {"dir": "dice", "name": "Dice", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "Roll a die — SELECT rolls, BACK exits. Example of a kind:py app."}
+    {"dir": "dice", "name": "Dice", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "Roll a die — SELECT rolls, BACK exits. Example of a kind:py app."},
+    {"dir": "baseconv", "name": "Base Convert", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "See a number in decimal, hex and binary at once."},
+    {"dir": "counter", "name": "Counter", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "A tally counter — turn to count, SELECT to reset."},
+    {"dir": "timer", "name": "Timer", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "A countdown timer that beeps when it finishes."},
+    {"dir": "flashlight", "name": "Flashlight", "ver": "1.0.0", "category": "Tools", "kind": "py", "desc": "Turn the status LED into an adjustable torch."},
+    {"dir": "totp", "name": "TOTP", "ver": "1.0.0", "category": "System", "kind": "py", "desc": "A 2FA authenticator — live 6-digit codes from your base32 secrets."}
   ]
 }

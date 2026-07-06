@@ -16,7 +16,7 @@ idx = json.load(open(os.path.join(STORE, 'index.json')))
 apps = idx.get('apps', [])
 t.ok(len(apps) >= 1, 'index lists at least one app')
 
-VERBS = ('ir', 'subghz', 'lora', 'ble', 'run', 'notify', 'sleep', 'log')
+VERBS = ('ir', 'subghz', 'lora', 'ble', 'run', 'notify', 'sleep', 'log', 'led', 'beep')
 for a in apps:
     name = a.get('name', '?')
     d = a.get('dir')

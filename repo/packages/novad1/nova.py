@@ -46,6 +46,16 @@ def save_code(cat, name, text):
     return novastore.save_code(cat, name, text)
 
 
+def list_codes(cat):
+    """List saved code/data file names in a Nova store category (ir/subghz/nfc/
+    lora/scripts/… or an app's own). Companion to read_code/save_code."""
+    import novastore
+    try:
+        return novastore.list_codes(cat)
+    except Exception:
+        return []
+
+
 def run(cmd):
     """Run an OS shell command (side effects). Returns True if dispatched."""
     lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
@@ -117,6 +127,50 @@ def ble_scan(secs=5):
     return novable.scan(int(secs * 1000))
 
 
+def led(r, g, b):
+    """Set the status LED (WS2812, or plain on/off in gpio mode) to an (r,g,b)
+    colour. Best-effort; returns True on success. For a flashlight, torch apps, etc."""
+    try:
+        import novamods
+        return novamods.set_led(int(r) & 0xff, int(g) & 0xff, int(b) & 0xff)
+    except Exception:
+        return False
+
+
+def led_off():
+    return led(0, 0, 0)
+
+
+def beep(freq=2000, ms=80):
+    """A short buzzer beep (PWM) at freq Hz for ms milliseconds. Best-effort; never
+    raises. For timers, metronomes, key-press feedback. Buzzer pin from
+    Apps.NovaD1_PIN_buzzer (default 40)."""
+    try:
+        import machine
+        import utime
+        import novacore
+        pin = int(novacore.reg('Apps.NovaD1_PIN_buzzer', 40) or 40)
+    except Exception:
+        return False
+    pwm = None
+    try:
+        pwm = machine.PWM(machine.Pin(pin))
+        pwm.freq(int(freq))
+        pwm.duty_u16(18000)
+        utime.sleep_ms(int(ms))
+        pwm.duty_u16(0)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if pwm is not None:
+                pwm.duty_u16(0)
+                pwm.deinit()
+        except Exception:
+            pass
+
+
 def do(action):
     """Execute a button-grid action string. Returns a short status string."""
     a = (action or '').strip().split(None, 1)
@@ -142,6 +196,20 @@ def do(action):
             sub = p[1] if len(p) > 1 else 'apple'      # platform
             mdl = p[2] if len(p) > 2 else None         # model
             return 'BLE ping ' + str(ble_ping(sub, mdl))
+        if cmd == 'led':
+            # 'led 120 0 0' (r g b) or 'led off'
+            p = arg.split()
+            if p and p[0].lower() == 'off':
+                led_off()
+                return 'led off'
+            v = [int(x) for x in p[:3]] + [0, 0, 0]
+            led(v[0], v[1], v[2])
+            return 'led set'
+        if cmd == 'beep':
+            # 'beep' or 'beep 1500' or 'beep 1500 120'
+            p = arg.split()
+            beep(int(p[0]) if p else 2000, int(p[1]) if len(p) > 1 else 80)
+            return 'beep'
         if cmd == 'notify':
             notify(arg)
             return 'notified'
