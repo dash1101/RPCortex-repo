@@ -164,9 +164,11 @@ def encode(protocol, address, command):
     if p == 'PIONEER':
         # Pioneer (common on Pioneer AV gear): NEC-family pulse-distance, LSB-first,
         # each byte followed by its complement — but Pioneer's own timing + a 40 kHz
-        # carrier (constants verbatim from the Flipper firmware header). 32 databits
-        # exposing an 8-bit address + 8-bit command => the other 16 are the
-        # complements, exactly the NEC layout.
+        # carrier. TIMINGS are verbatim from the Flipper firmware header (confirmed).
+        # The addr/~addr/cmd/~cmd byte LAYOUT is INFERRED (32 databits exposing an
+        # 8-bit address + 8-bit command => the other 16 are the complements, the NEC
+        # layout) — the round-trip test asserts the timings + bit order but NOT this
+        # layout, so it's DEVICE-UNCONFIRMED against a real Pioneer remote.
         return 40000, _pulsedist([a[0], a[0] ^ 0xFF, c[0], c[0] ^ 0xFF],
                                  8500, 4225, 500, 1500, 500)
     if p in ('SIRC', 'SONY', 'SIRC15', 'SIRC20'):
