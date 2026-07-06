@@ -78,14 +78,27 @@ is a pragmatic trade-off, and each is a candidate for a later, careful fix.
    one file — so they appear in both L1 and L2. A clean split would separate
    `novaXX_codec` from `novaXX_hw`; deferred (not worth the churn vs. the risk today).
 
-4. **`novagui.py` is a ~3,200-line monolith** (~50 Screen classes). The biggest structural
-   smell in the suite. The intended shape is **flat sibling modules** — `novaui.py` (the
-   leaf: Screen base + layout tokens + draw helpers + the input `ev` re-export) plus
-   `novagui_<category>.py` files (radios / sensors / system / settings) that import the
-   leaf; `novagui.py` keeps the orchestration (`build_home` / `_all_apps` / home config).
-   **Flat, not a `novagui/` package** — the browser sim and the on-device loader both
-   resolve modules by flat filename, so a package would break both. Split incrementally,
-   one category per commit (rebuild `.pkg` + suite + sim each time), never in one move.
+4. **`novagui.py` — the monolith split (in progress).** It began as a ~2,900-line file
+   (~50 Screen classes) — the biggest structural smell in the suite. The shape being
+   pulled out is **flat sibling modules** — `novaui.py` (the leaf: Screen base + layout
+   tokens + draw helpers + the input `ev` re-export) plus `novagui_<category>.py` files
+   that import only the leaf; `novagui.py` keeps the orchestration (`build_home` /
+   `_all_apps` / the NovaUI runner / home config). **Flat, not a `novagui/` package** —
+   the browser sim and the on-device loader both resolve modules by flat filename, so a
+   package would break both. Split incrementally, one category per commit (suite + sim
+   MODS manifest each time), never in one move.
+   - **Done:** `novaui.py` (the leaf), `novagui_sensors.py` (LED/Battery/Environment/
+     Clock), `novagui_radios.py` (Messages/GPS/NFC/IR/Sub-GHz/BLE/LoRa/ButtonGrid —
+     11 classes), `novagui_system.py` (WiFi/Set Time/System Check/Notifications/PIN).
+     `novagui.py` is down to ~1,700 lines.
+   - **Deliberately still in `novagui.py`:** the settings/management screens that reach
+     the NovaUI runner — **Display, ManageApps, Settings, AppStore, Command** — plus the
+     runner chrome (IconGallery, boot/splash/error screens, ModuleTestScreen). They use
+     `_disp()` / `_mark_home_dirty()` / `_apply_*` / the category machinery, which live
+     with the runner. Extracting them cleanly needs the **category subsystem**
+     (`_app_category` / `_CAT_OVERRIDE` / `_set_cat_override` / `_load/_save_cat_overrides`)
+     pulled into its own leaf module first — the next deliberate step, done verify-first,
+     not with reach-around `import novagui` calls.
 
 5. **`nova.py` spans two layers** — it both parses button-grid apps (codec) and dispatches
    their actions into the radios (orchestration).
