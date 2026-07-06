@@ -34,6 +34,27 @@ t.eq(freq, 38000, 'NEC carrier 38 kHz')
 t.eq((tm[0], tm[1]), (9000, 4500), 'NEC 9000/4500 header')
 t.eq(len(tm), 2 + 32 * 2 + 1, 'NEC = header + 32 bits + stop')
 
+# --- Pioneer (pulse-distance, 40 kHz) structure + round-trip ---
+def pd_decode(tm, thresh):
+    """Independent NEC-family pulse-distance decoder: bit = 1 when its space is the
+    long one. Reads the data bytes back LSB-first to prove the frame + bit order."""
+    spaces = tm[3:-1:2]                     # every space after the header, minus stop
+    bits = [1 if s > thresh else 0 for s in spaces]
+    out = []
+    for b in range(0, len(bits) - 7, 8):
+        out.append(sum(bits[b + k] << k for k in range(8)))
+    return out
+
+r = novair.encode('Pioneer', '0A', '1B')
+t.ok(r is not None, 'Pioneer encodes')
+freq, tm = r
+t.eq(freq, 40000, 'Pioneer carrier 40 kHz')
+t.eq((tm[0], tm[1]), (8500, 4225), 'Pioneer 8500/4225 header (firmware timing)')
+t.eq(len(tm), 2 + 32 * 2 + 1, 'Pioneer = header + 32 bits + stop')
+t.ok(500 in tm and 1500 in tm, 'Pioneer uses the 500/1500 firmware bit timings')
+by = pd_decode(tm, 1000)
+t.eq(by, [0x0A, 0xF5, 0x1B, 0xE4], 'Pioneer frame = addr, ~addr, cmd, ~cmd (LSB-first)')
+
 # --- Sony SIRC structure ---
 r = novair.encode('SIRC', '01', '12')
 freq, tm = r
