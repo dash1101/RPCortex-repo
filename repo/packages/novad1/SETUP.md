@@ -22,17 +22,29 @@ Two things decide whether anything appears on screen: the **board** (which pins 
 which) and the **panel** (which OLED controller).
 
 ```
-d1 pins board            # list board profiles, '*' is active
+d1 pins board            # list profiles, '*' is active, and which one was detected
 d1 display               # list panels, '*' is active
 ```
 
-The defaults are the shipping build: `esp32s3` and `sh1106`. If that's what you have,
-skip ahead. Otherwise:
+Nova D1 identifies the board from `os.uname()` and uses that when nothing is
+configured, so most of the time this is already right. Three boards are supported:
+
+| Profile | Board |
+|---|---|
+| `esp32s3` | ESP32-S3 devkit (N16R8) — the shipping build |
+| `pico2w` | Raspberry Pi Pico 2 W |
+| `picoplus2w` | Pimoroni Pico Plus 2 W |
+
+To set it yourself:
 
 ```
-d1 pins board rp2350     # switch board profile
-d1 display ssd1309       # 2.42" panel
+d1 pins board auto       # trust the detected board
+d1 pins board pico2w     # or name it
+d1 display ssd1309       # 2.42" panel  (sh1106 is the default)
 ```
+
+Anything you set by hand always wins over detection, so a hand-wired board is never
+silently re-pinned by an update.
 
 ## 3. Check the wiring
 

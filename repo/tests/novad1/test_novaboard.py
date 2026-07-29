@@ -11,8 +11,9 @@ t = T('test_novaboard')
 
 # ---------------------------------------------------------------- board selection
 _shims.set_reg({})
-t.eq(nb.board(), 'esp32s3', 'no key -> the shipping board is the default')
-t.ok('esp32s3' in nb.boards() and 'rp2350' in nb.boards(), 'both profiles listed')
+t.eq(nb.board(), 'esp32s3', 'no key and an unrecognised host -> DEFAULT_BOARD')
+for b in ('esp32s3', 'pico2w', 'picoplus2w'):
+    t.ok(b in nb.boards(), '{} profile listed'.format(b))
 t.eq(nb.boards()[0], 'esp32s3', 'shipping boards sort ahead of drafts')
 
 _shims.set_reg({'Apps.NovaD1_Board': 'nonsense'})
@@ -20,10 +21,66 @@ t.eq(nb.board(), 'esp32s3', 'an unknown board id falls back, never leaves no pin
 t.eq(nb.profile()['mcu'], 'esp32s3', 'profile() follows that fallback')
 
 _shims.set_reg({})
-t.ok(nb.set_board('rp2350'), 'set_board accepts a known id')
-t.eq(nb.board(), 'rp2350', 'set_board switches the active profile')
+t.ok(nb.set_board('pico2w'), 'set_board accepts a known id')
+t.eq(nb.board(), 'pico2w', 'set_board switches the active profile')
 t.ok(not nb.set_board('vic20'), 'set_board rejects an unknown id')
-t.eq(nb.board(), 'rp2350', 'a rejected set_board leaves the active board alone')
+t.eq(nb.board(), 'pico2w', 'a rejected set_board leaves the active board alone')
+
+# A renamed board id must keep resolving, or a device configured before the rename
+# is stranded with no pinmap.
+_shims.set_reg({'Apps.NovaD1_Board': 'rp2350'})
+t.eq(nb.board(), 'pico2w', "the legacy 'rp2350' id resolves to pico2w")
+t.eq(nb.profile()['name'], 'Raspberry Pi Pico 2 W', 'and profile() follows it')
+t.eq(nb.profile('rp2350')['name'], 'Raspberry Pi Pico 2 W', 'explicit alias lookup works')
+t.eq(nb.check('rp2350'), [], 'check() accepts an alias too')
+_shims.set_reg({})
+t.ok(nb.set_board('rp2350'), 'set_board accepts the alias')
+t.eq(nb.board(), 'pico2w', 'and stores the canonical id')
+t.ok(nb.set_board('ESP32S3'), 'board ids are case-insensitive')
+t.eq(nb.board(), 'esp32s3', 'stored lower-cased')
+
+# ------------------------------------------------------------------- detection
+# detect() must be conservative: a board it cannot identify returns None so the
+# caller falls back, rather than guessing a pinmap and mis-driving hardware.
+t.eq(nb.detect(), None, 'an unrecognised host (CPython on x86) detects nothing')
+_shims.set_reg({})
+t.ok(not nb.set_board('auto'), "'auto' fails cleanly when nothing is detected")
+
+# The mapping itself, driven through a faked os.uname().machine.
+import os as _os
+_real = _os.uname
+
+
+class _U:
+    def __init__(s, m): s.machine = m
+
+
+for mach, want in (('Raspberry Pi Pico 2 W with RP2350', 'pico2w'),
+                   ('Pimoroni Pico Plus 2 W with RP2350', 'picoplus2w'),
+                   ('ESP32S3 module with ESP32S3', 'esp32s3'),
+                   # An RP2040 Pico W shares the header pinout but is NOT a Nova D1
+                   # target -- v1.0 does not fit in 264 KB. Detecting nothing is
+                   # correct; claiming it as a supported board would not be.
+                   ('Raspberry Pi Pico W with RP2040', None),
+                   ('Some Unknown Board', None)):
+    _os.uname = (lambda m: (lambda: _U(m)))(mach)
+    t.eq(nb.detect(), want, 'detect({!r})'.format(mach[:28]))
+
+# 'Pico Plus 2' also contains 'Pico 2', so order in detect() matters.
+_os.uname = lambda: _U('Pimoroni Pico Plus 2 W with RP2350')
+t.eq(nb.detect(), 'picoplus2w', 'Plus is matched before the plain Pico 2 W')
+t.ok(nb.set_board('auto'), "'auto' works once the board is identifiable")
+t.eq(nb.board(), 'picoplus2w', "'auto' stores the detected board")
+
+# With nothing configured, fall back to the DETECTED board rather than a hardcoded
+# one -- a Pico then gets the right pinmap out of the box.
+_shims.set_reg({})
+t.eq(nb.board(), 'picoplus2w', 'an unconfigured device uses the detected board')
+# ...but an explicit setting always wins over detection.
+_shims.set_reg({'Apps.NovaD1_Board': 'esp32s3'})
+t.eq(nb.board(), 'esp32s3', 'an explicit board beats detection')
+_os.uname = _real
+_shims.set_reg({})
 
 # ------------------------------------------------------- resolution order matters
 # The registry MUST win. A device already wired and configured by hand keeps
@@ -132,8 +189,12 @@ t.ok(any('I2C' in m for m in nb.check('_badi2c')), 'catches a mismatched I2C pai
 nb._PROFILES['_res'] = {'name': 'res', 'mcu': 'rp2350', 'reserved': (23, 24, 25, 29),
                         'pins': {'led': 25}}
 t.ok(any('reserved' in m for m in nb.check('_res')), 'catches a board-reserved GPIO')
-t.ok(25 in nb.profile('rp2350')['reserved'],
-     'the rp2350 draft records the wireless-module pins as reserved')
+for b in ('pico2w', 'picoplus2w'):
+    for g in (23, 24, 25, 29):
+        t.ok(g in nb.profile(b)['reserved'],
+             '{} reserves GPIO {} for the wireless module'.format(b, g))
+    t.ok(not (set(nb.profile(b)['pins'].values()) & set(nb.profile(b)['reserved'])),
+         '{} assigns no reserved GPIO'.format(b))
 
 # An ESP32 profile must NOT be held to the RP2 pin groups (it has a GPIO matrix).
 nb._PROFILES['_esp'] = {'name': 'esp', 'mcu': 'esp32s3',
@@ -142,6 +203,27 @@ t.eq(nb.check('_esp'), [], 'ESP32 pins are not checked against RP2 groups')
 
 for k in ('_dup', '_badspi', '_split', '_badi2c', '_res', '_esp'):
     del nb._PROFILES[k]
+
+# --------------------------------------------------- the Pimoroni is a drop-in
+# It shares the standard Pico header, so it inherits the map rather than carrying a
+# copy. Asserting that is what stops the two silently drifting apart.
+t.eq(nb.profile('picoplus2w')['pins'], nb.profile('pico2w')['pins'],
+     'picoplus2w inherits the pico2w pinmap exactly (drop-in upgrade)')
+t.ok(nb.profile('picoplus2w')['pins'] is not nb.profile('pico2w')['pins'],
+     'but holds its own dict, so editing one cannot mutate the other')
+t.eq(nb.profile('picoplus2w')['mcu'], 'rp2350b', 'picoplus2w is the B-series part')
+
+# The pin budget is the whole reason check() exists -- keep the numbers honest.
+used, res = nb.usable_pins('pico2w')
+t.eq(used, 26, 'the pico2w map consumes 26 distinct GPIO (the usable ceiling)')
+t.eq(res, 4, 'and 4 more are reserved by the board')
+t.ok('ibutton' not in nb.profile('pico2w')['pins'],
+     'ibutton is left unassigned on pico2w -- there is no 27th pin')
+t.ok('ibutton' in nb.profile('esp32s3')['pins'], 'esp32s3 has room for it')
+for b in nb.boards():
+    if nb.profile(b)['mcu'].startswith('rp2'):
+        t.eq(nb.profile(b).get('display_bus'), 'i2c',
+             '{} records I2C as the decided display interface'.format(b))
 
 # ------------------------------------------------- drivers share the one resolver
 # Mirrors the novacore delegation check: prove every driver actually resolves to

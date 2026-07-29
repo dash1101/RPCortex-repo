@@ -69,21 +69,21 @@ _PROFILES = {
         },
         'notes': 'One shared SPI bus for SD + both radios.',
     },
-    # ----------------------------------------------------------------- RP2350
-    # DRAFT — placeholders, not a decided pinmap. The pin budget is the open task
-    # for the port (roughly low-30s pins needed vs ~31 exposed), and the display
-    # interface is undecided. What matters here is that these respect the RP2
-    # fixed peripheral pin groups, which check() verifies. Finalise before use.
-    'rp2350': {
-        'name': 'RP2350 / Pico Plus 2 W (DRAFT)',
+    # -------------------------------------------------------- Raspberry Pi Pico 2 W
+    # The RP2350 port target. DRAFT — the pinmap respects the RP2 fixed peripheral
+    # groups (check() verifies that) but has not been wired yet.
+    'pico2w': {
+        'name': 'Raspberry Pi Pico 2 W',
         'mcu': 'rp2350',
         'status': 'draft',
-        # GPIO 23/24/25/29 are wired to the wireless module on Pico W-class boards
-        # (WL_ON, WL_DATA, WL_CS, WL_CLK + VSYS sense) and are NOT free. That
-        # leaves GPIO 0-22 and 26-28 — 26 usable pins on the standard header.
+        'display_bus': 'i2c',
+        # GPIO 23/24/25/29 are wired to the CYW43439 wireless module on Pico W-class
+        # boards (WL_ON, WL_DATA, WL_CS, WL_CLK + VSYS sense) and are NOT free even
+        # though a pinout diagram shows them. That leaves GPIO 0-22 and 26-28 —
+        # 26 usable pins on the standard header.
         'reserved': (23, 24, 25, 29),
         'pins': {
-            'sda': 4, 'scl': 5,                        # I2C0, the Qw/ST bus
+            'sda': 4, 'scl': 5,                        # I2C0 — display + PN532 + RTC
             'enc_a': 14, 'enc_b': 15, 'enc_sw': 13,    # EC11 rotary encoder
             'btn1': 22, 'btn2': 26,
             'spi_sck': 18, 'spi_mosi': 19, 'spi_miso': 16,   # SPI0: both radios
@@ -94,18 +94,49 @@ _PROFILES = {
             'ir_tx': 6, 'ir_rx': 7,
             'gps_tx': 0, 'gps_rx': 1,
             'buzzer': 27, 'vibe': 28,
-            'led': 2,                                  # external RGB; the onboard
+            'led': 2,                                  # external RGB — the onboard
                                                        # LED sits on the radio chip
             'dht': 3,
         },
         # 'ibutton' is deliberately absent: this map already consumes all 26 usable
-        # header pins, which is the pin-budget squeeze the port has to solve. The
-        # fix is an I2C expander (PCF8574) or a 74HC165 for the buttons and DIP
-        # switches, collapsing ~7 pins into ~2 and freeing room for the rest.
-        'notes': 'DRAFT, at the 26-pin ceiling. SD split onto SPI1 so LoRa RX and '
-                 'card writes do not contend. Buttons want a GPIO expander.',
+        # header pins, which is the pin-budget squeeze. The fix is an I2C expander
+        # (PCF8574) or a 74HC165 for the buttons and DIP switches, collapsing ~7
+        # pins into ~2 — which also frees room for the 125 kHz LF front-end.
+        'notes': 'At the 26-pin ceiling, so ibutton is unassigned. Display on I2C. '
+                 'SD split onto SPI1 so LoRa RX and card writes do not contend. '
+                 'Buttons want a GPIO expander.',
     },
 }
+
+# ---------------------------------------------------- Pimoroni Pico Plus 2 W
+# The planned upgrade. Same RP2350 family and the same standard Pico header
+# pinout, so it is a genuine drop-in: it inherits the Pico 2 W map rather than
+# duplicating it, which also means the two can never drift apart.
+#
+# What it adds: RP2350B (48-GPIO silicon, so extra broken-out pins beyond GP28),
+# 8 MB PSRAM, 16 MB flash, USB-C, and the RM2 radio module instead of a bare
+# CYW43439. The extra GPIO are where 'ibutton' and the LF front-end should go once
+# the exact broken-out numbering is confirmed on a real board — they are left
+# unassigned rather than guessed.
+#
+# The wireless reservation is inherited as-is on purpose. The RM2 may not use the
+# same four pins, but over-reserving is the safe direction: a pin wrongly assumed
+# free is a hardware conflict, a pin wrongly assumed taken is only a missed pin.
+_PROFILES['picoplus2w'] = {
+    'name': 'Pimoroni Pico Plus 2 W',
+    'mcu': 'rp2350b',
+    'status': 'draft',
+    'display_bus': 'i2c',
+    'reserved': _PROFILES['pico2w']['reserved'],
+    'pins': dict(_PROFILES['pico2w']['pins']),
+    'notes': 'Drop-in upgrade from the Pico 2 W: same header pinout, so the same '
+             'map. Adds 8 MB PSRAM, 16 MB flash and extra GPIO beyond GP28 — put '
+             'ibutton and the LF front-end there once the numbering is confirmed.',
+}
+
+# Board ids that used to exist, kept resolving so a configured device is never
+# stranded by a rename.
+_BOARD_ALIASES = {'rp2350': 'pico2w', 'esp32': 'esp32s3', 'esp32s3-devkit': 'esp32s3'}
 
 # RP2 peripheral pins are fixed to GPIO groups — there is no ESP32-style GPIO
 # matrix, so a pinmap has to be built around the valid groups. The pattern
@@ -140,23 +171,88 @@ def boards():
     return ids
 
 
+def detect():
+    """Best-guess board id for the hardware we're running on, or None if unsure.
+
+    Reads os.uname().machine, which the port fills in (e.g. 'Raspberry Pi Pico 2 W
+    with RP2350'). Deliberately conservative: an unrecognised board returns None so
+    the caller falls back rather than picking a wrong pinmap."""
+    try:
+        import os
+        mach = (os.uname().machine or '').lower()
+    except Exception:
+        return None
+    try:
+        import sys
+        plat = (sys.platform or '').lower()
+    except Exception:
+        plat = ''
+    if 'esp32' in mach or 'esp32' in plat:
+        return 'esp32s3'                       # the S3 is the only ESP32 build here
+    if 'rp2350' in mach or 'rp2040' in mach or plat == 'rp2':
+        # Order matters: 'pico plus 2' also contains 'pico 2'.
+        if 'plus' in mach or 'pimoroni' in mach:
+            return 'picoplus2w'
+        if 'pico 2' in mach or 'pico2' in mach or 'rp2350' in mach:
+            return 'pico2w'
+        # An RP2040 board (original Pico / Pico W) falls through on purpose. It
+        # shares the header pinout, but it is not a Nova D1 target — v1.0 does not
+        # fit in 264 KB — so claiming it as a known board would be misleading.
+    return None
+
+
+def _resolve_board(board_id):
+    """Map an id (possibly a legacy alias) to a real profile, or None."""
+    if not board_id:
+        return None
+    b = board_id.strip().lower()
+    b = _BOARD_ALIASES.get(b, b)
+    return b if b in _PROFILES else None
+
+
 def board():
-    """The active board id. Falls back to the default if the key names an
-    unknown profile, so a typo can never leave the device with no pinmap."""
-    b = _reg(_KEY_BOARD, DEFAULT_BOARD)
-    return b if b in _PROFILES else DEFAULT_BOARD
+    """The active board id.
+
+    Registry first. With nothing configured, fall back to what the hardware reports
+    (detect()) rather than a hardcoded board — on an ESP32-S3 that still resolves to
+    esp32s3, so nothing changes for an existing device, but a Pico gets the right
+    pinmap out of the box. An unknown id or an undetectable board lands on
+    DEFAULT_BOARD, so there is always a pinmap."""
+    b = _resolve_board(_reg(_KEY_BOARD, ''))
+    if b:
+        return b
+    return detect() or DEFAULT_BOARD
 
 
 def set_board(board_id):
-    """Switch the active profile. Returns False for an unknown id."""
-    if board_id not in _PROFILES:
+    """Switch the active profile. Accepts a profile id, a legacy alias, or 'auto' to
+    use whatever the hardware reports. Returns False if it can't be resolved."""
+    if board_id and board_id.strip().lower() in ('auto', 'detect'):
+        got = detect()
+        if not got:
+            return False
+        return _save_reg(_KEY_BOARD, got)
+    b = _resolve_board(board_id)
+    if not b:
         return False
-    return _save_reg(_KEY_BOARD, board_id)
+    return _save_reg(_KEY_BOARD, b)
 
 
 def profile(board_id=None):
-    """The profile dict for `board_id` (default: the active board)."""
-    return _PROFILES.get(board_id or board(), _PROFILES[DEFAULT_BOARD])
+    """The profile dict for `board_id` (default: the active board). Accepts legacy
+    aliases; an unknown id falls back so callers always get a usable map."""
+    if board_id:
+        return _PROFILES.get(_resolve_board(board_id) or board_id,
+                             _PROFILES[DEFAULT_BOARD])
+    return _PROFILES.get(board(), _PROFILES[DEFAULT_BOARD])
+
+
+def usable_pins(board_id=None):
+    """How many GPIO this board actually offers, and how many the map uses — the
+    pin-budget number. Returns (used, reserved_count) where used counts distinct
+    GPIO assigned by the profile."""
+    prof = profile(board_id)
+    return len(set(prof.get('pins', {}).values())), len(prof.get('reserved', ()))
 
 
 def names(board_id=None):

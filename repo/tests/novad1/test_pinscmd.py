@@ -73,17 +73,29 @@ t.ok('d1 pins' in out, 'and points at the listing')
 # ----------------------------------------------------------------- board switch
 _shims.set_reg({})
 out = run('pins board')
-t.ok('esp32s3' in out and 'rp2350' in out, 'lists both profiles')
+for b in ('esp32s3', 'pico2w', 'picoplus2w'):
+    t.ok(b in out, 'board listing includes {}'.format(b))
 t.ok('*' in out, 'marks the active one')
-t.ok('draft' in out.lower(), 'flags the draft profile as such, not as ready')
+t.ok('draft' in out.lower(), 'flags draft profiles as such, not as ready')
+t.ok('pins used' in out, 'shows the pin budget per board')
 
-out = run('pins board rp2350')
-t.eq(novaboard.board(), 'rp2350', 'switches board')
+out = run('pins board pico2w')
+t.eq(novaboard.board(), 'pico2w', 'switches board')
 t.ok('consistent' in out or 'problem' in out, 'validates immediately after switching')
+
+# The legacy id must still work from the command line, and report the canonical name.
+_shims.set_reg({})
+out = run('pins board rp2350')
+t.eq(novaboard.board(), 'pico2w', "the old 'rp2350' id still switches, to pico2w")
+t.ok('pico2w' in out, 'and the confirmation names the canonical board')
 
 out = run('pins board nonsense')
 t.ok('Unknown board' in out, 'rejects an unknown board')
-t.eq(novaboard.board(), 'rp2350', 'and does not change the active board')
+t.eq(novaboard.board(), 'pico2w', 'and does not change the active board')
+
+# 'auto' has to fail with a useful message on a host it cannot identify, not crash.
+out = run('pins board auto')
+t.ok('identify' in out.lower(), "'auto' explains itself when detection fails")
 
 # ---------------------------------------------------------------------- check
 _shims.set_reg({})

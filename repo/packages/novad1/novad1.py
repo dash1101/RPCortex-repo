@@ -329,6 +329,21 @@ _PIN_HELP = {
 }
 
 
+def _wrapnote(text, width=68):
+    """Wrap a profile note so long lines don't run off an 80-column terminal."""
+    out = []
+    line = ''
+    for word in (text or '').split():
+        if line and len(line) + 1 + len(word) > width:
+            out.append(line)
+            line = word
+        else:
+            line = (line + ' ' + word) if line else word
+    if line:
+        out.append(line)
+    return out
+
+
 def _pins(info, ok, warn, error, multi, rest=''):
     """Show and edit the pinmap without touching the registry by hand."""
     parts = (rest or '').split()
@@ -348,23 +363,35 @@ def _pins(info, ok, warn, error, multi, rest=''):
         if len(parts) > 1:
             want = parts[1].lower()
             if not novaboard.set_board(want):
-                error("Unknown board '{}'. Try: d1 pins board".format(want))
+                if want in ('auto', 'detect'):
+                    error("Could not identify this board. Set it explicitly: "
+                          "d1 pins board <id>")
+                else:
+                    error("Unknown board '{}'. Try: d1 pins board".format(want))
                 return
             ok("Board set to '{}'. Reboot, or restart the GUI, to apply."
-               .format(want), p="NovaD1")
+               .format(novaboard.board()), p="NovaD1")
             _pins(info, ok, warn, error, multi, 'check')
             return
         cur = novaboard.board()
+        det = novaboard.detect()
         info("Nova D1 — board profiles", p="NovaD1")
         for bid in novaboard.boards():
             prof = novaboard.profile(bid)
-            multi("  {} {:<8} {}  [{}]".format('*' if bid == cur else ' ', bid,
-                                               prof.get('name', bid),
-                                               prof.get('status', '?')))
+            used, res = novaboard.usable_pins(bid)
+            tags = [prof.get('status', '?')]
+            if bid == det:
+                tags.append('detected')
+            multi("  {} {:<11} {:<26} {} pins used  [{}]".format(
+                '*' if bid == cur else ' ', bid, prof.get('name', bid), used,
+                ', '.join(tags)))
             if prof.get('notes'):
-                multi("      {}".format(prof['notes']))
+                for ln in _wrapnote(prof['notes']):
+                    multi("      {}".format(ln))
         multi("")
-        multi("  '*' is active. Switch with: d1 pins board <id>")
+        multi("  '*' is active{}.".format(
+            "  |  detected: " + det if det else "  |  board not auto-detected"))
+        multi("  Switch with: d1 pins board <id>     (or 'auto' to use the detected one)")
         return
 
     if sub == 'check':
