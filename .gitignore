@@ -8,3 +8,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Local working notes — never published or shipped in a .rpc
+CLAUDE.md
