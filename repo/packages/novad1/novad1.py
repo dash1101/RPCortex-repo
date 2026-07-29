@@ -30,9 +30,9 @@ _I2C_KNOWN = {
     0x48: ('nfc', 'PN532 NFC/RFID (alt)'),
 }
 
-_DEF_I2C = {'sda': 8, 'scl': 9}
-# 3 buttons total (encoder SW + 2). btn2=16 keeps GPIO15 free for the SD CS.
-_DEF_PINS = {'enc_a': 4, 'enc_b': 5, 'enc_sw': 6, 'btn1': 7, 'btn2': 16}
+# Pin defaults live in novaboard's board profiles, not here. 3 buttons total
+# (encoder SW + 2); on the ESP32-S3 btn2=16 keeps GPIO15 free for the SD CS.
+_INPUT_NAMES = ('enc_a', 'enc_b', 'enc_sw', 'btn1', 'btn2')
 
 # Splash + boot-check play ONCE per boot (module globals persist across service
 # respawns in the same session, reset on a real reboot — exactly what we want).
@@ -53,6 +53,7 @@ def _out():
 
 
 from novacore import reg as _reg
+import novaboard
 
 
 def _ensure_dir(p):
@@ -84,20 +85,13 @@ def scripts_dir():
 
 
 def _i2c_pins():
-    sda = int(_reg('Apps.NovaD1_SDA', _DEF_I2C['sda']))
-    scl = int(_reg('Apps.NovaD1_SCL', _DEF_I2C['scl']))
-    return sda, scl
+    return novaboard.pin('sda', 8), novaboard.pin('scl', 9)
 
 
 def _input_pins():
-    pins = dict(_DEF_PINS)
-    for k in pins:
-        v = _reg('Apps.NovaD1_PIN_' + k)
-        if v:
-            try:
-                pins[k] = int(v)
-            except ValueError:
-                pass
+    pins = {}
+    for k in _INPUT_NAMES:
+        pins[k] = novaboard.pin(k)
     return pins
 
 

@@ -13,14 +13,18 @@ _EMPTY = {'have': False, 'pct': 0, 'volts': 0.0, 'usb': None, 'low': False}
 
 
 from novacore import reg as _reg
+import novaboard as _board
 
 
-def _pinnum(key):
-    v = _reg(key, '')
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return None
+def _pin(name, d=None):
+    """Resolve a pin through the board profile (see novaboard). With no default
+    this returns None for an unconfigured pin, which is what the guard below
+    relies on — novaboard keeps 'battery' and 'vbus' out of every board profile
+    (novaboard.OPT_IN) precisely so they stay unset until the user wires them."""
+    return _board.pin(name, d)
+
+
+_pinnum = _pin       # the call sites below pass a full registry key; both work
 
 
 def _read_raw():

@@ -148,8 +148,8 @@ def beep(freq=2000, ms=80):
     try:
         import machine
         import utime
-        import novacore
-        pin = int(novacore.reg('Apps.NovaD1_PIN_buzzer', 40) or 40)
+        import novaboard
+        pin = novaboard.pin('buzzer', 40)
     except Exception:
         return False
     pwm = None

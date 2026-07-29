@@ -125,8 +125,9 @@ class GPSScreen(Screen):
         self.msg = ''
         try:
             import machine
-            tx = int(_reg('Apps.NovaD1_PIN_gps_tx', 17))
-            rx = int(_reg('Apps.NovaD1_PIN_gps_rx', 18))
+            import novaboard
+            tx = novaboard.pin('gps_tx', 17)
+            rx = novaboard.pin('gps_rx', 18)
             self.u = machine.UART(1, baudrate=9600, tx=machine.Pin(tx), rx=machine.Pin(rx))
         except Exception as e:
             self.err = str(e)[:16]

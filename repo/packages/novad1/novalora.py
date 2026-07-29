@@ -43,11 +43,13 @@ _IRQ_CRCERR = 0x20
 from novacore import reg as _reg
 
 
-def _pin(key, d):
-    try:
-        return int(_reg(key, d))
-    except (TypeError, ValueError):
-        return d
+import novaboard as _board
+
+
+def _pin(key, d=None):
+    """Resolve a pin through the board profile. This module's call sites pass the
+    FULL registry key; novaboard.pin() accepts either that or a short name."""
+    return _board.pin(key, d)
 
 
 class LoRa:

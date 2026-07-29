@@ -21,7 +21,8 @@ or a layer below it.** Lower = closer to the metal / more generic. `novacore` is
   L2  Codec/format    novanfc · novarfid · novapcap · novaappcfg · novacrypt   (pure logic)
   L1  HAL/drivers     novamods · novainput · novacanvas · novafont · novartc ·
                       novapower · novasound · novalora · novamesh · novable · novawifi
-  L0  Core (leaf)     novacore                                          (imports only regedit)
+  L0  Core (leaves)   novacore · novaboard          (novacore imports only regedit;
+                                                     novaboard imports only novacore)
 ```
 
 ### L0 — Core
@@ -29,6 +30,22 @@ or a layer below it.** Lower = closer to the metal / more generic. `novacore` is
 (registry access). It imports **only** `regedit`, lazily, so it can never be part of a
 cycle. ~12 modules used to each re-declare their own `_reg`; they now
 `from novacore import reg as _reg`. This is the one hard invariant: **keep novacore a leaf.**
+
+`novaboard` is the other L0 leaf: **one source of truth for pins and buses.** It holds
+board profiles (`esp32s3` shipping, `rp2350` draft) and resolves a pin as
+*registry override → board profile → caller's fallback*, so the registry always wins and
+an already-configured device is never silently re-pinned. Six drivers used to carry their
+own `_pin()` with their own hardcoded ESP32-S3 defaults (`novamods`, `novair`, `novalora`,
+`novacc`, `novasound`, `novapower`); each is now a thin delegate to `novaboard.pin()`.
+Adding a board is a data change — the drivers don't move. It also carries `check()`, which
+validates a profile against the RP2 fixed peripheral pin groups and board-reserved GPIO,
+so an unassignable pinmap is caught on the host rather than on the bench.
+
+Two invariants live here. **`novaboard.OPT_IN`** (`battery`, `vbus`) must never get a
+profile default: `novapower` reads those pins only when configured, so a default would
+turn off the guard that stops an unwired floating ADC reporting a fake battery level. And
+`pin()` accepts either a short name or a full `Apps.NovaD1_PIN_*` key, because the drivers
+grew both conventions and neither call site had to change.
 
 ### L1 — HAL / drivers
 Everything that talks to hardware: `machine` (SPI/I2C/PWM/ADC/Pin), `bluetooth`,

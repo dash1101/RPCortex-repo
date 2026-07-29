@@ -11,6 +11,12 @@ _CHIME = ((1047, 60), (1319, 60), (1568, 60), (2093, 110))
 
 
 from novacore import reg as _reg
+import novaboard as _board
+
+
+def _pin(name, d=None):
+    """Resolve a pin through the board profile (see novaboard)."""
+    return _board.pin(name, d)
 
 
 def chime():
@@ -22,10 +28,7 @@ def chime():
         import utime
     except Exception:
         return
-    try:
-        pin = int(_reg('Apps.NovaD1_PIN_buzzer', 40))
-    except (TypeError, ValueError):
-        pin = 40
+    pin = _pin('buzzer', 40)
     pwm = None
     try:
         pwm = machine.PWM(machine.Pin(pin))

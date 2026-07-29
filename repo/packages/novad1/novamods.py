@@ -19,11 +19,13 @@ import sys
 from novacore import reg as _reg
 
 
-def _pin(name, default):
-    try:
-        return int(_reg('Apps.NovaD1_PIN_' + name, default))
-    except (TypeError, ValueError):
-        return default
+import novaboard as _board
+
+
+def _pin(name, default=None):
+    """Resolve a pin through the board profile. Kept as a thin wrapper so the call
+    sites below stay unchanged; novaboard.pin() is the single source of truth."""
+    return _board.pin(name, default)
 
 
 def _machine():

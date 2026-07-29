@@ -23,11 +23,12 @@ _SIDLE = 0x36
 from novacore import reg as _reg
 
 
-def _pin(name, d):
-    try:
-        return int(_reg('Apps.NovaD1_PIN_' + name, d))
-    except (TypeError, ValueError):
-        return d
+import novaboard as _board
+
+
+def _pin(name, d=None):
+    """Resolve a pin through the board profile (see novaboard)."""
+    return _board.pin(name, d)
 
 
 def _spi():
