@@ -95,21 +95,21 @@
     },
     {
       "name": "FileExp",
-      "ver": "0.4.1",
+      "ver": "0.5.0",
       "desc": "TUI file explorer - browse/edit/create/rename/copy/move/delete + install .pkg (files / fm)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/fileexp.pkg"
     },
     {
       "name": "Desktop",
-      "ver": "0.2.1",
+      "ver": "0.3.0",
       "desc": "Keyboard icon desktop - open/run files (.rps/.py/.mpy), rename/copy/move, install .pkg (desktop / dt)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/desktop.pkg"
     },
     {
       "name": "IDE",
-      "ver": "0.1.2",
+      "ver": "0.2.0",
       "desc": "In-device IDE - browse, edit, run and live-test packages and .rps scripts (ide / dev)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/ide.pkg"
