@@ -282,25 +282,207 @@ def _setup(info, ok, warn, error, multi):
             multi("  Nova GUI already registered as a service.")
     except Exception as e:
         warn("Could not register service: {}".format(e))
+    # Report the hardware config setup landed on. Previously setup enabled headless
+    # boot and stopped, so the first sign of a wrong board or panel was a blank
+    # screen after a reboot with nothing pointing at why.
+    multi("")
+    bid = novaboard.board()
+    multi("  Board   : {} ({})".format(bid, novaboard.profile(bid).get('name', bid)))
+    multi("  Display : {}".format(_reg('Apps.NovaD1_Display', 'sh1106')))
+    sda, scl = _i2c_pins()
+    multi("  I2C     : SDA={} SCL={}".format(sda, scl))
+    problems = novaboard.check(bid)
+    if problems:
+        warn("Pinmap problems — fix before rebooting:", p="NovaD1")
+        for p in problems:
+            multi("    - {}".format(p))
+    mods = _detect_modules()
+    present = [k for k in mods if mods[k]]
+    if present:
+        ok("Found on I2C: {}".format(', '.join(present)), p="NovaD1")
+    else:
+        warn("Nothing answered on I2C — check wiring, or 'd1 pins' if SDA/SCL differ.",
+             p="NovaD1")
+    multi("")
+    multi("  Wrong board or panel?   d1 pins board <id>   d1 display <kind>")
+    multi("  Different wiring?       d1 pins  (then: d1 pins set <name> <gpio>)")
     multi("")
     multi("  Reboot to start. The UI runs in the background; the shell stays free.")
     multi("  Undo with: autonomy off   (and: service remove novad1 gui --bg)")
 
 
+_PIN_HELP = {
+    'sda': 'I2C data (OLED, RTC, PN532)', 'scl': 'I2C clock',
+    'enc_a': 'encoder A', 'enc_b': 'encoder B', 'enc_sw': 'encoder button',
+    'btn1': 'button 1', 'btn2': 'button 2',
+    'spi_sck': 'SPI clock (radios/SD)', 'spi_mosi': 'SPI out', 'spi_miso': 'SPI in',
+    'sd_cs': 'microSD chip select', 'sd_sck': 'SD clock (split bus)',
+    'sd_mosi': 'SD out (split bus)', 'sd_miso': 'SD in (split bus)',
+    'cc_cs': 'CC1101 chip select', 'cc_gdo0': 'CC1101 data/GDO0',
+    'sx_cs': 'SX1276 chip select', 'sx_rst': 'SX1276 reset',
+    'ir_tx': 'IR LED', 'ir_rx': 'IR receiver',
+    'gps_tx': 'GPS TX', 'gps_rx': 'GPS RX',
+    'buzzer': 'buzzer (PWM)', 'vibe': 'vibration motor', 'led': 'status LED',
+    'dht': 'DHT11/22 sensor', 'ibutton': 'iButton / 1-Wire',
+    'battery': 'battery ADC (leave unset if unwired)',
+    'vbus': 'USB-power sense (optional)',
+}
+
+
+def _pins(info, ok, warn, error, multi, rest=''):
+    """Show and edit the pinmap without touching the registry by hand."""
+    parts = (rest or '').split()
+    sub = parts[0].lower() if parts else 'list'
+
+    if sub in ('help', '-h', '--help', '?'):
+        info("Nova D1 — pins", p="NovaD1")
+        multi("  d1 pins                    Show every pin, its value and where it came from")
+        multi("  d1 pins set <name> <gpio>  Set a pin  (e.g. d1 pins set ir_tx 12)")
+        multi("  d1 pins clear <name>       Undo, back to the board default")
+        multi("  d1 pins board              List board profiles")
+        multi("  d1 pins board <id>         Switch board  (e.g. d1 pins board rp2350)")
+        multi("  d1 pins check              Validate the pinmap for this board")
+        return
+
+    if sub == 'board':
+        if len(parts) > 1:
+            want = parts[1].lower()
+            if not novaboard.set_board(want):
+                error("Unknown board '{}'. Try: d1 pins board".format(want))
+                return
+            ok("Board set to '{}'. Reboot, or restart the GUI, to apply."
+               .format(want), p="NovaD1")
+            _pins(info, ok, warn, error, multi, 'check')
+            return
+        cur = novaboard.board()
+        info("Nova D1 — board profiles", p="NovaD1")
+        for bid in novaboard.boards():
+            prof = novaboard.profile(bid)
+            multi("  {} {:<8} {}  [{}]".format('*' if bid == cur else ' ', bid,
+                                               prof.get('name', bid),
+                                               prof.get('status', '?')))
+            if prof.get('notes'):
+                multi("      {}".format(prof['notes']))
+        multi("")
+        multi("  '*' is active. Switch with: d1 pins board <id>")
+        return
+
+    if sub == 'check':
+        bid = novaboard.board()
+        problems = novaboard.check(bid)
+        if not problems:
+            ok("Pinmap for '{}' looks consistent.".format(bid), p="NovaD1")
+        else:
+            warn("Pinmap problems on '{}':".format(bid), p="NovaD1")
+            for p in problems:
+                multi("  - {}".format(p))
+        return
+
+    if sub == 'set':
+        if len(parts) < 3:
+            error("Usage: d1 pins set <name> <gpio>")
+            return
+        name = parts[1].lower()
+        if name not in novaboard.names():
+            error("Unknown pin '{}'. Run 'd1 pins' for the list.".format(name))
+            return
+        if not novaboard.set_pin(name, parts[2]):
+            error("'{}' is not a valid pin number.".format(parts[2]))
+            return
+        ok("{} = {}  (was {})".format(name, novaboard.pin(name),
+                                      novaboard.profile().get('pins', {}).get(name, 'unset')),
+           p="NovaD1")
+        multi("  Undo with: d1 pins clear {}".format(name))
+        return
+
+    if sub in ('clear', 'unset', 'reset'):
+        if len(parts) < 2:
+            error("Usage: d1 pins clear <name>")
+            return
+        name = parts[1].lower()
+        novaboard.clear_pin(name)
+        v = novaboard.pin(name)
+        ok("{} back to the board default: {}".format(name, 'unset' if v is None else v),
+           p="NovaD1")
+        return
+
+    if sub != 'list':
+        warn("Unknown option '{}'. Try: d1 pins help".format(sub))
+        return
+
+    # Default view: every pin, its value, and whether it came from the board profile
+    # or an override. Being explicit about the source is the whole point — otherwise
+    # there is no way to tell a default from something you set months ago.
+    bid = novaboard.board()
+    prof = novaboard.profile(bid)
+    info("Nova D1 — pins on '{}' ({})".format(bid, prof.get('name', bid)), p="NovaD1")
+    multi("  NAME       GPIO  SOURCE    WHAT")
+    over = 0
+    for name in novaboard.names(bid):
+        v = novaboard.pin(name)
+        src = novaboard.source(name)
+        if src == 'override':
+            over += 1
+        multi("  {:<10} {:>4}  {:<8}  {}".format(
+            name, '-' if v is None else v, src, _PIN_HELP.get(name, '')))
+    multi("")
+    multi("  {} pin(s) overridden; the rest come from the board profile."
+          .format(over) if over else "  All pins are board defaults.")
+    multi("  Change one with: d1 pins set <name> <gpio>")
+    problems = novaboard.check(bid)
+    if problems:
+        multi("")
+        warn("{} problem(s) found — run 'd1 pins check'".format(len(problems)), p="NovaD1")
+
+
+def _display_cmd(info, ok, warn, error, multi, rest=''):
+    """Pick the OLED panel. 'auto' stays SH1106 — the panels share an I2C address
+    and cannot be told apart reliably, so this is a choice, never a guess."""
+    import display
+    want = (rest or '').strip().lower()
+    cur = _reg('Apps.NovaD1_Display', 'sh1106')
+    kinds = [k for k in display.KINDS if k != 'mock']
+    if not want:
+        info("Nova D1 — display", p="NovaD1")
+        for k in kinds:
+            multi("  {} {}".format('*' if k == cur else ' ', k))
+        multi("")
+        multi("  '*' is active. Set with: d1 display <kind>")
+        multi("  sh1106  1.3\" 128x64 (shipping)   ssd1306  0.96\" 128x64")
+        multi("  ssd1309 2.42\" 128x64")
+        return
+    if want not in kinds:
+        error("Unknown panel '{}'. One of: {}".format(want, ', '.join(kinds)))
+        return
+    try:
+        import regedit
+        regedit.save('Apps.NovaD1_Display', want)
+        ok("Display set to '{}'. Restart the GUI to apply.".format(want), p="NovaD1")
+    except Exception as e:
+        error("Could not save: {}".format(e))
+
+
 def _status(info, ok, warn, error, multi):
     info("=== Nova D1 — status ===", p="NovaD1")
+    bid = novaboard.board()
+    multi("  Board: {} ({})".format(bid, novaboard.profile(bid).get('name', bid)))
     multi("  Headless boot: {}".format(_reg('Settings.Autonomous', 'off')))
     sda, scl = _i2c_pins()
     multi("  I2C: SDA={} SCL={}   Display: {}".format(sda, scl, _reg('Apps.NovaD1_Display', 'sh1106')))
     p = _input_pins()
     multi("  Encoder A/B/SW: {}/{}/{}   Buttons: {}/{}".format(
         p['enc_a'], p['enc_b'], p['enc_sw'], p['btn1'], p['btn2']))
+    over = [n for n in novaboard.names(bid) if novaboard.source(n) == 'override']
+    multi("  Pin overrides: {}".format(', '.join(sorted(over)) if over else 'none'))
     mods = _detect_modules()
     present = [k for k in mods if mods[k]]
     multi("  Detected: {}".format(', '.join(present) if present else 'none detected'))
     home = _reg('Apps.NovaD1_Home')
     multi("  Home apps: {}".format(home if home else 'all (default)'))
-    multi("  Plan: NovaLabs/docs/novad1-dev-plan.md")
+    problems = novaboard.check(bid)
+    if problems:
+        warn("{} pinmap problem(s) — run 'd1 pins check'".format(len(problems)), p="NovaD1")
+    multi("  Setup guide: novalabs.app/d1   (or 'd1 pins' / 'd1 help' here)")
 
 
 def _apps(info, ok, warn, error, multi, rest=''):
@@ -788,9 +970,11 @@ def novad1(args=None):
 
     if cmd in ('help', '-h', '--help', '?'):
         info("Nova D1 — RPCortex multi-tool wrapper", p="NovaD1")
-        multi("  novad1 scan        Probe the I2C bus for Nova D1 modules")
         multi("  novad1 setup       Headless boot + register the GUI as a service")
+        multi("  novad1 scan        Probe the I2C bus for Nova D1 modules")
         multi("  novad1 status      Show what's configured")
+        multi("  novad1 pins        Show/edit the pinmap (pins set <name> <gpio>)")
+        multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
@@ -802,8 +986,8 @@ def novad1(args=None):
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
-        multi("  Tips: LED is WS2812 on GPIO48 by default — reg set")
-        multi("  Apps.NovaD1_PIN_led <pin> / Apps.NovaD1_LED_Mode gpio if needed.")
+        multi("  Wiring is per-board: 'novad1 pins' lists every pin and where its")
+        multi("  value came from. No registry editing needed.")
         return
     if cmd == 'scan':
         _scan(info, ok, warn, error, multi)
@@ -811,6 +995,11 @@ def novad1(args=None):
         _setup(info, ok, warn, error, multi)
     elif cmd == 'status':
         _status(info, ok, warn, error, multi)
+    elif cmd in ('pins', 'pin'):
+        rest_cs = (args or '').strip().split(None, 1)
+        _pins(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd in ('display', 'screen'):
+        _display_cmd(info, ok, warn, error, multi, rest)
     elif cmd == 'apps':
         # keep original case for keys
         rest_cs = (args or '').strip().split(None, 1)
