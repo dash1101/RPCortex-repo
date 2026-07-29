@@ -1,6 +1,16 @@
+# Regenerates novafont.py from a font8x8 C header (dhepper/font8x8, public domain):
+# transposes the row-packed glyphs to the column-packed layout the canvas expects.
+#   python3 genfont.py path/to/font8x8.h
+import os
 import re
-T='./out/'
-txt=open(T+'font8x8.h').read()
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_OUT = os.path.join(_HERE, '..', '..', 'packages', 'novad1', 'novafont.py')
+
+if len(sys.argv) < 2:
+    raise SystemExit('usage: genfont.py path/to/font8x8.h')
+txt=open(sys.argv[1]).read()
 vals=[int(x,16) for x in re.findall(r'0x[0-9A-Fa-f]{2}',txt)]
 FIRST,LAST=0x20,0x7e; H=8; W=8
 # transpose row-packed (LSB=left) -> column-packed (bit r = row r, bit0=top)
@@ -43,6 +53,5 @@ for i in range(0,len(hexs),chunk):
     L.append("    b'%s'"%hexs[i:i+chunk])
 L.append(')')
 L.append('')
-open('RPCortex-repo/repo/packages/novad1/novafont.py','w').write('\n'.join(L))
-cp=open('RPCortex-repo/repo/tools/novad1/genfont.py','w'); cp.write(open(__file__).read()); cp.close()
-print('wrote novafont.py (font8x8)')
+open(_OUT,'w').write('\n'.join(L))
+print('wrote', os.path.normpath(_OUT), '(font8x8)')

@@ -1,7 +1,19 @@
+# Renders Nova D1 UI screens to PNGs via the MockDisplay backend (no hardware), and
+# runs the cancel-anything driver check.
+#   python3 mock_render.py [--out DIR]      (default: ./out/)
+import os
 import sys
-sys.path.insert(0, 'RPCortex-repo/repo/packages/novad1')
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..', '..', 'packages', 'novad1'))
 import novacanvas, display, novagui, novainput as ev, novamods
-OUT='./out/'
+
+OUT = './out/'
+if '--out' in sys.argv:
+    OUT = sys.argv[sys.argv.index('--out') + 1]
+if not OUT.endswith('/'):
+    OUT += '/'
+os.makedirs(OUT, exist_ok=True)
 STATE={'wifi':True,'battery':70,'time':'19:42'}
 def shot(mk,n,l): mk.render_png(OUT+n,scale=5,label=l); print('rendered',n)
 def newui(style=None):

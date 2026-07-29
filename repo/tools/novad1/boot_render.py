@@ -1,7 +1,19 @@
+# Renders the Nova D1 boot sequence (splash -> boot check -> home) to PNGs via the
+# MockDisplay backend, so the UI can be reviewed with no hardware attached.
+#   python3 boot_render.py [--out DIR]      (default: ./out/)
+import os
 import sys
-sys.path.insert(0,'RPCortex-repo/repo/packages/novad1')
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..', '..', 'packages', 'novad1'))
 import novacanvas, display, novagui, novainput as ev, novalog, novasplash
-OUT='./out/'
+
+OUT = './out/'
+if '--out' in sys.argv:
+    OUT = sys.argv[sys.argv.index('--out') + 1]
+if not OUT.endswith('/'):
+    OUT += '/'
+os.makedirs(OUT, exist_ok=True)
 ST={'wifi':True,'battery':70,'time':'19:42'}
 def newui(home=None):
     cv=novacanvas.Canvas(128,64); mk=display.MockDisplay(128,64)
