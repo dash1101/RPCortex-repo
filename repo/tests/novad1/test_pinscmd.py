@@ -48,8 +48,19 @@ t.eq(novaboard.pin('ir_tx'), 12, 'set applies the new pin')
 t.ok('was 39' in out, 'and reports what it replaced')
 t.ok('clear ir_tx' in out, 'and how to undo it')
 
+# Re-setting an already-overridden pin must report the value that was actually in
+# effect, not the board default -- otherwise "was 39" is a lie about a pin at 12.
+out = run('pins set ir_tx 20')
+t.ok('was 12' in out, 'reports the previous OVERRIDE, not the board default')
+t.ok('was 39' not in out, 'and does not report the board default it never had')
+
 out = run('pins clear ir_tx')
 t.eq(novaboard.pin('ir_tx'), 39, 'clear reverts to the board default')
+
+# An opt-in pin has no previous value at all; say so rather than printing None.
+out = run('pins set battery 1')
+t.ok('was unset' in out, 'an unset pin reports "was unset"')
+novaboard.clear_pin('battery')
 
 out = run('pins set ir_tx notanumber')
 t.ok('not a valid pin' in out, 'rejects a non-numeric pin')

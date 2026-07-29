@@ -386,12 +386,14 @@ def _pins(info, ok, warn, error, multi, rest=''):
         if name not in novaboard.names():
             error("Unknown pin '{}'. Run 'd1 pins' for the list.".format(name))
             return
+        # Read the value in effect BEFORE writing — reporting the board default here
+        # would lie about a pin that was already overridden.
+        prev = novaboard.pin(name)
         if not novaboard.set_pin(name, parts[2]):
             error("'{}' is not a valid pin number.".format(parts[2]))
             return
         ok("{} = {}  (was {})".format(name, novaboard.pin(name),
-                                      novaboard.profile().get('pins', {}).get(name, 'unset')),
-           p="NovaD1")
+                                      'unset' if prev is None else prev), p="NovaD1")
         multi("  Undo with: d1 pins clear {}".format(name))
         return
 

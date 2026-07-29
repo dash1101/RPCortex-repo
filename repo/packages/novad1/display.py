@@ -80,6 +80,11 @@ class SSD1306(_OledI2C):
 
 
 class SSD1309(_OledI2C):
+    # DEVICE-UNCONFIRMED: this sequence is grounded in a working SSD1309 driver and the
+    # host tests assert its byte-level shape, but no SSD1309 panel has been attached
+    # yet. A wrong OLED init fails SILENTLY — blank or garbled, no exception — so this
+    # is not verified until a real panel lights up.
+    #
     # For the 2.42" 128x64 panel. Same 128-column geometry as the SSD1306 (so no
     # column offset, unlike the SH1106), but two init differences that matter and
     # fail silently — a wrong sequence gives a blank panel with no error:
