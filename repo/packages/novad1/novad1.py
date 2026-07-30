@@ -503,9 +503,23 @@ def _status(info, ok, warn, error, multi):
         p['enc_a'], p['enc_b'], p['enc_sw'], p['btn1'], p['btn2']))
     over = [n for n in novaboard.names(bid) if novaboard.source(n) == 'override']
     multi("  Pin overrides: {}".format(', '.join(sorted(over)) if over else 'none'))
-    mods = _detect_modules()
-    present = [k for k in mods if mods[k]]
-    multi("  Detected: {}".format(', '.join(present) if present else 'none detected'))
+    # Be honest: display/rtc/nfc are actually PROBED on I2C; subghz/ir/lora/gps are
+    # config flags (default on), NOT hardware-detected. Reporting them together as
+    # "Detected" claimed radios that weren't even wired.
+    addrs, scan_err = _scan_i2c()
+    probed = []
+    if addrs:
+        seen = set()
+        for a in addrs:
+            ent = _I2C_KNOWN.get(a)
+            if ent and ent[0] not in seen:
+                probed.append(ent[0]); seen.add(ent[0])
+    multi("  Detected on I2C : {}".format(
+        ', '.join(probed) if probed else (scan_err or 'none')))
+    enabled = [n for n in ('ir', 'subghz', 'lora', 'gps')
+               if _reg('Apps.NovaD1_MOD_' + n, 'on') != 'off']
+    multi("  Enabled (unprobed): {}   [config flags — not a hardware check]".format(
+        ', '.join(enabled) if enabled else 'none'))
     home = _reg('Apps.NovaD1_Home')
     multi("  Home apps: {}".format(home if home else 'all (default)'))
     problems = novaboard.check(bid)

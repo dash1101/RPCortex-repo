@@ -135,5 +135,10 @@ t.ok('reg set' not in out, 'help no longer tells people to edit the registry')
 out = run('status')
 t.ok('Board' in out, 'status reports the active board')
 t.ok('overrides' in out, 'status reports which pins were overridden')
+# Honesty: I2C-probed modules and config-declared ones must be labelled apart —
+# status used to claim un-wired radios as "Detected".
+t.ok('Detected on I2C' in out, 'status labels the actually-probed I2C modules')
+t.ok('Enabled (unprobed)' in out, 'status labels config-flag modules as unprobed')
+t.ok('not a hardware check' in out, 'and says plainly the flags are not a probe')
 
 sys.exit(t.done())
