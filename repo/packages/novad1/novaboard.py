@@ -36,8 +36,9 @@ DEFAULT_BOARD = 'esp32s3'
 # Pins that must stay UNSET unless the user configures them. novapower reads the
 # battery/VBUS pins only when they are configured, so an unwired floating ADC can
 # never produce a lying battery icon. Giving these a profile default would silently
-# turn that guard off, so no profile may list them.
-OPT_IN = ('battery', 'vbus')
+# turn that guard off, so no profile may list them. 'killsw' is the optional
+# physical stealth switch (novastealth) — no default; wire it if you want one.
+OPT_IN = ('battery', 'vbus', 'killsw')
 
 # Legacy key names kept working: the I2C pins shipped as Apps.NovaD1_SDA/_SCL
 # rather than the Apps.NovaD1_PIN_ shape everything else uses.

@@ -326,6 +326,7 @@ _PIN_HELP = {
     'dht': 'DHT11/22 sensor', 'ibutton': 'iButton / 1-Wire',
     'battery': 'battery ADC (leave unset if unwired)',
     'vbus': 'USB-power sense (optional)',
+    'killsw': 'stealth kill switch (active-low, optional)',
 }
 
 
@@ -489,6 +490,63 @@ def _display_cmd(info, ok, warn, error, multi, rest=''):
         ok("Display set to '{}'. Restart the GUI to apply.".format(want), p="NovaD1")
     except Exception as e:
         error("Could not save: {}".format(e))
+
+
+def _stealth(info, ok, warn, error, multi, rest=''):
+    """Incognito / kill switch: take every radio down instantly, or restore."""
+    import novastealth
+    parts = (rest or '').strip().lower().split()
+    sub = parts[0] if parts else 'status'
+
+    if sub in ('mac', 'randommac'):
+        val = parts[1] if len(parts) > 1 else ''
+        if val in ('on', 'off'):
+            try:
+                import regedit
+                regedit.save('Apps.NovaD1_RandomMAC', 'on' if val == 'on' else 'off')
+                ok("Anti-fingerprint MAC randomisation {}.".format(val), p="NovaD1")
+            except Exception as e:
+                error("Could not save: {}".format(e))
+        else:
+            multi("  Random MAC: {}".format('on' if novastealth.mac_random_enabled() else 'off'))
+            multi("  incognito mac on | off")
+        return
+
+    if sub in ('on', 'kill', 'panic'):
+        down = novastealth.kill_all()
+        ok("INCOGNITO ON — silenced: {}".format(
+            ', '.join(down) if down else '(no active radios found)'), p="NovaD1")
+        multi("  The device is dark — nothing transmits or listens on any band.")
+        multi("  Leave with: incognito off")
+        return
+
+    if sub in ('off', 'restore'):
+        novastealth.restore()
+        ok("Incognito off — radios may be re-enabled as needed.", p="NovaD1")
+        return
+
+    if sub == 'toggle':
+        now = novastealth.toggle()
+        ok("Incognito {}.".format('ON — radios killed' if now else 'off'), p="NovaD1")
+        return
+
+    if sub == 'status':
+        info("=== Nova D1 — stealth ===", p="NovaD1")
+        multi("  Incognito : {}".format(
+            'ON — radios killed' if novastealth.active() else 'off'))
+        multi("  Random MAC: {}".format(
+            'on' if novastealth.mac_random_enabled() else 'off'))
+        pin = novastealth.switch_pin()
+        multi("  Kill switch pin: {}".format(pin if pin is not None else 'not set'))
+        multi("")
+        multi("  incognito on      kill ALL radios now (WiFi/BLE/LoRa/sub-GHz/NFC)")
+        multi("  incognito off     leave stealth")
+        multi("  incognito toggle  flip it")
+        multi("  incognito mac on  randomise MACs to resist fingerprinting")
+        multi("  Wire a switch:  d1 pins set killsw <gpio>  (active-low)")
+        return
+
+    warn("Usage: incognito on | off | toggle | status | mac on|off")
 
 
 def _status(info, ok, warn, error, multi):
@@ -1018,6 +1076,7 @@ def novad1(args=None):
         multi("  novad1 status      Show what's configured")
         multi("  novad1 pins        Show/edit the pinmap (pins set <name> <gpio>)")
         multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
+        multi("  incognito on|off   Kill ALL radios instantly (stealth mode)")
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
@@ -1043,6 +1102,8 @@ def novad1(args=None):
         _pins(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd in ('display', 'screen'):
         _display_cmd(info, ok, warn, error, multi, rest)
+    elif cmd in ('incognito', 'stealth', 'panic'):
+        _stealth(info, ok, warn, error, multi, rest)
     elif cmd == 'apps':
         # keep original case for keys
         rest_cs = (args or '').strip().split(None, 1)

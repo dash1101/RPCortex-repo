@@ -30,8 +30,47 @@ def _ts():
         return '--:--'
 
 
+def _haptic_alert():
+    """A brief vibe pulse + a few short fast buzzer chirps on a new notification.
+    Fully guarded: gated by Apps.NovaD1_Notify_Haptic (default on), and every
+    hardware call is try/excepted — so it silently does nothing when the buzzer/
+    vibe aren't wired, when off-device, or when disabled. Never raises into
+    notify()."""
+    if str(_reg('Apps.NovaD1_Notify_Haptic', 'on')).lower() in ('off', 'false', '0'):
+        return
+    try:
+        import machine
+        import utime
+        import novaboard
+    except Exception:
+        return
+    vp = novaboard.pin('vibe')
+    if vp is not None:
+        try:
+            p = machine.Pin(vp, machine.Pin.OUT)
+            p.value(1)
+            utime.sleep_ms(120)
+            p.value(0)
+        except Exception:
+            pass
+    bz = novaboard.pin('buzzer')
+    if bz is not None:
+        try:
+            pwm = machine.PWM(machine.Pin(bz))
+            for f in (2400, 2800, 3200):        # short, fast, rising chirps
+                pwm.freq(f)
+                pwm.duty_u16(16000)
+                utime.sleep_ms(45)
+                pwm.duty_u16(0)
+                utime.sleep_ms(28)
+            pwm.deinit()
+        except Exception:
+            pass
+
+
 def notify(text):
-    """Push a notification (no-op if notifications are disabled)."""
+    """Push a notification (no-op if notifications are disabled). Fires a short
+    vibe + buzzer alert on the way in (guarded; no-op if unwired)."""
     if not enabled():
         return False
     global _unread
@@ -39,6 +78,7 @@ def notify(text):
     if len(_NOTES) > _MAX:
         _NOTES.pop(0)
     _unread += 1
+    _haptic_alert()
     return True
 
 
