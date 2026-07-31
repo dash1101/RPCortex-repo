@@ -36,9 +36,14 @@ DEFAULT_BOARD = 'esp32s3'
 # Pins that must stay UNSET unless the user configures them. novapower reads the
 # battery/VBUS pins only when they are configured, so an unwired floating ADC can
 # never produce a lying battery icon. Giving these a profile default would silently
-# turn that guard off, so no profile may list them. 'killsw' is the optional
-# physical stealth switch (novastealth) — no default; wire it if you want one.
-OPT_IN = ('battery', 'vbus', 'killsw')
+# turn that guard off, so no profile may list them.
+OPT_IN = ('battery', 'vbus')
+
+# Optional pins that a pins editor should always OFFER (so `d1 pins set <name>` works
+# on any board), but which — unlike OPT_IN — a profile MAY give a default. The
+# stealth kill switch is one: harmless with a default (a floating pull-up input),
+# and the Pico profile assigns it, while the ESP32-S3 profile leaves it unset.
+EXTRA_PINS = ('killsw',)
 
 # Legacy key names kept working: the I2C pins shipped as Apps.NovaD1_SDA/_SCL
 # rather than the Apps.NovaD1_PIN_ shape everything else uses.
@@ -87,9 +92,8 @@ _PROFILES = {
             'sda': 4, 'scl': 5,                        # I2C0 — display + PN532 + RTC
             'enc_a': 14, 'enc_b': 15, 'enc_sw': 13,    # EC11 rotary encoder
             'btn1': 22, 'btn2': 26,
-            'spi_sck': 18, 'spi_mosi': 19, 'spi_miso': 16,   # SPI0: both radios
-            'sd_cs': 9,                                # SD on its own bus, SPI1
-            'sd_sck': 10, 'sd_mosi': 11, 'sd_miso': 8,
+            'spi_sck': 18, 'spi_mosi': 19, 'spi_miso': 16,   # SPI0: radios + SD share it
+            'sd_cs': 9,                                # SD on the shared SPI0 bus
             'cc_cs': 17, 'cc_gdo0': 20,                # CC1101 sub-GHz
             'sx_cs': 21, 'sx_rst': 12,                 # SX1276 LoRa
             'ir_tx': 6, 'ir_rx': 7,
@@ -98,14 +102,15 @@ _PROFILES = {
             'led': 2,                                  # external RGB — the onboard
                                                        # LED sits on the radio chip
             'dht': 3,
+            'killsw': 8,                               # stealth kill-switch button
         },
-        # 'ibutton' is deliberately absent: this map already consumes all 26 usable
-        # header pins, which is the pin-budget squeeze. The fix is an I2C expander
-        # (PCF8574) or a 74HC165 for the buttons and DIP switches, collapsing ~7
-        # pins into ~2 — which also frees room for the 125 kHz LF front-end.
-        'notes': 'At the 26-pin ceiling, so ibutton is unassigned. Display on I2C. '
-                 'SD split onto SPI1 so LoRa RX and card writes do not contend. '
-                 'Buttons want a GPIO expander.',
+        # SD shares SPI0 with the radios (one bus, separate CS) rather than a
+        # dedicated SPI1 bus — trades a rare LoRa-RX / SD-write contention for the
+        # 3 pins the split cost, which the kill-switch button and headroom now use.
+        # 'ibutton' stays unassigned; wiring the LF front-end or iButton needs a
+        # GPIO expander (PCF8574 / 74HC165) to collapse the buttons/switches.
+        'notes': 'Display on I2C. SD shares the radio SPI0 bus. Kill-switch on '
+                 'GPIO 8. iButton / LF front-end need a GPIO expander.',
     },
 }
 
@@ -257,10 +262,10 @@ def usable_pins(board_id=None):
 
 
 def names(board_id=None):
-    """Every pin name this board defines, sorted, plus the opt-in pins so a
-    pins editor can offer them even though they have no default."""
+    """Every pin name this board defines, sorted, plus the opt-in and extra
+    optional pins so a pins editor can offer them even without a default."""
     ns = list(profile(board_id).get('pins', {}).keys())
-    for n in OPT_IN:
+    for n in OPT_IN + EXTRA_PINS:
         if n not in ns:
             ns.append(n)
     ns.sort()

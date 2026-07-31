@@ -214,11 +214,16 @@ t.ok(nb.profile('picoplus2w')['pins'] is not nb.profile('pico2w')['pins'],
 t.eq(nb.profile('picoplus2w')['mcu'], 'rp2350b', 'picoplus2w is the B-series part')
 
 # The pin budget is the whole reason check() exists -- keep the numbers honest.
+# SD shares SPI0 (freeing the 3 dedicated-bus pins), so the map fits within the 26
+# usable GPIO with the kill switch AND headroom to spare.
 used, res = nb.usable_pins('pico2w')
-t.eq(used, 26, 'the pico2w map consumes 26 distinct GPIO (the usable ceiling)')
+t.ok(used <= 26, 'the pico2w map fits within 26 usable GPIO (uses {})'.format(used))
 t.eq(res, 4, 'and 4 more are reserved by the board')
+t.eq(nb.profile('pico2w')['pins'].get('killsw'), 8, 'the kill switch is on GPIO 8')
+t.ok('sd_sck' not in nb.profile('pico2w')['pins'],
+     'SD shares SPI0 on pico2w (no dedicated SD bus pins)')
 t.ok('ibutton' not in nb.profile('pico2w')['pins'],
-     'ibutton is left unassigned on pico2w -- there is no 27th pin')
+     'ibutton stays unassigned on pico2w -- needs a GPIO expander')
 t.ok('ibutton' in nb.profile('esp32s3')['pins'], 'esp32s3 has room for it')
 for b in nb.boards():
     if nb.profile(b)['mcu'].startswith('rp2'):
