@@ -1041,6 +1041,45 @@ def _logs(info, ok, warn, error, multi, rest=''):
         multi("  " + l)
 
 
+_SVC_NAME = 'novad1'
+
+
+def _svc(info, ok, warn, error, multi, rest=''):
+    """Manage the Nova GUI background service: start / stop / restart / refresh.
+    'refresh' restarts it so it re-reads the pin config (I2C + inputs) — apply a
+    'd1 pins set' change without a full reboot."""
+    lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
+    if lp is None or not hasattr(lp, 'register_service'):
+        error("Service engine unavailable — the async shell isn't active.")
+        return
+    running = lp.service_running(_SVC_NAME) if hasattr(lp, 'service_running') else False
+    sub = (rest or '').strip().lower()
+
+    if sub in ('', 'status'):
+        multi("  Nova GUI service: {}".format('running' if running else 'stopped'))
+        multi("  d1 service start | stop | restart | status")
+        multi("  d1 refresh   reload pins (restart the service)")
+        return
+    if sub == 'stop':
+        lp.unregister_service(_SVC_NAME)
+        ok("Nova GUI service stopped.", p="NovaD1")
+        return
+    if sub == 'start':
+        if running:
+            multi("  Nova GUI service already running.")
+            return
+        lp.register_service(_SVC_NAME, _gui_service)
+        ok("Nova GUI service started.", p="NovaD1")
+        return
+    if sub in ('restart', 'refresh', 'reload'):
+        lp.unregister_service(_SVC_NAME)          # cancel the running instance
+        lp.register_service(_SVC_NAME, _gui_service)   # respawn — re-reads pins
+        ok("Nova GUI service {} — pins reloaded.".format(
+            'restarted' if sub == 'restart' else 'refreshed'), p="NovaD1")
+        return
+    warn("Usage: d1 service start | stop | restart | status   (or: d1 refresh)")
+
+
 def _gui(info, ok, warn, error, multi, bg=False):
     if bg:
         try:
@@ -1077,6 +1116,8 @@ def novad1(args=None):
         multi("  novad1 pins        Show/edit the pinmap (pins set <name> <gpio>)")
         multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
         multi("  incognito on|off   Kill ALL radios instantly (stealth mode)")
+        multi("  novad1 service ... GUI service: start|stop|restart|status")
+        multi("  novad1 refresh     Reload pins (restart the GUI service)")
         multi("  novad1 apps ...    Choose which apps show on the home")
         multi("  novad1 style g|m   Home layout: gallery (icons) or menu (list)")
         multi("  novad1 logs [n]    Show the Nova event log (or 'clear')")
@@ -1104,6 +1145,10 @@ def novad1(args=None):
         _display_cmd(info, ok, warn, error, multi, rest)
     elif cmd in ('incognito', 'stealth', 'panic'):
         _stealth(info, ok, warn, error, multi, rest)
+    elif cmd in ('service', 'svc'):
+        _svc(info, ok, warn, error, multi, rest)
+    elif cmd in ('refresh', 'reload'):
+        _svc(info, ok, warn, error, multi, 'refresh')
     elif cmd == 'apps':
         # keep original case for keys
         rest_cs = (args or '').strip().split(None, 1)

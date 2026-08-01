@@ -963,6 +963,17 @@ class NovaUI:
             self._idle_t0 = now
             dirty = self.handle(e) or dirty
             e = self.source.poll()
+        # Physical stealth kill switch (if a killsw pin is wired): a press engages
+        # incognito immediately, from any screen. Cheap — poll_edge caches its Pin
+        # and no-ops when no switch is configured.
+        if not isinstance(self.stack[-1], StealthSplashScreen):
+            try:
+                import novastealth
+                if novastealth.poll_edge():
+                    self._apply(StealthSplashScreen())
+                    dirty = True
+            except Exception:
+                pass
         # Rebuild the home live when its config changed (apps/style) and we're back
         # on it — no reboot needed.
         global _home_dirty
@@ -1121,12 +1132,92 @@ def _power_exit():
     return None
 
 
+class ShutdownScreen(Screen):
+    """A safe power-down. There's no true power-off on the Pico, so this kills every
+    radio (stealth) and darkens the panel; any button reboots. Serial stays alive."""
+    title = 'Shutdown'
+
+    def __init__(self):
+        self._done = False
+
+    def tick(self, dt_ms=0):
+        if not self._done:
+            self._done = True
+            try:
+                import novastealth
+                novastealth.kill_all()
+            except Exception:
+                pass
+            return True
+        return False
+
+    def draw(self, c):
+        c.clear(0)
+        a = 'Powered down'
+        b = 'press to reboot'
+        c.text((c.w - len(a) * _ADV) // 2, c.h // 2 - _FH, a, 1)
+        c.text((c.w - len(b) * _ADV) // 2, c.h // 2 + 2, b, 1)
+
+    def on_event(self, e):
+        if e in (ev.SELECT, ev.BACK, ev.HOME, ev.ROT_CW, ev.ROT_CCW):
+            return CommandScreen('Reboot', 'sreboot')
+        return None
+
+
+class StealthSplashScreen(Screen):
+    """Engages incognito — kills every radio — with a full-screen confirmation and a
+    notification, then drops back home. Shown whether stealth is triggered from the
+    menu, a shortcut, or the physical kill switch."""
+    title = 'Incognito'
+
+    def __init__(self):
+        self._done = False
+        self._t = 0
+
+    def tick(self, dt_ms=0):
+        if not self._done:
+            self._done = True
+            try:
+                import novastealth
+                novastealth.kill_all()
+            except Exception:
+                pass
+            try:
+                import novanotify
+                novanotify.notify('Incognito ON - radios off')
+            except Exception:
+                pass
+            return True
+        self._t += dt_ms
+        if self._t > 1600:                 # auto-return home after ~1.6 s
+            self.next = 'home'
+        return False
+
+    def draw(self, c):
+        c.clear(0)
+        a = 'STEALTH'                       # scale 2 = 112px, fits the 128px panel
+        c.text((c.w - len(a) * _ADV * 2) // 2, c.h // 2 - _FH * 2, a, 1, 2)
+        b = 'all radios off'
+        c.text((c.w - len(b) * _ADV) // 2, c.h // 2 + 6, b, 1)
+
+    def on_event(self, e):
+        if e in (ev.BACK, ev.HOME, ev.SELECT):
+            return 'home'
+        return None
+
+
 def _power_menu():
+    # Lock / Reboot / Shutdown / Reload, plus Incognito, Sleep and Exit. Reload
+    # restarts the GUI service so it re-reads the pin config (apply a 'd1 pins'
+    # change without a full reboot); Reboot reloads the whole OS.
     return Menu('Power', [
-        ('Lock Now', _power_lock),
-        ('Sleep', _power_sleep),
+        ('Lock', _power_lock),
+        ('Incognito', StealthSplashScreen),
+        ('Reload', lambda: CommandScreen('Reload', 'novad1 refresh')),
         ('Reboot', lambda: CommandScreen('Reboot', 'sreboot')),
-        ('Exit Nova', _power_exit),
+        ('Shutdown', ShutdownScreen),
+        ('Sleep', _power_sleep),
+        ('Exit to shell', _power_exit),
     ])
 
 
@@ -1573,7 +1664,12 @@ class SettingsScreen(Screen):
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             ('head', 'ACTIONS'),
             ('action', 'Check Updates', 'update check'),
-            ('action', 'Update Nova', 'pkg upgrade'),
+            # Updates run via safeboot: the device reboots to a serviceless
+            # maintenance shell (full RAM), runs the update there, then reboots
+            # back. Running them inline froze the UI and OOM'd the TLS download
+            # while the GUI service held the heap.
+            ('action', 'Update OS', 'safeboot update online'),
+            ('action', 'Update Apps', 'safeboot pkg upgrade'),
             ('action', 'NTP Sync', 'ntp sync'),
             ('action', 'Web Info', 'novad1 web'),
             ('action', 'System Info', 'sysinfo'),

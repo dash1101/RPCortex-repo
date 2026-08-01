@@ -211,6 +211,8 @@ def maybe_randomize_mac():
 # poll_edge() returns True once per press so a UI/background loop can toggle
 # stealth. Inert until the pin is configured.
 _sw_last = 1
+_sw_pin_obj = None      # cached machine.Pin (poll_edge runs every UI loop turn)
+_sw_pin_num = None
 
 
 def switch_pin():
@@ -223,14 +225,18 @@ def switch_pin():
 
 def poll_edge():
     """True exactly once on a press of the configured kill switch (falling edge).
-    No-op (False) if no switch pin is configured or on any error."""
-    global _sw_last
+    No-op (False) if no switch pin is configured or on any error. The Pin object is
+    cached, so calling this every UI loop turn allocates nothing."""
+    global _sw_last, _sw_pin_obj, _sw_pin_num
     pin = switch_pin()
     if pin is None:
         return False
     try:
         import machine
-        v = machine.Pin(pin, machine.Pin.IN, machine.Pin.PULL_UP).value()
+        if _sw_pin_obj is None or _sw_pin_num != pin:
+            _sw_pin_obj = machine.Pin(pin, machine.Pin.IN, machine.Pin.PULL_UP)
+            _sw_pin_num = pin
+        v = _sw_pin_obj.value()
         pressed = (_sw_last == 1 and v == 0)   # falling edge = press
         _sw_last = v
         return pressed
