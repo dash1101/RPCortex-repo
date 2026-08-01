@@ -873,6 +873,8 @@ def _ble_app():
 BatteryScreen = _proxy('novagui_sensors', 'BatteryScreen')
 EnvironmentScreen = _proxy('novagui_sensors', 'EnvironmentScreen')
 ClockScreen = _proxy('novagui_sensors', 'ClockScreen')
+TZScreen = _proxy('novagui_system', 'TZScreen')
+VersionsScreen = _proxy('novagui_system', 'VersionsScreen')
 ResourcesScreen = _proxy('novagui_res', 'ResourcesScreen')
 
 def _lora_tx_app():
@@ -1015,6 +1017,13 @@ class NovaUI:
         self._level = 0              # idle power tier: 0 active, 1 dimmed, 2 off
         self._dimmed = False         # = level >= 1 (kept for existing call sites)
         self._locked = False         # a PIN lock screen is currently pushed
+        # A DELIBERATE sleep, as opposed to the idle tiers. Without this the idle
+        # block below recomputed the tier from _idle_t0 on the very next pass and
+        # put the panel straight back on, which is why Sleep flashed and returned,
+        # why the Shutdown screen never actually went dark, and why waking from
+        # Shutdown appeared to drop back into it. One bug, three reports.
+        # Holds the mode ('sleep' / 'shutdown' / 'deep') so waking knows where to go.
+        self._sleep_mode = None
         self._stealth_on = False     # incognito -> pulse the corner mark
         self._stealth_ph = -1        # last drawn pulse phase
         self._lock_scr = None
@@ -1080,7 +1089,20 @@ class NovaUI:
             if not isinstance(self.stack[-1], Menu) or self.stack[-1].title != 'Power':
                 self.stack.append(_power_menu())
             return True
-        self._apply(self.stack[-1].on_event(e))
+        scr = self.stack[-1]
+        r = scr.on_event(e)
+        # HOME is a guaranteed way out of ANY app, not a courtesy each screen has
+        # to remember to implement. A screen that handles it keeps its own
+        # behaviour; one that ignores it gets dropped to home anyway. Without this
+        # a screen that forgot the HOME branch — or that was busy in a state where
+        # it returns None — was a room with no door.
+        #
+        # `modal` is the deliberate opt-out, and it exists for exactly one reason:
+        # a lock that HOME escapes is not a lock. The verify screens and the
+        # shutdown screen set it; nothing else should.
+        if r is None and e == ev.HOME and not getattr(scr, 'modal', False):
+            r = 'home'
+        self._apply(r)
         return True
 
     def _draw_home_hold(self, c):
@@ -1141,11 +1163,43 @@ class NovaUI:
         except Exception:
             pass
 
-    def sleep_display(self):
+    def sleep_display(self, mode='sleep'):
+        """Deliberately put the panel to sleep, and STAY asleep.
+
+        The mode is remembered so waking can go somewhere sensible: an explicit
+        Sleep returns to the home screen (you asked for the device, not for the
+        menu you happened to leave open), while a Shutdown wake returns to what
+        was on screen."""
+        self._sleep_mode = mode or 'sleep'
         self._set_level(2)
 
     def _wake_display(self):
+        """Wake the panel and restart the idle clock.
+
+        Resetting _idle_t0 is not cosmetic. Waking with a stale idle time meant
+        the idle block immediately recomputed a target of 2 and blanked the panel
+        again — the "it wakes and goes right back to sleep" report."""
+        was = self._sleep_mode
+        self._sleep_mode = None
+        self._idle_t0 = self._now()
         self._set_level(0)
+        if was == 'sleep':
+            # Back to the home screen, not to whatever was open when it slept.
+            # Anything above home is dropped; a lock screen is pushed after, so
+            # this cannot be used to skip past one.
+            del self.stack[1:]
+            self._maybe_lock()
+        return was
+
+    def _maybe_lock(self):
+        """Push the lock screen if the device is configured to need one."""
+        try:
+            if lock_is_set() and not self._locked:
+                self._lock_scr = lock_screen('verify')
+                self.stack.append(self._lock_scr)
+                self._locked = True
+        except Exception:
+            pass
 
     def _loop_once(self, prev, sleep_ms):
         now = self._now()
@@ -1181,7 +1235,9 @@ class NovaUI:
             try:
                 import novastealth
                 if novastealth.poll_edge():
-                    self._apply(StealthSplashScreen())
+                    # 'on', not a toggle: a switch knocked twice in a
+                    # pocket must not silently re-arm every radio.
+                    self._apply(StealthSplashScreen('on'))
                     dirty = True
             except Exception:
                 pass
@@ -1266,7 +1322,13 @@ class NovaUI:
         dim_s = _int_reg('Apps.NovaD1_DimSec', 15)
         off_s = _int_reg('Apps.NovaD1_OffSec', 60)
         lock_s = _int_reg('Apps.NovaD1_LockSec', 5)
-        if off_s > 0 and idle >= off_s * 1000:
+        if self._sleep_mode:
+            # A deliberate sleep outranks the idle timers entirely. It used to be
+            # just another call to _set_level(2), which this block then undid on
+            # the next pass because the idle clock had only just been reset by the
+            # button press that asked for sleep in the first place.
+            target = 2
+        elif off_s > 0 and idle >= off_s * 1000:
             target = 2
         elif dim_s > 0 and idle >= dim_s * 1000:
             target = 1
@@ -1363,15 +1425,29 @@ def _mk_test(key, label):
 
 
 def _power_lock():
-    return lock_screen('verify') if lock_is_set() else None
+    """Lock the device.
+
+    Always returns a screen now. With a PIN or password set that is the usual
+    verify screen; with no code set, lock_screen gives a codeless screen lock
+    (hold SELECT to get back) rather than nothing at all. Returning None when
+    there was no passcode is why the Lock row appeared to be a dead button."""
+    return lock_screen('verify')
 
 
 def _power_sleep():
-    # Real screen-off now (+ lock if a PIN is set). NOT machine.lightsleep — that
-    # can drop USB-CDC/peripherals and look like a brick. Wake = any button.
+    """Sleep the panel until a button is pressed, then wake to the home screen.
+
+    NOT machine.lightsleep — that can drop USB-CDC and peripherals and looks like
+    a brick. This is a real screen-off held by NovaUI._sleep_mode, which the idle
+    tiers now step around; before that flag existed the idle block recomputed the
+    brightness on the very next pass and put the panel back on, which is why
+    Sleep flashed and dropped you back into this menu.
+
+    Waking is the runner's job: it clears the sleep mode, returns to home and
+    applies the lock if one is configured."""
     if _active_ui is not None:
-        _active_ui.sleep_display()
-    return _power_lock()
+        _active_ui.sleep_display('sleep')
+    return 'home'
 
 
 def _power_exit():
@@ -1434,6 +1510,10 @@ class ShutdownScreen(Screen):
     HOLD_WAKE_MS = 3000
     SHOW_MS = 5000
 
+    # Opt out of the global HOME escape: this screen's whole contract is that only
+    # a deliberate three-second hold brings it back.
+    modal = True
+
     # The runner checks this: while the panel is off here, ordinary input must NOT
     # wake it, or the hold requirement means nothing.
     manual_wake = True
@@ -1459,7 +1539,12 @@ class ShutdownScreen(Screen):
         if not self._asleep and self._elapsed >= self.SHOW_MS:
             self._asleep = True
             if _active_ui is not None:
-                _active_ui.sleep_display()
+                # 'shutdown', not the default 'sleep': waking from here returns to
+                # what was on screen rather than resetting to home. Passing a mode
+                # at all is what keeps the panel dark — sleep_display used to be a
+                # bare _set_level(2) that the idle tiers overwrote a frame later,
+                # which is why this screen never actually went off.
+                _active_ui.sleep_display('shutdown')
             return False
         if self._asleep:
             src = getattr(_active_ui, 'source', None)
@@ -1495,27 +1580,162 @@ class ShutdownScreen(Screen):
 
 
 
-class StealthSplashScreen(Screen):
-    """Engages incognito — kills every radio — with a full-screen confirmation and a
-    notification, then drops back home. Shown whether stealth is triggered from the
-    menu, a shortcut, or the physical kill switch."""
-    title = 'Incognito'
+class DeepSleepScreen(Screen):
+    """True low-power dormant mode, for running off a battery.
+
+    This does NOT replace Shutdown, and the difference is not cosmetic. It comes
+    from what the rp2 port actually implements (ports/rp2/modmachine.c, checked
+    against v1.28.0, the firmware this ships on):
+
+      * machine.deepsleep() is machine.lightsleep() followed by a chip RESET.
+        There is no resume. Waking is a cold boot: the OS and the GUI load again
+        from scratch. Shutdown, by contrast, keeps the GUI resident and comes back
+        instantly on a HOME hold — which is why Shutdown is still here.
+      * With NO argument the chip enters xosc_dormant() and the only wake source
+        armed is the CYW43 wireless host-wake line. There is no user-GPIO wake on
+        this port: a button cannot bring it back. And since this mode kills the
+        radios first, that line will not fire either. The RESET button is the way
+        back, and the screen says so rather than letting it be discovered.
+      * With a delay the wake is a hardware timer alarm, capped by the port at
+        (1 << 32) / 1000 ms — a little over 71 minutes. Longer raises
+        ValueError('sleep too long'), so the offered timers stop at 60.
+
+    Committing takes a HOLD of SELECT. A single press is too easy to do by
+    accident for something whose undo is a physical button.
+
+    DEVICE-UNCONFIRMED: the power draw achieved in dormant mode has not been
+    measured on this hardware; the wake behaviour above is read from the port
+    source, not observed.
+    """
+    title = 'Deep Sleep'
+    fullscreen = True
+
+    # None = indefinite (reset to wake). The rest are minutes, kept under the
+    # port's ~71 minute timer ceiling.
+    TIMERS = (None, 5, 15, 30, 60)
 
     def __init__(self):
+        self.sel = 0
+        self._committed = False
+        self._frames = 0
+
+    def _label(self):
+        m = self.TIMERS[self.sel]
+        return 'until RESET' if m is None else 'wake in {} min'.format(m)
+
+    def draw(self, c):
+        c.clear(0)
+        a = 'DEEP SLEEP'
+        c.text(_centre(c, a), 2, a, 1)
+        if self._committed:
+            b = 'sleeping...'
+            c.text(_centre(c, b), c.h // 2 - _FH // 2, b, 1)
+            return
+        _fit(c, 2, _TOP + _ROWH, 'Radios off, CPU')
+        _fit(c, 2, _TOP + 2 * _ROWH, 'dormant. Wake =')
+        _fit(c, 2, _TOP + 3 * _ROWH, 'REBOOT, not resume.')
+        # The commit gesture has to be on screen. A hold is the right control for
+        # something whose undo is a physical button, but nobody discovers a hold
+        # that is not advertised — they press once, nothing happens, and the
+        # screen looks broken.
+        _fit(c, 2, c.h - 2 * _ROWH, 'turn = when   hold OK')
+        lbl = self._label()
+        rounded_rect(c, 0, c.h - _ROWH, c.w, _ROWH, 1)
+        c.text(max(0, (c.w - c.text_width(lbl)) // 2), c.h - _ROWH + 1, lbl, 0)
+
+    def tick(self, dt_ms=0):
+        if not self._committed:
+            return False
+        # Paint 'sleeping...' before the chip stops. Once deepsleep is entered
+        # nothing else runs, so a frame that has not reached the panel never will.
+        self._frames += 1
+        if self._frames < 2:
+            return True
+        try:
+            import novastealth
+            novastealth.kill_all()
+        except Exception:
+            pass
+        if _active_ui is not None:
+            try:
+                _active_ui.sleep_display('deep')
+            except Exception:
+                pass
+        try:
+            import machine
+            m = self.TIMERS[self.sel]
+            if m is None:
+                machine.deepsleep()
+            else:
+                machine.deepsleep(m * 60 * 1000)
+        except Exception:
+            # The port refused, or there is no machine module (host tests). Come
+            # back rather than sitting on a screen that says 'sleeping' forever.
+            self._committed = False
+            self._frames = 0
+            if _active_ui is not None:
+                try:
+                    _active_ui._wake_display()
+                except Exception:
+                    pass
+            return True
+        return False
+
+    def on_event(self, e):
+        if self._committed:
+            return None
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % len(self.TIMERS)
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % len(self.TIMERS)
+        elif e == ev.SELECT_HOLD:
+            self._committed = True          # a hold, never a tap
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class StealthSplashScreen(Screen):
+    """TOGGLES incognito, with a full-screen confirmation, then drops back home.
+
+    It used to only ever engage. From the power menu that made the row a dead
+    button once stealth was already on — the one place you would go to turn it
+    off did nothing, and the only way out was the Privacy setting. It now reads
+    the current state and does the opposite, so the same row works both ways.
+
+    `action` forces a direction ('on' / 'off') for callers that mean one
+    specifically: the physical kill switch engages stealth, it does not toggle
+    it, because a switch knocked twice in a pocket must not quietly re-arm every
+    radio."""
+    title = 'Incognito'
+
+    def __init__(self, action=None):
         self._done = False
         self._t = 0
+        self._action = action
+        self._turning_on = True             # resolved in tick, from live state
 
     def tick(self, dt_ms=0):
         if not self._done:
             self._done = True
             try:
                 import novastealth
-                novastealth.kill_all()
+                if self._action == 'on':
+                    self._turning_on = True
+                elif self._action == 'off':
+                    self._turning_on = False
+                else:
+                    self._turning_on = not novastealth.active()
+                if self._turning_on:
+                    novastealth.kill_all()
+                else:
+                    novastealth.restore()
             except Exception:
                 pass
             try:
                 import novanotify
-                novanotify.notify('Incognito ON - radios off')
+                novanotify.notify('Incognito ON - radios off' if self._turning_on
+                                  else 'Incognito OFF - radios released')
             except Exception:
                 pass
             return True
@@ -1528,7 +1748,7 @@ class StealthSplashScreen(Screen):
         c.clear(0)
         a = 'STEALTH'                       # scale 2 = 112px, fits the 128px panel
         c.text((c.w - len(a) * _ADV * 2) // 2, c.h // 2 - _FH * 2, a, 1, 2)
-        b = 'all radios off'
+        b = 'all radios off' if self._turning_on else 'radios released'
         c.text((c.w - len(b) * _ADV) // 2, c.h // 2 + 6, b, 1)
 
     def on_event(self, e):
@@ -1547,6 +1767,7 @@ def _power_menu():
         ('Reload', lambda: CommandScreen('Reload', 'novad1 refresh')),
         ('Reboot', RebootScreen),
         ('Shutdown', ShutdownScreen),
+        ('Deep Sleep', DeepSleepScreen),
         ('Sleep', _power_sleep),
         ('Exit to shell', _power_exit),
     ])
@@ -1695,6 +1916,36 @@ def _fetch_json(url, tmp=None):
             pass
 
 
+async def _afetch_json(url, tmp=None):
+    """_fetch_json's async twin — the same streaming, on net.awget.
+
+    net.wget is one synchronous call: it holds the loop for the whole request,
+    which on a TLS handshake plus a manifest is several seconds during which the
+    device repaints nothing and acts on no button. net.awget does the identical
+    work but yields to the loop on every socket wait, so the GUI keeps drawing,
+    the serial shell keeps responding, and HOME can be acted on mid-fetch.
+
+    Kept as a separate function rather than making _fetch_json async: the sync
+    form is still what the shell-side paths use, and rewriting those is not this
+    change."""
+    import json
+    import net
+    import gc
+    tmp = tmp or _FETCH_TMP
+    _ensure_dir(tmp)
+    try:
+        await net.awget(url, dest=tmp, verbose=False)
+        gc.collect()
+        with open(tmp, 'r') as f:
+            return json.load(f)
+    finally:
+        try:
+            import uos
+            uos.remove(tmp)
+        except Exception:
+            pass
+
+
 _PKG_UPDATE_CMD = 'novad1 selfupdate -y'
 
 
@@ -1800,7 +2051,7 @@ class UpdatesScreen(Screen):
         self.os_new = None       # (version, build, notes) when an OS update exists
         self.pkg_new = None      # (version) when a package update exists
         self.err = ''
-        self._gen = None         # the in-flight check (see _check_steps)
+        self._job = None         # the in-flight check (see _check_job)
         self._status = 'Checking...'
 
     # ---- data -------------------------------------------------------------
@@ -1814,16 +2065,21 @@ class UpdatesScreen(Screen):
             pass
         return v, b
 
-    def _check_steps(self):
-        """Fetch both manifests, as a GENERATOR that yields a status between each
-        one. Two HTTPS fetches back to back is a long stall, and the GUI shares its
-        event loop with the shell and the background services — running them in one
-        blocking call froze all of it and left the spinner motionless, which is the
-        opposite of what a spinner is for. Yielding between them lets the loop turn.
+    async def _check_job(self, job):
+        """Fetch both manifests on the shared loop, reporting progress as it goes.
 
-        Each fetch is still atomic (net.wget is synchronous), so this reduces the
-        stall to one request rather than removing it. Any failure just shows a
-        message instead of dumping a traceback."""
+        This used to be a generator driven from tick(), yielding a status between
+        the two fetches. That bounded the freeze to one request but did not remove
+        it: net.wget is synchronous, so the loop stopped dead for the whole of each
+        HTTPS handshake — the ten-second lockup, with a spinner that could not
+        spin because nothing was repainting.
+
+        On net.awget the loop yields at every socket wait, so the spinner animates,
+        the serial shell stays responsive, and HOME can be acted on mid-check.
+        job.status is what the screen renders; job.cancelled() is checked between
+        steps so backing out stops the work rather than orphaning it.
+
+        Any failure shows a message rather than a traceback."""
         self.err = ''
         try:
             import RPCortex as _R
@@ -1845,15 +2101,17 @@ class UpdatesScreen(Screen):
         # needs one unbroken ~16.7 KB block for the TLS input buffer, and on a
         # device that has been up a while the shell's command cache is usually
         # the only thing standing between us and having it.
-        yield 'Freeing memory...'
+        job.status = 'Freeing memory...'
         try:
             _novacore.reclaim()
         except Exception:
             pass
+        if job.cancelled():
+            return
 
-        yield 'Checking OS...'
+        job.status = 'Checking OS...'
         try:
-            m = _fetch_json(_os_manifest_url())
+            m = await _afetch_json(_os_manifest_url())
             cv, cb = self._cur_os()
             lv, lb = m.get('version', '?'), str(m.get('build', ''))
             # A different BUILD only counts as an update when the VERSION is the
@@ -1870,12 +2128,14 @@ class UpdatesScreen(Screen):
         except Exception as e:
             self.err = _fail_reason(e, 'OS')
 
-        yield 'Checking app...'
+        if job.cancelled():
+            return
+        job.status = 'Checking app...'
         try:
             # A cache-buster on the URL: raw.githubusercontent serves the
             # /main/ path from a CDN that can hold a stale copy for minutes
             # after a push, which looks exactly like "no update available".
-            idx = _fetch_json(
+            idx = await _afetch_json(
                 'https://raw.githubusercontent.com/dash1101/RPCortex-repo'
                 '/main/repo/index.json?t=' + str(_cache_bust()))
             for p in idx.get('packages', ()):
@@ -1924,27 +2184,27 @@ class UpdatesScreen(Screen):
         if self.state == 'idle':
             self.state = 'checking'
             self._frames = 0
-            self._gen = None
+            self._job = None
             return True
         if self.state == 'checking':
             self._spin += 1
             self._frames += 1
             if self._frames < 2:
                 return True          # paint the spinner before the first fetch
-            if self._gen is None:
-                self._gen = self._check_steps()
-            try:
-                self._status = next(self._gen) or self._status
-            except StopIteration:
-                self._gen = None
-                self._build_rows()
-                self.state = 'done'
-            except Exception:
-                self._gen = None
-                if not self.err:
-                    self.err = 'Check failed'
-                self._build_rows()
-                self.state = 'done'
+            if self._job is None:
+                import novajob
+                self._job = novajob.start(self._check_job, status='Checking...')
+            job = self._job
+            self._status = job.status
+            if job.running():
+                # The whole point: tick returns immediately and the fetch carries
+                # on elsewhere, so the loop keeps turning and the spinner moves.
+                return True
+            if job.failed() and not self.err:
+                self.err = job.error or 'Check failed'
+            self._job = None
+            self._build_rows()
+            self.state = 'done'
             return True
         return False
 
@@ -1969,6 +2229,16 @@ class UpdatesScreen(Screen):
                 _fit(c, 3, y, label)
 
     def on_event(self, e):
+        if e in (ev.BACK, ev.HOME) and self._job is not None:
+            # Leaving mid-check cancels it. Without this the fetch would carry on
+            # in the background writing into a screen nobody is looking at, and
+            # would still be holding the network when the next one started.
+            try:
+                self._job.cancel()
+            except Exception:
+                pass
+            self._job = None
+            return e
         acts = [i for i, r in enumerate(self.rows) if r[0] == 'a']
         if not acts:
             if e in (ev.BACK, ev.HOME):
@@ -2520,6 +2790,7 @@ class CommandScreen(Screen):
         self.top = 0
         self._frames = 0
         self._spin = 0
+        self._ok = None              # True/False once run; None = unknown
 
     def animating(self):
         return self.lines is None    # keep the spinner turning until it finishes
@@ -2529,7 +2800,11 @@ class CommandScreen(Screen):
             _fit(c, 2, _TOP + _ROWH, 'Working...')
             spinner(c, c.w - 8, c.h - 8, self._spin)
             return
-        rows = (c.h - _TOP) // _ROWH
+        # One row is held back for the footer, so "it has finished" is stated
+        # rather than inferred from the spinner having stopped. Running an update
+        # and being left on a wall of scrollback with no marker is the report this
+        # answers: nothing on screen said whether it had worked or was still going.
+        rows = max(1, (c.h - _TOP) // _ROWH - 1)
         n = len(self.lines)
         if self.top > max(0, n - rows):
             self.top = max(0, n - rows)
@@ -2541,7 +2816,27 @@ class CommandScreen(Screen):
                 break
             _fit(c, 2, _TOP + i * _ROWH, self.lines[idx])
         if scrolls:
-            scrollbar(c, right + 1, _TOP, c.h - _TOP, self.top, rows, n)
+            scrollbar(c, right + 1, _TOP, c.h - _TOP - _ROWH, self.top, rows, n)
+        y = c.h - _ROWH
+        c.hline(0, y - 1, c.w, 1)
+        _fit(c, 2, y, self._footer())
+
+    def _footer(self):
+        """What happened, and the way out.
+
+        The verdict comes from RPCortex.had_error() — the same flag the shell's
+        && / || chaining and .rps conditionals use, set by error()/fatal(). It is
+        the authoritative answer.
+
+        Scanning the OUTPUT for words like 'error' was the obvious alternative and
+        is quietly wrong: release notes routinely contain the word, so a
+        successful update whose notes mentioned 'fixed error handling' would have
+        reported itself as failed — on the one command where the verdict matters
+        most. Where the flag cannot be read at all, this says 'finished' rather
+        than guessing either way."""
+        if self._ok is None:
+            return 'finished - OK=home'
+        return ('done - OK=home' if self._ok else 'failed - OK=home')
 
     def tick(self, dt_ms=0):
         if self.lines is not None:
@@ -2550,7 +2845,19 @@ class CommandScreen(Screen):
         self._spin += 1
         if self._frames < 2:
             return True              # paint 'Working' BEFORE blocking
+        # Clear the shell's error flag first so what we read afterwards belongs to
+        # THIS command and not to whatever ran before it.
+        try:
+            import RPCortex as _R
+            _R.clear_error()
+        except Exception:
+            _R = None
         self.lines = _run_capture(self.cmd) or ['(no output)']
+        if _R is not None:
+            try:
+                self._ok = not _R.had_error()
+            except Exception:
+                self._ok = None
         return True
 
     def on_event(self, e):
@@ -2558,6 +2865,10 @@ class CommandScreen(Screen):
             self.top += 1
         elif e == ev.ROT_CCW:
             self.top = max(0, self.top - 1)
+        elif e == ev.SELECT and self.lines is not None:
+            # A finished command is a dead end otherwise: BACK walks you up
+            # through however many menus you came down. One press to home.
+            return 'home'
         elif e in (ev.BACK, ev.HOME):
             return e
         return None
@@ -2774,6 +3085,8 @@ def _rows_clock():
     same screen. It also keeps the System group at six rows, which is the point of
     the grouped layout: nothing at the top level scrolls."""
     return [
+        ('push', 'Set Time', TimeScreen),
+        ('push', 'UTC Offset', TZScreen),
         _clock_row(),
         ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false',
          None),
@@ -2781,9 +3094,12 @@ def _rows_clock():
 
 
 def _rows_system():
+    # Set Time moved into the Clock group — it is a clock setting, and moving it
+    # frees the top-level slot that Versions now uses without pushing this group
+    # past the six rows that fit one screen.
     return [
-        ('push', 'Set Time', TimeScreen),
         ('push', 'Clock', _mk_group('Clock', _rows_clock)),
+        ('push', 'Versions', VersionsScreen),
         ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
         ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
         ('push', 'Updates', UpdatesScreen),

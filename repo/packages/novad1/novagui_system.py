@@ -440,6 +440,11 @@ class PinScreen(Screen):
     def __init__(self, mode='verify', on_done=None):
         self.title = 'PIN'
         self.mode = mode
+        # Opt out of the runner's global HOME escape while VERIFYING. A lock that
+        # HOME walks out of is not a lock. In 'set' mode HOME is an ordinary way
+        # to abandon the edit, so the flag is off.
+        self.modal = (mode == 'verify')
+
         self.digits = [0, 0, 0, 0, 0, 0]
         self.pos = 0
         self.msg = ''
@@ -643,20 +648,231 @@ class KeyboardScreen(Screen):
         return None
 
 
+class TZScreen(Screen):
+    """Set the UTC offset in whole hours.
+
+    A cycle row would have meant tapping through 27 values to get from -12 to +14,
+    so this is a dedicated screen: turn to adjust, SELECT to save. It writes
+    System.TZ_Offset, the same key the OS shell's `settings` uses and the one the
+    status-bar clock, the notification timestamps and the Clock app all read — so
+    setting it here moves every clock on the device at once."""
+    title = 'UTC Offset'
+
+    # The real range of civil offsets. Whole hours only: nothing on this device
+    # reads a fractional offset, so offering 5:30 would be a lie.
+    LO = -12
+    HI = 14
+
+    def __init__(self):
+        self.saved = False
+        try:
+            self.off = int(_reg('System.TZ_Offset', 0) or 0)
+        except Exception:
+            self.off = 0
+        if self.off < self.LO or self.off > self.HI:
+            self.off = 0
+
+    def _label(self):
+        return 'UTC{}{}'.format('+' if self.off >= 0 else '-', abs(self.off))
+
+    def draw(self, c):
+        _fit(c, 2, _TOP, 'hours from UTC')
+        lbl = self._label()
+        c.text(max(0, (c.w - c.text_width(lbl, 2)) // 2), c.h // 2 - _FH, lbl, 1, 2)
+        # 19 characters, because the panel is 20 wide and the old hint ran off the
+        # edge mid-word -- it read 'OK = s', which is worse than no hint at all.
+        _fit(c, 2, c.h - _FH, 'saved' if self.saved else 'turn=adjust  OK=save')
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.off = self.off + 1 if self.off < self.HI else self.LO
+            self.saved = False
+        elif e == ev.ROT_CCW:
+            self.off = self.off - 1 if self.off > self.LO else self.HI
+            self.saved = False
+        elif e == ev.SELECT:
+            _save_reg('System.TZ_Offset', str(self.off))
+            self.saved = True
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class VersionsScreen(Screen):
+    """Everything that has a version, in one place.
+
+    These numbers were scattered: the OS version in Sys Check, the build id only
+    in the Updates screen, the package version nowhere in the UI at all, and the
+    firmware version only from the shell. When something behaves oddly the first
+    question is always "which of these am I actually running", and it should not
+    take four screens to answer."""
+    title = 'Versions'
+
+    def __init__(self):
+        self.top = 0
+        self.rows = self._read()
+
+    def _read(self):
+        rows = []
+        try:
+            rows.append(('OS', str(_reg('Settings.Version', '?'))))
+            rows.append(('Build', str(_reg('System.Build', '?'))))
+            stage = str(_reg('System.Stage', '') or 'unknown')
+            rows.append(('Stage', stage))
+            chan = str(_reg('Settings.Update_Channel', '') or '').strip().lower()
+            if chan not in ('stable', 'beta'):
+                # Match the implicit choice the update check makes, rather than
+                # showing a blank for the very common "never set it" case.
+                chan = 'beta*' if stage.lower() in (
+                    'pre-release', 'prerelease', 'beta', 'alpha', 'rc') else 'stable*'
+            rows.append(('Channel', chan))
+        except Exception:
+            pass
+        try:
+            with open('/Packages/NovaD1/package.cfg') as f:
+                for ln in f.read().split('\n'):
+                    if ln.startswith('pkg.ver'):
+                        rows.append(('NovaD1', ln.split(':', 1)[1].strip()))
+                        break
+        except Exception:
+            rows.append(('NovaD1', '?'))
+        try:
+            import sys as _s
+            # Just the number. CPython's sys.version is a paragraph ('3.13.5
+            # (main, ...') and MicroPython's carries a build suffix; neither fits
+            # beside a label on a 20-column panel.
+            v = _s.version.split()[0].split(';')[0].strip() if hasattr(_s, 'version') else '?'
+            rows.append(('Python', v[:10]))
+        except Exception:
+            pass
+        try:
+            import uos
+            u = uos.uname()
+            rows.append(('Firmware', str(u.release)))
+            rows.append(('Board', str(u.machine)[:14]))
+        except Exception:
+            pass
+        try:
+            import novaboard
+            rows.append(('Profile', str(novaboard.board())))
+        except Exception:
+            pass
+        return rows
+
+    def _visible(self, c):
+        return max(1, (c.h - _TOP) // _ROWH)
+
+    def draw(self, c):
+        vis = self._visible(c)
+        n = len(self.rows)
+        if self.top > max(0, n - vis):
+            self.top = max(0, n - vis)
+        for i in range(vis):
+            idx = self.top + i
+            if idx >= n:
+                break
+            label, val = self.rows[idx]
+            y = _TOP + i * _ROWH
+            c.text(2, y, label, 1)
+            # Trim the value from the LEFT if it cannot fit beside its label. For a
+            # version string the tail is the part that distinguishes one build from
+            # another, and letting it collide with the label instead produced a row
+            # that read as neither.
+            avail = c.w - 4 - c.text_width(label) - 4
+            vw = c.text_width(val)
+            while val and vw > avail:
+                val = val[1:]
+                vw = c.text_width(val)
+            c.text(max(2, c.w - vw - 2), y, val, 1)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.top += 1
+        elif e == ev.ROT_CCW:
+            self.top = max(0, self.top - 1)
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
+class ScreenLock(Screen):
+    """The lock for a device with no code set.
+
+    Locking used to do nothing at all when there was no PIN or password —
+    `_power_lock` returned None and the menu simply stayed put, which reads as a
+    broken button. But a device with no code has nothing to verify, so a PIN pad
+    would be theatre. What it can honestly offer is a screen lock: the panel is
+    covered, stray presses in a pocket do nothing, and a deliberate gesture gets
+    you back. That is the same guarantee a phone gives with no passcode set.
+
+    The gesture is a HOLD of SELECT rather than a tap, for the same reason the
+    shutdown wake is a hold: a single press is exactly what a pocket produces."""
+    fullscreen = True
+    title = 'Locked'
+
+    # Ordinary input must not dismiss this, or it is not a lock. The runner reads
+    # this flag and drops events instead of acting on them.
+    manual_wake = True
+    # Also opt out of the runner's global HOME escape: a codeless lock still has
+    # to be a lock, and HOME is the one button guaranteed to reach every screen.
+    modal = True
+    HOLD_MS = 600
+
+    def __init__(self):
+        self._held = 0
+
+    def draw(self, c):
+        c.clear(0)
+        # A padlock, drawn from the same primitives as the icons: a shackle arc
+        # approximated by two verticals and a top bar, over a solid body.
+        bw, bh = 22, 16
+        bx = (c.w - bw) // 2
+        by = c.h // 2 - 4
+        c.rect(bx, by, bw, bh, 1)
+        # Shackle: two uprights joined by a bar. The bar has to START on the left
+        # upright and END on the right one — drawn inset by a pixel it left a gap
+        # at each corner and the lock read as a bracket resting on a box.
+        sx0, sx1 = bx + 5, bx + bw - 6
+        c.vline(sx0, by - 7, 7, 1)
+        c.vline(sx1, by - 7, 7, 1)
+        c.hline(sx0, by - 7, sx1 - sx0 + 1, 1)
+        c.fill_rect(bx + bw // 2 - 1, by + 5, 3, 6, 1)
+        hint = 'hold SELECT'
+        c.text(max(0, (c.w - c.text_width(hint)) // 2), c.h - _FH - 2, hint, 1)
+
+    def on_event(self, e):
+        # SELECT_HOLD is emitted by novainput once the button passes its hold
+        # threshold; a plain SELECT (which fires on release) is ignored on purpose.
+        if e == ev.SELECT_HOLD:
+            return 'back'
+        return None
+
+
 def lock_screen(mode='verify'):
     """The lock the device is configured for: a typed PASSWORD when one is set
     (Apps.NovaD1_Pass), else the 6-digit PIN. Both are clearable from the serial
-    shell, so neither can strand the device."""
+    shell, so neither can strand the device.
+
+    With NO code set and mode='verify', this is a codeless screen lock rather than
+    nothing at all — see ScreenLock. mode='set' still returns a real editor,
+    because that path exists precisely to create a code."""
     from novacore import reg as _r
-    if str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+    kind = str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower()
+    if mode == 'verify' and not lock_is_set():
+        return ScreenLock()
+    if kind == 'password':
         return PasswordScreen(mode)
     return PinScreen(mode)
 
 
 def lock_is_set():
-    """True if either lock is configured."""
+    """True if either lock is configured. Type 'none' means no lock whatever is
+    still stored, matching novagui.lock_is_set."""
     from novacore import reg as _r
-    if str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+    kind = str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower()
+    if kind == 'none':
+        return False
+    if kind == 'password':
         return bool(_r('Apps.NovaD1_Pass', ''))
     return bool(_r('Apps.NovaD1_PIN', ''))
 
@@ -671,6 +887,11 @@ class PasswordScreen(Screen):
     def __init__(self, mode='verify'):
         self.title = 'Password'
         self.mode = mode
+        # Opt out of the runner's global HOME escape while VERIFYING. A lock that
+        # HOME walks out of is not a lock. In 'set' mode HOME is an ordinary way
+        # to abandon the edit, so the flag is off.
+        self.modal = (mode == 'verify')
+
         self.msg = ''
         self.next = None
         self._kb = None

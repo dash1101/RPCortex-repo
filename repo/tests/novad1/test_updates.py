@@ -32,8 +32,43 @@ def _wget(url, dest=None, verbose=False, **kw):
     return 200, len(doc)
 
 
+async def _awget(url, dest=None, verbose=False, **kw):
+    """The async form the Updates screen now uses. net.wget blocked the shared
+    loop for the whole of each HTTPS request -- the ten-second lockup, with a
+    spinner that could not spin because nothing was repainting.
+
+    It yields a few times before answering, because a stub that returns on the
+    first await would finish the whole check inside one tick and prove nothing
+    about the property that matters: that the UI keeps running mid-fetch."""
+    import asyncio
+    for _ in range(4):
+        await asyncio.sleep(0)
+    return _wget(url, dest=dest, verbose=verbose, **kw)
+
+
 net.wget = _wget
+net.awget = _awget
 sys.modules['net'] = net
+
+
+def drive(scr, limit=200):
+    """Run the screen the way the device does: tick it on a real event loop until
+    it settles. The check is an asyncio task now, so ticking alone will never
+    finish it -- the loop has to be given a chance to run, which is precisely the
+    property that keeps the UI alive during a fetch."""
+    import asyncio
+
+    async def _go():
+        for _ in range(limit):
+            scr.tick(40)
+            if scr.state == 'done':
+                return
+            await asyncio.sleep(0)
+
+    # Every tick has to happen INSIDE the loop. novajob.start needs a running loop
+    # to schedule onto -- ticking from outside one puts the job straight into the
+    # error state, which is a real behaviour but not the one under test here.
+    asyncio.run(_go())
 
 import novagui
 import tempfile
@@ -48,29 +83,41 @@ novagui._FETCH_TMP = _os.path.join(_TMPROOT, 'nova', 'fetch.tmp')
 assert not _os.path.exists(_os.path.dirname(novagui._FETCH_TMP))
 
 scr = novagui.UpdatesScreen()
-
 t.eq(scr.state, 'idle', 'the screen starts idle')
-scr.tick(40)
-t.eq(scr.state, 'checking', 'the first tick only switches to checking')
-t.eq(fetched, [], 'nothing is fetched before the spinner has been painted')
-scr.tick(40)
-t.eq(fetched, [], 'the spinner frame still fetches nothing')
 
-# one fetch per tick from here
-scr.tick(40)
-t.eq(len(fetched), 0, 'the first step only reports what it is about to do')
-t.eq(scr._status, 'Freeing memory...',
-     'the heap is reclaimed BEFORE the first handshake, not after it fails')
-scr.tick(40)
-t.eq(scr._status, 'Checking OS...', 'then the OS check is announced')
-scr.tick(40)
-t.eq(len(fetched), 1, 'the OS manifest is fetched on its own step')
-t.eq(scr._status, 'Checking app...', 'the status advances between fetches')
-t.eq(scr.state, 'checking', 'the screen is still working')
-scr.tick(40)
-t.eq(len(fetched), 2, 'the package index is a separate step')
-scr.tick(40)
-t.eq(scr.state, 'done', 'then the check completes')
+
+async def _first_run():
+    """The opening sequence, on a real loop -- the job needs one to be scheduled
+    onto, exactly as it does on the device inside the GUI service."""
+    scr.tick(40)
+    t.eq(scr.state, 'checking', 'the first tick only switches to checking')
+    t.eq(fetched, [], 'nothing is fetched before the spinner has been painted')
+    scr.tick(40)
+    t.eq(fetched, [], 'the spinner frame still fetches nothing')
+
+    # The check runs as a task now. tick() must hand control straight back -- if
+    # it waited on the fetch we would be back to the frozen loop this replaced.
+    scr.tick(40)
+    t.ok(scr._job is not None, 'a background job is started')
+    t.eq(scr.state, 'checking', 'and tick returns at once rather than waiting on it')
+    t.eq(len(fetched), 0, 'nothing has been fetched yet -- tick did not block on it')
+
+    ticks = 0
+    for _ in range(200):
+        await asyncio.sleep(0)
+        scr.tick(40)
+        ticks += 1
+        if scr.state == 'done':
+            break
+    t.ok(ticks > 1,
+         'the screen was ticked repeatedly WHILE the fetch was in flight -- that '
+         'is what lets the spinner animate and HOME be acted on mid-check')
+
+
+import asyncio
+asyncio.run(_first_run())
+t.eq(scr.state, 'done', 'the check completes once the loop gets to run')
+t.eq(len(fetched), 2, 'both manifests were fetched')
 
 t.eq(scr.os_new[0], 'v1.1.0', 'a newer OS is detected')
 t.eq(scr.pkg_new, '9.9.9', 'a newer package is detected')
@@ -84,18 +131,21 @@ def _boom(url, dest=None, verbose=False, **kw):
     raise OSError('connection reset')
 
 
+async def _aboom(url, dest=None, verbose=False, **kw):
+    raise OSError('connection reset')
+
+
 net.wget = _boom
+net.awget = _aboom
 scr2 = novagui.UpdatesScreen()
-for _ in range(10):
-    scr2.tick(40)
+drive(scr2)
 t.eq(scr2.state, 'done', 'a failing fetch still finishes the check')
 t.ok(scr2.err != '', 'and reports the failure')
 t.ok(scr2.rows, 'the screen still has rows to show')
 
 net.status = lambda: {'connected': False}
 scr3 = novagui.UpdatesScreen()
-for _ in range(10):
-    scr3.tick(10)
+drive(scr3)
 t.eq(scr3.err, 'No WiFi', 'offline is reported as offline, not as a failed fetch')
 t.eq(scr3.state, 'done', 'and the screen does not sit spinning forever')
 
@@ -130,10 +180,16 @@ def _wget_check(url, dest=None, verbose=False, **kw):
 
 
 net.wget = _wget_check
+
+
+async def _awget_check(url, dest=None, verbose=False, **kw):
+    return _wget_check(url, dest=dest, verbose=verbose, **kw)
+
+
+net.awget = _awget_check
 net.status = lambda: {'connected': True}
 scr5 = novagui.UpdatesScreen()
-for _ in range(10):
-    scr5.tick(40)
+drive(scr5)
 t.ok(_dests and all(d for d in _dests), 'every fetch supplied a destination file')
 t.ok(_os.path.isdir(_os.path.dirname(novagui._FETCH_TMP)),
      'the temp directory is created when it does not already exist')
@@ -146,9 +202,15 @@ def _oom(url, dest=None, verbose=False, **kw):
 
 
 net.wget = _oom
+
+
+async def _aoom(url, dest=None, verbose=False, **kw):
+    return _oom(url, dest=dest, verbose=verbose, **kw)
+
+
+net.awget = _aoom
 scr6 = novagui.UpdatesScreen()
-for _ in range(10):
-    scr6.tick(40)
+drive(scr6)
 t.eq(scr6.state, 'done', 'an out-of-memory check still completes')
 t.ok('ram' in scr6.err.lower() or 'memory' in scr6.err.lower(),
      'and is reported as a memory problem, not a generic failure (got {!r})'.format(
@@ -179,8 +241,7 @@ def _boom2(url, dest=None, verbose=False, **kw):
 
 net.wget = _boom2
 scr7 = novagui.UpdatesScreen()
-for _ in range(10):
-    scr7.tick(40)
+drive(scr7)
 labels = [r[1] for r in scr7.rows]
 t.ok(not any('up to date' in l for l in labels),
      'a failed check never claims up to date (got {})'.format(labels))
@@ -201,7 +262,7 @@ t.ok(not novagui._newer('?', '0.71.0'), 'an unknown available version is not an 
 # a CDN that can hold a stale copy for minutes after a push, which looks exactly
 # like "no update available"
 import inspect as _i
-t.ok('_cache_bust()' in _i.getsource(novagui.UpdatesScreen._check_steps),
+t.ok('_cache_bust()' in _i.getsource(novagui.UpdatesScreen._check_job),
      'the index fetch is cache-busted')
 
 # ---------------------------------------------------------------------------

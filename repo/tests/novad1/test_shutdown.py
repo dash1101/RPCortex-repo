@@ -20,9 +20,9 @@ class _Src:
     def held_ms(s, e): return s.held if e == ev.HOME else 0
 
 class _UI:
-    def __init__(s): s.slept = 0; s.woke = 0; s.source = _Src()
-    def sleep_display(s): s.slept += 1
-    def _wake_display(s): s.woke += 1
+    def __init__(s): s.slept = 0; s.woke = 0; s.mode = None; s.source = _Src()
+    def sleep_display(s, mode='sleep'): s.slept += 1; s.mode = mode
+    def _wake_display(s): s.woke += 1; s.mode = None
 
 ui = _UI()
 novagui._active_ui = ui
@@ -37,6 +37,13 @@ t.ok(True, 'it renders while counting down')
 for _ in range(int(novagui.ShutdownScreen.SHOW_MS / 100) + 2):
     scr.tick(100)
 t.eq(ui.slept, 1, 'the panel turns itself off after the countdown')
+# The mode passed here is what KEEPS it dark. It used to be a bare _set_level(2),
+# which the runner's idle-tier block recomputed and undid on the very next pass --
+# so this screen said "powered down" with the panel still lit, and the later wake
+# appeared to drop straight back into it.
+t.eq(ui.mode, 'shutdown',
+     'shutdown sleeps under its own mode, so waking returns to what was on screen '
+     'rather than resetting to home')
 
 # ordinary input must NOT wake it
 for e in (ev.SELECT, ev.BACK, ev.ROT_CW, ev.HOME):
@@ -60,5 +67,7 @@ t.ok('RebootScreen' not in src,
      'waking does not reboot: the GUI is still resident, only the panel is off')
 t.ok(novagui.ShutdownScreen.manual_wake is True,
      'the screen opts out of wake-on-any-input')
+
+t.eq(ui.mode, None, 'and waking clears the sleep mode, so the idle tiers resume')
 
 sys.exit(t.done())
