@@ -11,6 +11,7 @@
 
 from novaui import (Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, fit as _fit,
                     rounded_rect)  # noqa
+import novacore as _novacore  # noqa
 from novacore import reg as _reg, save_reg as _save_reg  # noqa
 
 
@@ -95,7 +96,18 @@ class WiFiScreen(Screen):
             wlan = network.WLAN(network.STA_IF)
             if not wlan.active():
                 wlan.active(True)
-            res = wlan.scan() or []
+            # A scan allocates a tuple per AP plus two bytes objects each, all at
+            # once. On a device that has been up a while that burst is exactly
+            # what fails -- and it used to surface as 'scan err: memory allo',
+            # a truncated errno with nothing the user could do about it. Reclaim
+            # and retry once: the shell's command cache is usually the only thing
+            # standing in the way, so the second attempt normally succeeds.
+            ok, res = _novacore.retry_oom(wlan.scan)
+            if not ok:
+                self.msg = _novacore.oom_message()
+                self.nets = []
+                return
+            res = res or []
             nets = []
             for r in res:
                 try:
@@ -110,7 +122,10 @@ class WiFiScreen(Screen):
             self.sel = self.top = 0
             self.msg = 'No networks' if not nets else ''
         except Exception as e:
-            self.msg = 'scan err: ' + str(e)[:12]
+            # Say something actionable. 'scan err: memory allo' told the user
+            # nothing; a plain reason plus what to do about it is the minimum.
+            self.msg = _novacore.oom_message() if _novacore.is_oom(e) \
+                else 'Scan failed - retry'
         finally:
             novawifi.resume()
 

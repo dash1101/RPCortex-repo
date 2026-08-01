@@ -31,6 +31,7 @@ from novagui_system import (WiFiScreen, TimeScreen, SystemCheckScreen,
                             PasswordScreen, lock_screen, lock_is_set)
 
 
+import novacore as _novacore
 from novacore import reg as _reg
 
 
@@ -1455,6 +1456,38 @@ def _pkg_version(name='NovaD1'):
     return '?'
 
 
+_FETCH_TMP = '/Vela/nova/fetch.tmp'    # module-level so tests can point it elsewhere
+
+
+def _fetch_json(url, tmp=None):
+    """Fetch a JSON document without ever holding the body in RAM.
+
+    net.wget(dest=...) streams straight to flash in 512-byte chunks; the
+    return-the-body form has to hold the whole document as one contiguous
+    object. That matters more than the size suggests: it lands immediately after
+    a TLS handshake has taken a 16.7 KB block, in a heap that never compacts, so
+    the package index (~6 KB) was competing for contiguous space at the worst
+    possible moment. Reading it back from the file costs a second pass over
+    flash and no large allocation at all.
+
+    The temp file is always removed, including on failure."""
+    import json
+    import net
+    import gc
+    tmp = tmp or _FETCH_TMP
+    try:
+        net.wget(url, dest=tmp, verbose=False)
+        gc.collect()
+        with open(tmp, 'r') as f:
+            return json.load(f)
+    finally:
+        try:
+            import uos
+            uos.remove(tmp)
+        except Exception:
+            pass
+
+
 class UpdatesScreen(Screen):
     """A real update view instead of a shell dump: it fetches the manifests itself
     and renders what's installed vs what's available, with one action per component.
@@ -1506,33 +1539,29 @@ class UpdatesScreen(Screen):
 
         yield 'Checking OS...'
         try:
-            import json
-            import net
-            _st, body = net.wget(_os_manifest_url(), verbose=False)
-            m = json.loads(body) if body else {}
+            m = _fetch_json(_os_manifest_url())
             cv, cb = self._cur_os()
             lv, lb = m.get('version', '?'), str(m.get('build', ''))
             if lv != cv or (lb and lb != str(cb)):
                 self.os_new = (lv, lb, m.get('notes', ''))
-        except Exception:
-            self.err = 'OS check failed'
+        except Exception as e:
+            self.err = _novacore.oom_message() if _novacore.is_oom(e) \
+                else 'OS check failed'
 
         yield 'Checking app...'
         try:
-            import json
-            import net
-            _st, body = net.wget(
-                'https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/index.json',
-                verbose=False)
-            idx = json.loads(body) if body else {}
+            idx = _fetch_json(
+                'https://raw.githubusercontent.com/dash1101/RPCortex-repo'
+                '/main/repo/index.json')
             for p in idx.get('packages', ()):
                 if p.get('name') == 'NovaD1':
                     if p.get('ver') != _pkg_version():
                         self.pkg_new = p.get('ver')
                     break
-        except Exception:
+        except Exception as e:
             if not self.err:
-                self.err = 'App check failed'
+                self.err = _novacore.oom_message() if _novacore.is_oom(e) \
+                    else 'App check failed'
 
     def _build_rows(self):
         cv, cb = self._cur_os()

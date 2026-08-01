@@ -21,15 +21,24 @@ net = types.ModuleType('net')
 net.status = lambda: {'connected': True}
 
 
-def _wget(url, verbose=False):
+def _wget(url, dest=None, verbose=False, **kw):
+    """The real call now streams to a file — the body is never held in RAM."""
     fetched.append(url)
-    return 200, (IDX if 'index.json' in url else OS_MANIFEST)
+    doc = IDX if 'index.json' in url else OS_MANIFEST
+    if dest is None:
+        return 200, doc
+    with open(dest, 'w') as f:
+        f.write(doc)
+    return 200, len(doc)
 
 
 net.wget = _wget
 sys.modules['net'] = net
 
 import novagui
+import tempfile
+import os as _os
+novagui._FETCH_TMP = _os.path.join(tempfile.mkdtemp(), 'fetch.tmp')
 
 scr = novagui.UpdatesScreen()
 
@@ -61,7 +70,7 @@ t.ok(any('v1.1.0' in l for l in labels), 'the new OS version is offered')
 t.ok(any('9.9.9' in l for l in labels), 'the new app version is offered')
 
 # ------------------------------------------------------------- failure paths
-def _boom(url, verbose=False):
+def _boom(url, dest=None, verbose=False, **kw):
     raise OSError('connection reset')
 
 
@@ -90,5 +99,48 @@ for _ in range(5):
     spins.append(scr4._spin)
 t.ok(scr4.animating() is False or len(set(spins)) > 1,
      'the spinner phase advances while the check runs')
+
+# ------------------------------------------------ the body never lives in RAM
+# net.wget(dest=...) streams to flash; the return-the-body form has to hold the
+# whole document as one contiguous object, immediately after a TLS handshake has
+# taken a 16.7 KB block out of a heap that never compacts.
+import inspect
+_src = inspect.getsource(novagui._fetch_json)
+t.ok('dest=' in _src, 'the manifest fetch streams to a file, not into memory')
+
+_dests = []
+
+
+def _wget_check(url, dest=None, verbose=False, **kw):
+    _dests.append(dest)
+    doc = IDX if 'index.json' in url else OS_MANIFEST
+    with open(dest, 'w') as f:
+        f.write(doc)
+    return 200, len(doc)
+
+
+net.wget = _wget_check
+net.status = lambda: {'connected': True}
+scr5 = novagui.UpdatesScreen()
+for _ in range(8):
+    scr5.tick(40)
+t.ok(_dests and all(d for d in _dests), 'every fetch supplied a destination file')
+t.ok(not _os.path.exists(novagui._FETCH_TMP),
+     'and the temp file is cleaned up afterwards')
+
+# --------------------------------------------- out of memory is not a dead end
+def _oom(url, dest=None, verbose=False, **kw):
+    raise OSError(12)                      # ENOMEM, the shape mbedTLS raises
+
+
+net.wget = _oom
+scr6 = novagui.UpdatesScreen()
+for _ in range(8):
+    scr6.tick(40)
+t.eq(scr6.state, 'done', 'an out-of-memory check still completes')
+t.ok('memory' in scr6.err.lower(),
+     'and is reported as a memory problem, not a generic failure (got {!r})'.format(
+         scr6.err))
+t.ok('reboot' in scr6.err.lower(), 'with something the user can actually do')
 
 sys.exit(t.done())

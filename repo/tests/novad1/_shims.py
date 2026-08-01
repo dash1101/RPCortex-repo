@@ -52,9 +52,13 @@ def install():
             ticks_diff=lambda a, b: a - b, ticks_add=lambda a, b: a + b,
             sleep_ms=lambda ms: None, sleep_us=lambda us: None,
             time=lambda: int(_t.time()), localtime=lambda *a: _t.localtime(*(a or ())))
+        # remove() is real: code that writes a temp file and deletes it in a
+        # finally must be provable here, and a no-op stub silently passes a test
+        # that the device would fail.
         sys.modules['uos'] = types.SimpleNamespace(
             urandom=os.urandom, listdir=lambda p='.': [],
-            stat=lambda p: (_ for _ in ()).throw(OSError), mkdir=lambda p: None)
+            stat=lambda p: (_ for _ in ()).throw(OSError), mkdir=lambda p: None,
+            remove=os.remove)
         sys.modules['regedit'] = types.SimpleNamespace(
             read=lambda k: _REG.get(k), save=lambda k, v: _REG.__setitem__(k, v) or True)
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
