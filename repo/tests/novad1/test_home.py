@@ -141,4 +141,44 @@ t.eq(ck.sw_ms, 0, 'SELECT resets a stopped stopwatch')
 t.eq(ck.on_event(ev.BACK), ev.BACK, 'BACK exits the clock')
 t.eq(novagui._app_category('clock'), 'Tools', 'clock is a Tools app')
 
+# --------------------------------------------------------- the Testing folder
+# Demo/sample apps get their own folder rather than being filed by verb-counting:
+# the TV remote is a demo OF the IR app, so counting its 'ir' verbs put it in
+# Wireless next to the real radios. An explicit 'category:' header overrides that.
+import novaappcfg
+t.eq(novaappcfg.auto_category('buttons', 'title: TV\ncategory: Testing\nA = ir x y\n'),
+     'Testing', "an explicit 'category:' header wins over verb-counting")
+t.eq(novaappcfg.auto_category('buttons', 'title: TV\nA = ir x y\n'),
+     'Wireless', 'without the header, verb-counting still decides')
+t.eq(novaappcfg.auto_category('buttons', 'category: Nonsense\nA = ir x y\n'),
+     'Wireless', 'an unknown category name is ignored, not obeyed')
+
+import nova
+_ttl, _btns = nova.parse_buttons('title: TV\ncategory: Testing\nPower = ir tv.ir Power\n')
+t.eq([b[0] for b in _btns], ['Power'],
+     "the 'category:' header is not parsed as a button")
+
+t.eq(novagui._app_category('kbd'), 'Testing', 'the keyboard demo lives in Testing')
+
+# The LED app is gone (no addressable NeoPixel on the board) — it must not come
+# back to the home, and it must still be reachable as a hardware probe.
+_all = [k for k, _l, _f in novagui._all_apps()]
+t.ok('led' not in _all, 'no LED app on the home')
+# Assert the LED is REACHABLE, not just that its key sits in a tuple — the two
+# are different claims and only the first one is the promise being made.
+t.ok('Status LED' in [i[0] for i in novagui._diag_app().items],
+     'the LED is still testable from the Hardware menu')
+
+# End-to-end: the file the installer actually seeds must land in Testing. Testing
+# auto_category in isolation does not prove the seeded text reaches the folder.
+_tv = ('# IR remote template\n'
+       'title: TV\ncategory: Testing\n'
+       'Power = ir tv.ir Power\nVol+ = ir tv.ir Vol_up\n')
+novastore.list_codes = lambda cat: ['tv_remote.txt'] if cat == 'scripts' else []
+novastore.read_code = lambda cat, n: _tv
+_folders = {it[1].split(' (')[0]: it for it in novagui.build_home({}).items}
+t.ok('Testing' in _folders, 'the Testing folder exists on the home')
+t.ok('TV' in [x[1] for x in _folders['Testing'][2]().items],
+     'the seeded TV remote lands in Testing, not next to the real radios')
+
 sys.exit(t.done())

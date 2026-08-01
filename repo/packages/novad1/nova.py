@@ -240,6 +240,8 @@ def parse_buttons(text):
         if low.startswith('title:'):
             title = line.split(':', 1)[1].strip() or title
             continue
+        if low.startswith('category:'):
+            continue                  # a header for the home folder, not a button
         if '=' in line:
             lbl, act = line.split('=', 1)
             lbl = lbl.strip()

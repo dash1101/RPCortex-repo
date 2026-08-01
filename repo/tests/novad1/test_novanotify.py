@@ -46,4 +46,32 @@ N.clear()
 t.eq(N.count(), 0, 'clear zeroes count')
 t.eq(len(N.items()), 0, 'clear empties queue')
 
+# --------------------------------------------------- the onboard LED alert
+# The board has no addressable NeoPixel any more, so the status LED signals
+# notifications instead. It must be gated, and it must NEVER raise into notify()
+# — a board with no LED at all still has to be able to post a notification.
+_shims.set_reg({})
+t.ok(N._led_alert() is None, 'the LED alert runs clean with nothing wired')
+_shims.set_reg({'Apps.NovaD1_Notify_LED': 'off'})
+t.ok(N._led_alert() is None, 'and is a no-op when switched off')
+
+_boom = []
+import machine as _m
+_realpin = _m.Pin
+
+
+class _DeadPin:
+    def __init__(s, *a, **k):
+        _boom.append(1)
+        raise RuntimeError('no such pin')
+
+
+_m.Pin = _DeadPin
+_shims.set_reg({})
+try:
+    t.ok(N.notify('still works') is True,
+         'a notification posts even when the LED pin blows up')
+finally:
+    _m.Pin = _realpin
+
 sys.exit(t.done())

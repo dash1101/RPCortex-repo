@@ -12,40 +12,74 @@ def _box(c, cx, cy, r, col=1):
     c.rect(cx - r, cy - r, 2 * r, 2 * r, col)
 
 
+
 def _thermo(c, cx, cy, r):            # DHT11 — thermometer
-    c.fill_circle(cx, cy + r - 2, max(2, r // 2), 1)
-    c.vline(cx, cy - r, r, 1)
-    c.vline(cx - 1, cy - r, r, 1)
-    for i in range(2):
-        c.hline(cx + 1, cy - r + 2 + i * 3, max(2, r // 3), 1)
+    bulb = max(2, r // 2)
+    by = cy + r - bulb
+    c.fill_circle(cx, by, bulb, 1)
+    tw = max(2, bulb - 1)                       # tube width tracks the bulb
+    ty = cy - r
+    c.rect(cx - tw // 2, ty, tw + 1, by - ty, 1)
+    for i in range(3):                          # graduations on the right
+        yy = ty + 3 + i * max(2, (by - ty - 5) // 3)
+        if yy < by - bulb:
+            c.hline(cx + tw // 2 + 2, yy, max(2, r // 3), 1)
+
 
 
 def _pin(c, cx, cy, r):               # GPS — map pin
-    c.circle(cx, cy - r // 3, r - r // 3, 1)
-    c.pixel(cx, cy - r // 3, 1)
-    c.line(cx - (r - r // 3), cy - r // 3 + 1, cx, cy + r, 1)
-    c.line(cx + (r - r // 3), cy - r // 3 + 1, cx, cy + r, 1)
+    # A ring on a teardrop whose point reaches the bottom of the cell, so it reads
+    # as "planted" rather than as a balloon.
+    hr = max(2, (2 * r) // 5)
+    hy = cy - r + hr + 1
+    c.circle(cx, hy, hr, 1)
+    c.circle(cx, hy, max(1, hr // 2), 1)
+    tip = cy + r
+    c.line(cx - hr, hy + hr // 2, cx, tip, 1)
+    c.line(cx + hr, hy + hr // 2, cx, tip, 1)
 
 
-def _nfc(c, cx, cy, r):               # NFC/PN532 — card + contactless waves
-    c.rect(cx - r, cy - r // 2, r + 2, r, 1)
-    for i in range(3):
-        c.line(cx + 2 + i * 3, cy - r // 2, cx + 2 + i * 3, cy + r // 2, 1)
+def _nfc(c, cx, cy, r):               # NFC — a card with contactless waves
+    w = r                                    # card occupies the left half
+    c.rect(cx - r, cy - r // 2, w, r, 1)
+    c.hline(cx - r + 2, cy - r // 4, max(2, w // 2), 1)     # chip
+    for i in range(1, 4):                                   # waves off the right
+        rr = (r * i) // 3
+        c.line(cx + rr // 2, cy - rr, cx + rr, cy, 1)
+        c.line(cx + rr, cy, cx + rr // 2, cy + rr, 1)
 
 
-def _radio(c, cx, cy, r):             # Sub-GHz/CC1101 — mast + waves
-    c.vline(cx, cy - r // 2, r + r // 2, 1)
-    c.fill_circle(cx, cy - r // 2, 1, 1)
-    for i in range(1, 3):
-        c.line(cx - i * 3, cy - r, cx - i * 2, cy, 1)
-        c.line(cx + i * 3, cy - r, cx + i * 2, cy, 1)
+
+def _radio(c, cx, cy, r):             # Sub-GHz/CC1101 — a transmitter mast
+    # A braced mast, not a whip: this is the shape that tells CC1101 apart from
+    # the LoRa antenna at a glance.
+    base = cy + r
+    top = cy - r // 2
+    sp = max(2, r // 2)
+    c.line(cx - sp, base, cx, top, 1)
+    c.line(cx + sp, base, cx, top, 1)
+    for i in (1, 2):                                    # cross-braces
+        yy = base - (base - top) * i // 3
+        hw = sp * (3 - i) // 3
+        c.hline(cx - hw, yy, 2 * hw + 1, 1)
+    c.fill_circle(cx, top, 1, 1)
+    for i in (1, 2):                                    # emission chevrons
+        s = i * max(2, r // 2)
+        c.line(cx - s, top - s // 3, cx - s // 2, top + s // 4, 1)
+        c.line(cx + s, top - s // 3, cx + s // 2, top + s // 4, 1)
 
 
-def _antenna(c, cx, cy, r):           # LoRa/SX1276 — antenna radiating
-    c.vline(cx, cy - r // 4, r, 1)
-    c.fill_circle(cx, cy - r // 4, 1, 1)
-    c.line(cx, cy - r // 4, cx - r, cy - r, 1)
-    c.line(cx, cy - r // 4, cx + r, cy - r, 1)
+
+def _antenna(c, cx, cy, r):           # LoRa/SX1276 — a whip antenna radiating
+    # A straight rod on a foot, radiating upward. The tower shape is CC1101's; the
+    # two have to be told apart at neighbour size, so they don't share a silhouette.
+    base = cy + r - 1
+    tip = cy - r // 3
+    c.vline(cx, tip, base - tip, 1)
+    c.hline(cx - max(2, r // 3), base, 2 * max(2, r // 3) + 1, 1)
+    c.fill_circle(cx, tip, 1, 1)
+    for i in (1, 2):
+        _uarc(c, cx, tip, i * max(2, r // 3))
 
 
 def _bt(c, cx, cy, r):                # Bluetooth rune
@@ -58,16 +92,21 @@ def _bt(c, cx, cy, r):                # Bluetooth rune
     c.line(cx - r // 2, cy + r // 2, cx + r // 2, cy - r // 2, 1)
 
 
-def _remote(c, cx, cy, r, up):        # IR — beam into/out of a sensor box
-    c.rect(cx - r // 2, cy, r, r, 1)
-    dy = -1 if up else 1
-    for i in range(3):
-        yy = cy + (dy * (i * 2 + 1))
-        c.hline(cx - r + i, yy if up else cy - 1 - i, 2, 1)
-    for i in range(3):
-        base = cy - 1 if up else cy
-        c.line(cx - r // 3 + i * (r // 3), base, cx - r // 3 + i * (r // 3),
-               base - (r if up else -r), 1)
+def _remote(c, cx, cy, r, up):        # IR — an emitter/receiver with a beam
+    # The body sits at the bottom, the beam fans upward (TX) or inward (RX), and
+    # both scale from r so the shape survives being shrunk to a neighbour icon.
+    bw, bh = r, max(3, r)
+    c.rect(cx - bw // 2, cy + r - bh, bw, bh, 1)
+    c.hline(cx - bw // 2 + 1, cy + r - bh + 2, max(1, bw - 2), 1)
+    tip = cy + r - bh
+    for i in (0, 1, 2):
+        span = max(2, (r * (i + 1)) // 3)
+        yy = tip - span
+        if up:
+            c.line(cx - span // 2, yy, cx, tip - 1, 1)
+            c.line(cx + span // 2, yy, cx, tip - 1, 1)
+        else:
+            c.hline(cx - span // 2, yy, span, 1)
 
 
 def _key(c, cx, cy, r):               # iButton — key
@@ -116,19 +155,30 @@ def _led(c, cx, cy, r):               # status LED — sun/glow
         c.line(cx + a[0] // 2, cy + a[1] // 2, cx + a[0], cy + a[1], 1)
 
 
+
 def _wifi(c, cx, cy, r):
-    c.fill_circle(cx, cy + r - 1, 1, 1)
-    for rr in range(r // 2, r + 1, max(1, r // 3)):
-        for dx in range(-rr, rr + 1):
-            dy2 = rr * rr - dx * dx
-            if dy2 >= 0:
-                c.pixel(cx + dx, cy + r - 1 - int(dy2 ** 0.5), 1)
+    # Three solid arcs over a dot. Drawn with a real arc walker (see _uarc) — the
+    # old per-column circle sample left gaps and shattered at neighbour size.
+    base = cy + r - 1
+    c.fill_circle(cx, base, max(1, r // 5), 1)
+    step = max(2, r // 3)
+    for i in (1, 2, 3):
+        _uarc(c, cx, base, i * step)
 
 
-def _doc(c, cx, cy, r):               # scripts — document
-    c.rect(cx - r // 2, cy - r, r, 2 * r, 1)
-    for i in range(3):
-        c.hline(cx - r // 2 + 2, cy - r // 2 + i * 3, r - 4, 1)
+def _doc(c, cx, cy, r):               # Logs — a page of lines with a folded corner
+    w, h = int(1.4 * r), 2 * r
+    x, y = cx - w // 2, cy - r
+    fold = max(2, r // 3)
+    c.hline(x, y, w - fold, 1)
+    c.line(x + w - fold, y, x + w - 1, y + fold, 1)         # folded corner
+    c.vline(x + w - 1, y + fold, h - fold, 1)
+    c.vline(x, y, h, 1)
+    c.hline(x, y + h - 1, w, 1)
+    for i in range(3):                                      # text lines
+        yy = y + fold + 2 + i * max(2, (h - fold - 4) // 3)
+        if yy < y + h - 2:
+            c.hline(x + 2, yy, w - 5, 1)
 
 
 def _gear(c, cx, cy, r):              # Settings — a toothed gear
@@ -145,6 +195,8 @@ def _gear(c, cx, cy, r):              # Settings — a toothed gear
     d = int(body * 0.72)
     for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
         c.fill_rect(cx + dx * d - tw // 2, cy + dy * d - tw // 2, tw, tw, 1)
+
+
 def _check(c, cx, cy, r):             # System Check — clipboard + tick
     w = 2 * r - 2
     c.rect(cx - r + 1, cy - r + 2, w, 2 * r - 3, 1)
@@ -155,12 +207,19 @@ def _check(c, cx, cy, r):             # System Check — clipboard + tick
     c.line(cx - 1, cy + t, cx + t + 1, cy - t, 1)
 
 
-def _chat(c, cx, cy, r):              # Messages — speech bubble
-    c.rect(cx - r, cy - r, 2 * r, int(1.4 * r), 1)
-    c.line(cx - r // 2, cy - r + int(1.4 * r), cx - r // 3, cy + r, 1)
-    c.line(cx - r // 3, cy + r, cx, cy - r + int(1.4 * r), 1)
-    for i in range(3):
-        c.pixel(cx - r // 2 + i * (r // 2), cy - r // 3, 1)
+def _chat(c, cx, cy, r):              # Messages — a rounded speech bubble
+    w, h = 2 * r, int(1.3 * r)
+    x, y = cx - r, cy - r
+    # rounded body: corners knocked out so it reads soft rather than boxy
+    c.hline(x + 1, y, w - 2, 1)
+    c.hline(x + 1, y + h, w - 2, 1)
+    c.vline(x, y + 1, h - 1, 1)
+    c.vline(x + w - 1, y + 1, h - 1, 1)
+    tail = max(2, r // 3)                                   # tail from the bottom
+    c.line(x + tail, y + h, x + tail, y + h + tail, 1)
+    c.line(x + tail, y + h + tail, x + tail * 2 + 1, y + h, 1)
+    for i in range(3):                                      # message dots
+        c.pixel(x + (w // 4) * (i + 1), y + h // 2, 1)
 
 
 def _power(c, cx, cy, r):             # power symbol (ring + break + stem)
@@ -169,12 +228,20 @@ def _power(c, cx, cy, r):             # power symbol (ring + break + stem)
     c.vline(cx, cy - r - 1, r + 2, 1)
 
 
-def _notes(c, cx, cy, r):             # Notifications — bell
-    c.line(cx - r + 1, cy + r - 2, cx, cy - r, 1)
-    c.line(cx + r - 1, cy + r - 2, cx, cy - r, 1)
-    c.hline(cx - r + 1, cy + r - 2, 2 * r - 2, 1)
-    c.fill_circle(cx, cy + r - 1, 1, 1)
-    c.fill_circle(cx, cy - r, 1, 1)
+
+def _notes(c, cx, cy, r):             # Notifications — a bell
+    # Built by mirroring around cx, so it can never end up visually off-centre.
+    top = cy - r + 1
+    rim = cy + r - max(2, r // 3) - 1
+    hw = r - 1                                   # half width at the rim
+    cr = max(2, hw // 2)                         # radius of the domed crown
+    c.vline(cx, top - 1, max(1, r // 4), 1)      # the little knob
+    _uarc(c, cx, top + cr, cr)                   # dome
+    for sgn in (-1, 1):                          # shoulders flaring to the rim
+        c.line(cx + sgn * cr, top + cr, cx + sgn * hw, rim, 1)
+    c.hline(cx - hw, rim, 2 * hw + 1, 1)         # rim, two rows so it reads solid
+    c.hline(cx - hw + 1, rim + 1, 2 * hw - 1, 1)
+    c.fill_circle(cx, rim + max(2, r // 3), max(1, r // 4), 1)      # clapper
 
 
 def _clock(c, cx, cy, r):             # Clock — dial + hands
@@ -184,15 +251,22 @@ def _clock(c, cx, cy, r):             # Clock — dial + hands
     c.pixel(cx, cy, 1)
 
 
-def _wrench(c, cx, cy, r):            # Troubleshoot — wrench, all parts scale
+
+def _wrench(c, cx, cy, r):            # Tools — an open-ended wrench
+    # The handle leaves the RIM of the jaw, not its centre — drawn from the centre
+    # it ran straight through the head, which is what made this look wrong. It is
+    # offset by whole pixels in x and y (NOT perpendicular): a 45-degree line
+    # offset perpendicular leaves a checkerboard and the handle looks dashed.
     head = max(2, r // 2)
-    # shaft from the head down to the opposite corner
-    hx, hy = cx - r + head, cy - r + head
-    tx, ty = cx + r - 2, cy + r - 2
-    c.line(hx, hy, tx, ty, 1)
-    c.line(hx + 1, hy, tx, ty - 1, 1)
-    c.circle(hx, hy, head, 1)                  # open jaws
-    c.fill_rect(hx - head, hy - head, head, head, 0)   # knock the opening out
+    hx, hy = cx - r + head + 1, cy - r + head + 1
+    sx, sy = hx + head, hy + head
+    tx, ty = cx + r - 1, cy + r - 1
+    c.line(sx, sy, tx, ty, 1)
+    c.line(sx + 1, sy, tx, ty - 1, 1)
+    c.line(sx, sy + 1, tx - 1, ty, 1)
+    c.fill_circle(hx, hy, head, 1)                              # jaw...
+    c.fill_circle(hx, hy, max(1, head - 2), 0)                  # ...hollowed
+    c.fill_rect(hx - head - 1, hy - head - 1, head, head, 0)     # mouth, open
 
 
 def _terminal(c, cx, cy, r):          # Commands — terminal window, prompt scales
@@ -229,31 +303,102 @@ def _stethoscope(c, cx, cy, r):       # Diagnostics — pulse/heartbeat trace
     c.hline(cx - r + 11, y, max(2, r - 4), 1)
 
 
-def _wardrive(c, cx, cy, r):          # Wardrive — a car below broadcast waves
-    # car: body + cabin + wheels, sitting on the lower half
-    by = cy + 3
-    c.fill_rect(cx - r + 2, by, 2 * r - 4, 3, 1)
-    c.fill_rect(cx - r + 5, by - 3, r + 1, 3, 1)
-    c.pixel(cx - r + 4, by + 4, 1)
-    c.pixel(cx + r - 5, by + 4, 1)
-    c.hline(cx - r + 3, by + 4, 2, 1)
-    c.hline(cx + r - 6, by + 4, 2, 1)
-    # two broadcast chevrons above (drawn as lines, not knocked-out circles —
-    # the knockout approach erased the car)
-    for k, w in ((0, 4), (3, 7)):
-        ty = cy - 6 + k
-        c.line(cx - w, ty + w // 2, cx, ty, 1)
-        c.line(cx, ty, cx + w, ty + w // 2, 1)
+
+def _wardrive(c, cx, cy, r):          # Wardrive — a car under a broadcast arc
+    # Outlined, not filled: a solid car collapses into an unreadable blob at
+    # neighbour size, which is exactly what it used to do.
+    bw = 2 * r - 2
+    bx = cx - bw // 2
+    wheel = max(1, r // 4)
+    base = cy + r - wheel                        # axle line
+    bh = max(2, r // 3)
+    c.rect(bx, base - bh, bw, bh, 1)             # lower body
+    ch = max(2, r // 3)                          # cabin, inset both sides
+    inset = max(1, bw // 5)
+    c.rect(bx + inset, base - bh - ch + 1, bw - 2 * inset, ch, 1)
+    c.fill_rect(bx + inset + 1, base - bh, bw - 2 * inset - 2, 1, 0)
+    c.circle(bx + inset, base, wheel, 1)         # wheels
+    c.circle(bx + bw - inset, base, wheel, 1)
+    _uarc(c, cx, base - bh - ch - 1, max(3, r - 1))          # the sweep overhead
+    _uarc(c, cx, base - bh - ch - 1, max(2, (2 * r) // 3))
+
+
+def _scroll(c, cx, cy, r):            # Scripts — a scroll with rolled ends
+    # Two thin rolls with a written sheet between. The lines of writing are short
+    # and RAGGED (the last one is stubby) — even-length full-width rules read as
+    # slats, and the whole icon turned into a window blind.
+    w = 2 * r - 3
+    x = cx - w // 2
+    top, bot = cy - r + 1, cy + r - 3
+    c.rect(x, top, w, 3, 1)                      # top roll
+    c.rect(x, bot, w, 3, 1)                      # bottom roll
+    c.vline(x + 1, top + 3, bot - top - 3, 1)    # the sheet
+    c.vline(x + w - 2, top + 3, bot - top - 3, 1)
+    inner = bot - top - 4
+    n = min(3, max(1, inner // 5))
+    for i in range(n):
+        yy = top + 6 + i * (inner // n if n else 4)
+        if yy < bot - 1:
+            ln = w - 6 if i < n - 1 else (w - 6) // 2
+            c.hline(x + 3, yy, max(2, ln), 1)
+
+
+def _medkit(c, cx, cy, r):            # Repair — a med kit (cross on a case)
+    # Distinct from the Tools wrench, and every part is derived from r so the
+    # cross stays centred and square when the icon shrinks.
+    w, h = 2 * r, 2 * r - 2
+    x, y = cx - r, cy - r + 1
+    c.rect(x, y, w, h, 1)
+    hw = max(2, r // 2)                                  # handle on the lid
+    c.hline(cx - hw // 2, y - 1, hw, 1)
+    t = max(1, r // 3)                                   # cross bar thickness
+    a = max(3, r)                                        # cross arm span
+    c.fill_rect(cx - t // 2, cy - a // 2, t, a, 1)
+    c.fill_rect(cx - a // 2, cy - t // 2, a, t, 1)
+
+
+def _uarc(c, cx, cy, rr):
+    """Upper semicircle (Bresenham). Used for the WiFi/LoRa arcs — sampling a
+    circle equation per-column left gaps that turned to dust at neighbour size."""
+    x, y, d = 0, rr, 1 - rr
+    while x <= y:
+        for a, b in ((x, y), (y, x)):
+            c.pixel(cx + a, cy - b, 1)
+            c.pixel(cx - a, cy - b, 1)
+        if d < 0:
+            d += 2 * x + 3
+        else:
+            d += 2 * (x - y) + 5
+            y -= 1
+        x += 1
+
+
+def _kbd(c, cx, cy, r):               # Keyboard — a case with keys and a space bar
+    w, h = 2 * r, max(6, int(1.3 * r))
+    x, y = cx - r, cy - h // 2
+    c.rect(x, y, w, h, 1)
+    step = max(2, (w - 4) // 4)
+    rows = 2 if h < 12 else 3
+    for row in range(rows):
+        yy = y + 2 + row * max(2, (h - 5) // rows)
+        if yy >= y + h - 3:
+            break
+        for i in range(4):
+            xx = x + 2 + i * step
+            if xx < x + w - 2:
+                c.hline(xx, yy, max(1, step - 1), 1)
+    c.hline(x + 3, y + h - 3, w - 6, 1)                      # space bar
 
 
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
-    'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
-    'check': _check, 'msg': _chat, 'power': _power, 'notes': _notes,
-    'clock': _clock, 'fix': _wrench, 'cmds': _terminal, 'store': _store,
-    'diag': _stethoscope, 'wardrive': _wardrive,
+    'wifi': _wifi, 'scripts': _scroll, 'settings': _gear, 'logs': _doc,
+    'tools': _wrench, 'check': _check, 'msg': _chat, 'power': _power,
+    'notes': _notes, 'clock': _clock, 'fix': _medkit, 'cmds': _terminal,
+    'kbd': _kbd, 'store': _store, 'diag': _stethoscope,
+    'wardrive': _wardrive,
 }
 
 

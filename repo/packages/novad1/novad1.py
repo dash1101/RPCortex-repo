@@ -873,6 +873,7 @@ def _seed_scripts():
         tv = ("# IR remote template — record buttons into tv.ir first (IR app),\n"
               "# then each line fires a saved signal by name.\n"
               "title: TV\n"
+              "category: Testing\n"
               "Power = ir tv.ir Power\n"
               "Vol+ = ir tv.ir Vol_up\n"
               "Vol- = ir tv.ir Vol_dn\n"

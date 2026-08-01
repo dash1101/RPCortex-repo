@@ -5,15 +5,16 @@
 # `app.*` keys instead of `pkg.*`:
 #     app.name: BLE Pranks
 #     app.ver: 1.0.0
-#     app.category: auto        (or Wireless / Sensors / Tools / System)
+#     app.category: auto        (or Wireless / Sensors / Tools / System / Testing)
 #     app.kind: buttons         (buttons | py)
 #     app.entry: ble-pranks.txt
 #     app.desc: ...
 # When app.category is 'auto' (or missing), the home category is derived from the
-# app's content — a button-grid's dominant action verb picks the folder.
+# app's content: an explicit 'category:' line in the script wins, else a
+# button-grid's dominant action verb picks the folder.
 # MicroPython-safe: no f-strings, positional split, .format() only.
 
-_CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System')
+_CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System', 'Testing')
 # action verb -> home category (for auto-categorising by content).
 _VERB_CAT = {
     'ble': 'Wireless', 'lora': 'Wireless', 'subghz': 'Wireless', 'ir': 'Wireless',
@@ -38,9 +39,22 @@ def parse(text):
 
 
 def auto_category(kind, content):
-    """Pick a home category from an app's content. For a button grid, the most-used
-    action verb's category wins; anything unrecognised -> Tools."""
+    """Pick a home category from an app's content. An explicit 'category:' header
+    line wins outright; otherwise, for a button grid, the most-used action verb's
+    category wins and anything unrecognised lands in Tools.
+
+    The header exists so a shipped sample can say where it belongs — the TV remote
+    is a demo of the IR app, not a wireless tool, and verb-counting alone would
+    always file it under Wireless."""
     counts = {}
+    if content:
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.lower().startswith('category:'):
+                c = line.split(':', 1)[1].strip()
+                for known in _CATEGORIES:
+                    if c.lower() == known.lower():
+                        return known
     if kind == 'buttons' and content:
         for line in content.split('\n'):
             line = line.strip()

@@ -1,4 +1,4 @@
-# Desc: Nova D1 sensor + utility app screens (LED / Battery / Environment / Clock).
+# Desc: Nova D1 sensor + utility app screens (Battery / Environment / Clock).
 # File: /Packages/NovaD1/novagui_sensors.py
 #
 # Split out of novagui (the monolith de-cluttering). These are self-contained real
@@ -7,66 +7,6 @@
 # See ARCHITECTURE.md. MicroPython-safe: no f-strings, .format() only.
 
 from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, _scroll_tri, fit as _fit  # noqa
-
-
-class LedScreen(Screen):
-    """Control the WS2812 status LED — turn the encoder to pick a colour (applied
-    LIVE so the LED changes as you turn), Select to keep it. A real app in place of
-    the old LED hardware-test."""
-    COLORS = [('Off', (0, 0, 0)), ('Red', (120, 0, 0)), ('Orange', (120, 45, 0)),
-              ('Yellow', (110, 110, 0)), ('Green', (0, 120, 0)), ('Cyan', (0, 110, 110)),
-              ('Blue', (0, 0, 150)), ('Purple', (95, 0, 130)), ('Pink', (130, 20, 70)),
-              ('White', (90, 90, 90)), ('Warm', (120, 65, 20))]
-
-    def __init__(self):
-        self.title = 'LED'
-        self.sel = 0
-        self.msg = 'turn=pick Sel=set'
-        self._apply()
-
-    def _apply(self):
-        try:
-            import novamods
-            novamods.set_led(*self.COLORS[self.sel][1])
-        except Exception:
-            pass
-
-    def draw(self, c):
-        name, (r, g, b) = self.COLORS[self.sel]
-        c.text(2, _TOP, 'Status LED', 1)
-        c.text(2, _TOP + _ROWH, name, 1)
-        c.rect(c.w - 40, _TOP - 1, 34, 2 * _ROWH, 1)         # swatch frame
-        if r or g or b:
-            c.fill_rect(c.w - 38, _TOP + 1, 30, 2 * _ROWH - 4, 1)
-        else:
-            c.text(c.w - 33, _TOP + _ROWH - 3, 'off', 1)
-        n = len(self.COLORS)                                 # palette position dots
-        y = _TOP + 2 * _ROWH + 3
-        for i in range(n):
-            x = 2 + i * 7
-            if i == self.sel:
-                c.fill_rect(x, y, 5, 5, 1)
-            else:
-                c.rect(x, y, 5, 5, 1)
-        _fit(c, 2, c.h - _FH, self.msg)
-
-    def on_event(self, e):
-        if e == ev.ROT_CW:
-            self.sel = (self.sel + 1) % len(self.COLORS)
-            self._apply()
-            self.msg = 'turn=pick Sel=set'
-            return None
-        if e == ev.ROT_CCW:
-            self.sel = (self.sel - 1) % len(self.COLORS)
-            self._apply()
-            self.msg = 'turn=pick Sel=set'
-            return None
-        if e == ev.SELECT:
-            self.msg = 'set: ' + self.COLORS[self.sel][0]
-            return None
-        if e in (ev.BACK, ev.HOME):
-            return e
-        return None
 
 
 class BatteryScreen(Screen):
@@ -119,7 +59,7 @@ class EnvironmentScreen(Screen):
     """Live temperature + humidity (DHT11) with min/max. A real app in place of the
     DHT hardware-test."""
     def __init__(self):
-        self.title = 'Environment'
+        self.title = 'Climate'
         self._acc = 0
         self.t = None
         self.h = None
@@ -138,7 +78,7 @@ class EnvironmentScreen(Screen):
             self.tmax = self.t if self.tmax is None else max(self.tmax, self.t)
 
     def draw(self, c):
-        c.text(2, _TOP, 'Environment', 1)
+        c.text(2, _TOP, 'Temp / Humidity', 1)
         if self.t is None:
             c.text(2, _TOP + _ROWH, 'reading...', 1)
             _fit(c, 2, _TOP + 2 * _ROWH, '(no DHT? check pin)')

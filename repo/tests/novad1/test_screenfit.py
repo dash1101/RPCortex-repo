@@ -44,6 +44,14 @@ SCREENS = (
     ('troubleshoot', novagui._troubleshoot_menu),
     ('commands', novagui._commands_menu),
     ('settings', novagui._settings_menu),
+    # Each settings GROUP too — they're the screens the top level pushes into, and
+    # they carry the long value strings (panel names, timeouts) most likely to run
+    # off the right edge.
+    ('settings_display', novagui._mk_group('Display', novagui._rows_display)),
+    ('settings_home', novagui._mk_group('Home', novagui._rows_home)),
+    ('settings_network', novagui._mk_group('Network', novagui._rows_network)),
+    ('settings_security', novagui._mk_group('Security', novagui._rows_security)),
+    ('settings_system', novagui._mk_group('System', novagui._rows_system)),
     ('stealth', novagui.StealthSplashScreen),
     ('shutdown', novagui.ShutdownScreen),
     ('splash', novagui.SplashScreen),
@@ -56,7 +64,6 @@ SCREENS = (
     ('wifi', novagui_system.WiFiScreen),
     ('time', novagui_system.TimeScreen),
     ('notifications', novagui_system.NotificationsScreen),
-    ('led', novagui_sensors.LedScreen),
     ('battery', novagui_sensors.BatteryScreen),
     ('environment', novagui_sensors.EnvironmentScreen),
 )
@@ -105,5 +112,43 @@ try:
     t.ok(drawn and drawn[0][1] == 0, 'no USB + no sense pin -> EMPTY battery icon')
 finally:
     novagui._battery = _orig_batt
+
+# Settings must not scroll below the top level. The whole point of splitting the
+# old 31-row list into groups was that you stop hunting through screens of rows —
+# a group that overflows has quietly undone that.
+_ROWS_VISIBLE = (64 - novagui._TOP) // novagui._ROWH
+for name, fn in (('index', novagui._settings_index),
+                 ('Display', novagui._rows_display), ('Home', novagui._rows_home),
+                 ('Network', novagui._rows_network),
+                 ('Security', novagui._rows_security),
+                 ('System', novagui._rows_system)):
+    n = len(fn())
+    t.ok(n <= _ROWS_VISIBLE,
+         'settings {} fits one screen ({} rows, {} fit)'.format(name, n, _ROWS_VISIBLE))
+
+# Every screen title must fit the status bar. 'Troubleshoot' rendering as
+# 'Trouble' was a reported bug, and it isn't a rendering bug — the bar is only
+# ~55px wide once the clock and four icons have taken their share, so titles have
+# to be short BY DESIGN. This is the assertion that keeps them that way.
+_budget = novagui.title_budget(novacanvas.Canvas(128, 64))
+_probe = novacanvas.Canvas(128, 64)
+_seen = set()
+for name, factory in SCREENS:
+    try:
+        scr = factory()
+    except Exception:
+        continue
+    ttl = getattr(scr, 'title', None)
+    if not ttl or ttl in _seen:
+        continue
+    _seen.add(ttl)
+    t.ok(_probe.text_width(ttl, 1, True) <= _budget,
+         'title {!r} fits the status bar ({}px)'.format(ttl, _budget))
+
+for _k, _lbl, _f in novagui._all_apps():
+    if _k.startswith(('script_', 'pyapp_')):
+        continue
+    t.ok(_probe.text_width(_lbl, 1, True) <= _budget,
+         'app name {!r} fits the status bar'.format(_lbl))
 
 sys.exit(t.done())

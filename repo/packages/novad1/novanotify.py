@@ -68,9 +68,50 @@ def _haptic_alert():
             pass
 
 
+def _led_alert():
+    """Blink the board's status LED twice on a new notification.
+
+    The Nova D1 no longer carries an addressable NeoPixel, so the LED that used to
+    have its own colour-picker app does this instead. Two sources, in order:
+    a `led` pin from the board profile (an external LED, if one is wired), else the
+    Pico W-class onboard LED, which is named 'LED' rather than numbered because on
+    the 2 W it hangs off the wireless module, not a GPIO. Gated by
+    Apps.NovaD1_Notify_LED (default on) and fully guarded — silently does nothing
+    off-device or when nothing is wired. Never raises into notify()."""
+    if str(_reg('Apps.NovaD1_Notify_LED', 'on')).lower() in ('off', 'false', '0'):
+        return
+    try:
+        import machine
+        import utime
+    except Exception:
+        return
+    pin = None
+    try:
+        import novaboard
+        gp = novaboard.pin('led')
+        if gp is not None:
+            pin = machine.Pin(gp, machine.Pin.OUT)
+    except Exception:
+        pin = None
+    if pin is None:
+        try:
+            pin = machine.Pin('LED', machine.Pin.OUT)
+        except Exception:
+            return
+    try:
+        for _ in range(2):
+            pin.value(1)
+            utime.sleep_ms(60)
+            pin.value(0)
+            utime.sleep_ms(90)
+    except Exception:
+        pass
+
+
 def notify(text):
     """Push a notification (no-op if notifications are disabled). Fires a short
-    vibe + buzzer alert on the way in (guarded; no-op if unwired)."""
+    vibe + buzzer alert and an LED blink on the way in (all guarded; each is a
+    no-op if unwired)."""
     if not enabled():
         return False
     global _unread
@@ -79,6 +120,7 @@ def notify(text):
         _NOTES.pop(0)
     _unread += 1
     _haptic_alert()
+    _led_alert()
     return True
 
 

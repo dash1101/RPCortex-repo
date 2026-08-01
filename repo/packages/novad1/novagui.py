@@ -181,38 +181,44 @@ def _disk(c, x, y):
 
 
 def draw_status_bar(c, state):
-    # Right-aligned clock, then (battery)(usb)(wifi) leftward, then title fills the
-    # rest — all measured from _ADV so a font swap can't clip the clock. Battery +
-    # USB icons appear ONLY when power info says they're present (no lying icon).
-    # The bar is tight, so its text is drawn NARROW (proportional spacing — same
-    # glyphs, ~25% less width) to leave room for the title and icons.
+    # Right-aligned clock, then (battery)(usb)(wifi) leftward, then the title fills
+    # what's left — all measured from the font so a font swap can't clip anything.
+    # Battery + USB icons appear ONLY when power info says they're present (no
+    # lying icon).
+    #
+    # 128px against five icons is genuinely tight, so the bar spends every pixel it
+    # can on the title: both the clock and the title are drawn NARROW (proportional
+    # spacing — same glyphs, ~25% less width) and the icons sit on a 2px gap rather
+    # than 3. That is still only ~52px of title, which is why screen titles are
+    # short by design; test_screenfit asserts every one of them fits the WORST case
+    # (bell + battery + USB + wifi all showing) so nothing can lose a letter again.
     w = c.w
     tstr = state.get('time', '--:--')
-    tw = c.text_width(tstr)
+    tw = c.text_width(tstr, 1, True)
     tx = w - tw
-    c.text(tx, 1, tstr, 1)
-    x = tx - 3
+    c.text(tx, 1, tstr, 1, 1, True)
+    x = tx - 2
     pwr = state.get('power') or {}
     if pwr.get('usb'):
         # On USB: show the USB icon (mains power, battery level irrelevant).
         x -= 7
         _usb(c, x, 1)
-        x -= 3
+        x -= 2
         if pwr.get('have'):                 # charging with a sensed pack: show both
             x -= 12
             _battery(c, x, 2, pwr.get('pct', 0), pwr.get('low'))
-            x -= 3
+            x -= 2
     elif pwr.get('have'):
         x -= 12
         _battery(c, x, 2, pwr.get('pct', 0), pwr.get('low'))
-        x -= 3
+        x -= 2
     else:
         # Running, but NOT on USB and with no battery sense pin — it must be on
         # battery (VSYS) with an unknown level, so show an EMPTY battery rather
         # than nothing, which read as "no power source".
         x -= 12
         _battery(c, x, 2, 0, False)
-        x -= 3
+        x -= 2
     x -= 8
     _wifi(c, x, 2, state.get('wifi', False))
     if state.get('saving'):                 # SD backup in progress -> save icon
@@ -222,11 +228,21 @@ def draw_status_bar(c, state):
         x -= 9
         _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
-    avail = max(0, x - 4)
-    while title and c.text_width(title) > avail:
+    avail = title_budget(c, x)
+    while title and c.text_width(title, 1, True) > avail:
         title = title[:-1]
-    c.text(2, 1, title, 1)
+    c.text(2, 1, title, 1, 1, True)
     c.hline(0, _BARH, w, 1)
+
+
+def title_budget(c, x=None):
+    """Pixels a status-bar title may use. With no x, the worst PERSISTENT case:
+    clock + battery + USB + wifi + the unread-notification bell. The SD-save icon
+    is left out on purpose — it appears only during a backup, so budgeting for it
+    would shorten every title on the device to buy nothing."""
+    if x is None:
+        x = c.w - c.text_width('88:88', 1, True) - 2 - 7 - 2 - 12 - 2 - 8 - 9
+    return max(0, x - 4)
 
 
 # --- screens ----------------------------------------------------------------
@@ -795,7 +811,7 @@ def _ble_app():
     ])
 
 
-from novagui_sensors import LedScreen, BatteryScreen, EnvironmentScreen, ClockScreen
+from novagui_sensors import BatteryScreen, EnvironmentScreen, ClockScreen
 
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
@@ -1420,6 +1436,176 @@ def _update_status():
     return TextScreen('Installed', lines)
 
 
+def _os_manifest_url():
+    """The OTA manifest for the channel this device tracks (stable vs beta)."""
+    from novacore import reg as _r
+    beta = str(_r('Settings.Update_Channel', '')).strip().lower() == 'beta'
+    return ('https://rpc.novalabs.app/releases/'
+            + ('latest-dev.json' if beta else 'latest.json'))
+
+
+def _pkg_version(name='NovaD1'):
+    try:
+        with open('/Packages/' + name + '/package.cfg') as f:
+            for ln in f.read().split('\n'):
+                if ln.startswith('pkg.ver'):
+                    return ln.split(':', 1)[1].strip()
+    except Exception:
+        pass
+    return '?'
+
+
+class UpdatesScreen(Screen):
+    """A real update view instead of a shell dump: it fetches the manifests itself
+    and renders what's installed vs what's available, with one action per component.
+    Turn to pick a row, SELECT to act."""
+    title = 'Updates'
+
+    def __init__(self):
+        self.rows = []
+        self.sel = 0
+        self.state = 'idle'      # idle | checking | done
+        self._spin = 0
+        self._frames = 0
+        self.os_new = None       # (version, build, notes) when an OS update exists
+        self.pkg_new = None      # (version) when a package update exists
+        self.err = ''
+
+    # ---- data -------------------------------------------------------------
+    def _cur_os(self):
+        v = b = '?'
+        try:
+            from novacore import reg as _r
+            v = _r('Settings.Version', '?')
+            b = _r('System.Build', '?')
+        except Exception:
+            pass
+        return v, b
+
+    def _check(self):
+        """Fetch both manifests. Kept short and guarded — any failure just shows a
+        message rather than dumping a traceback."""
+        self.err = ''
+        try:
+            import net
+            if not net.status().get('connected'):
+                self.err = 'No WiFi'
+                return
+        except Exception:
+            self.err = 'No network'
+            return
+        # OS
+        try:
+            import json
+            import net
+            _st, body = net.wget(_os_manifest_url(), verbose=False)
+            m = json.loads(body) if body else {}
+            cv, cb = self._cur_os()
+            lv, lb = m.get('version', '?'), str(m.get('build', ''))
+            if lv != cv or (lb and lb != str(cb)):
+                self.os_new = (lv, lb, m.get('notes', ''))
+        except Exception as e:
+            self.err = 'OS check failed'
+        # Package index
+        try:
+            import json
+            import net
+            _st, body = net.wget(
+                'https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/index.json',
+                verbose=False)
+            idx = json.loads(body) if body else {}
+            for p in idx.get('packages', ()):
+                if p.get('name') == 'NovaD1':
+                    if p.get('ver') != _pkg_version():
+                        self.pkg_new = p.get('ver')
+                    break
+        except Exception:
+            if not self.err:
+                self.err = 'App check failed'
+
+    def _build_rows(self):
+        cv, cb = self._cur_os()
+        rows = [('t', 'OS   ' + str(cv)), ('t', '     build ' + str(cb))]
+        if self.os_new:
+            rows.append(('a', '-> ' + self.os_new[0] + ' b' + self.os_new[1],
+                         'safeboot update online -y'))
+        else:
+            rows.append(('t', '     up to date'))
+        rows.append(('t', 'App  ' + _pkg_version()))
+        if self.pkg_new:
+            rows.append(('a', '-> ' + str(self.pkg_new), 'safeboot pkg upgrade -y'))
+        else:
+            rows.append(('t', '     up to date'))
+        rows.append(('a', 'Check again', None))
+        if self.err:
+            rows.append(('t', '! ' + self.err))
+        self.rows = rows
+        self.sel = next((i for i, r in enumerate(rows) if r[0] == 'a'), 0)
+
+    # ---- screen -----------------------------------------------------------
+    def animating(self):
+        return self.state == 'checking'
+
+    def tick(self, dt_ms=0):
+        if self.state == 'idle':
+            self.state = 'checking'
+            self._frames = 0
+            return True
+        if self.state == 'checking':
+            self._spin += 1
+            self._frames += 1
+            if self._frames < 2:
+                return True          # paint the spinner before blocking
+            self._check()
+            self._build_rows()
+            self.state = 'done'
+            return True
+        return False
+
+    def draw(self, c):
+        if self.state != 'done':
+            _fit(c, 2, _TOP + _ROWH, 'Checking...')
+            spinner(c, c.w - 8, c.h - 8, self._spin)
+            return
+        rows = (c.h - _TOP) // _ROWH
+        top = max(0, min(self.sel - rows + 1, len(self.rows) - rows)) if len(self.rows) > rows else 0
+        for i in range(rows):
+            idx = top + i
+            if idx >= len(self.rows):
+                break
+            kind = self.rows[idx][0]
+            label = self.rows[idx][1]
+            y = _TOP + i * _ROWH
+            if kind == 'a' and idx == self.sel:
+                rounded_rect(c, 0, y - 1, c.w, _ROWH, 1)
+                _fit(c, 3, y, label, 0)
+            else:
+                _fit(c, 3, y, label)
+
+    def on_event(self, e):
+        acts = [i for i, r in enumerate(self.rows) if r[0] == 'a']
+        if not acts:
+            if e in (ev.BACK, ev.HOME):
+                return e
+            return None
+        if e == ev.ROT_CW:
+            nxt = [i for i in acts if i > self.sel]
+            self.sel = nxt[0] if nxt else acts[0]
+        elif e == ev.ROT_CCW:
+            prv = [i for i in acts if i < self.sel]
+            self.sel = prv[-1] if prv else acts[-1]
+        elif e == ev.SELECT:
+            row = self.rows[self.sel]
+            cmd = row[2] if len(row) > 2 else None
+            if cmd is None:                     # 'Check again'
+                self.state = 'idle'
+                self.os_new = self.pkg_new = None
+                return None
+            return CommandScreen('Updating', cmd)
+        elif e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
 def _updates_menu():
     """Updates, split by what is actually being updated — the OS and the Nova D1
     app suite are separate things on separate channels. Both run through safeboot
@@ -1437,7 +1623,7 @@ def _updates_menu():
 def _troubleshoot_menu():
     """Recovery actions one tap away — the things you'd otherwise drop to the shell
     for when something's misbehaving."""
-    return Menu('Troubleshoot', [
+    return Menu('Repair', [
         ('Reconnect WiFi', lambda: CommandScreen('WiFi', 'wifi autoconnect')),
         ('WiFi status', lambda: CommandScreen('WiFi', 'wifi status')),
         ('Blink display', _blink_display),
@@ -1491,22 +1677,27 @@ def _scripts_screen():
 
 # App categories — used by the 'folders' home + a future app manager. An app's key
 # maps to one category; unknown keys fall to Tools.
-_CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System')
+_CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System', 'Testing')
 _APP_CAT = {
     'pn532': 'Wireless', 'bt': 'Wireless', 'cc1101': 'Wireless', 'sx1276': 'Wireless',
     'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless', 'wardrive': 'Wireless',
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
-    'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
-    'store': 'Tools', 'clock': 'Tools',
+    'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'clock': 'Tools',
+    'store': 'Tools', 'cmds': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
-    'fix': 'System', 'cmds': 'System', 'kbd': 'Tools',
+    'fix': 'System',
+    'kbd': 'Testing',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
-_CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'scripts', 'System': 'settings'}
+_CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'tools',
+             'System': 'settings', 'Testing': 'kbd'}
 
 # Modules that are pure hardware probes (no real 'app') — folded into Diagnostics
 # instead of cluttering the home.
-_DIAG_ONLY = ('buzzer', 'vibration', 'ibutton', 'sdcard')
+# 'led' is here rather than being its own app: the board has no addressable
+# NeoPixel any more, so a colour-picker screen controls nothing. The onboard
+# LED is driven by notifications (novanotify._led_alert) instead.
+_DIAG_ONLY = ('buzzer', 'vibration', 'ibutton', 'sdcard', 'led')
 
 
 # Installed script-apps -> their auto-derived category (filled by _script_apps()).
@@ -1611,7 +1802,7 @@ def _diag_app():
         if k == 'ir_tx':
             continue
         items.append((label, _mk_test(k, label)))
-    return Menu('Diagnostics', items)
+    return Menu('Hardware', items)
 
 
 def _mk_folder(cat, apps):
@@ -1734,25 +1925,23 @@ def _all_apps():
             apps.append((k, 'LoRa TX', _lora_tx_app))   # fire saved LoRa payloads
         elif k == 'bt':
             apps.append((k, 'BLE', _ble_app))           # scan + ping (Apple/Android)
-        elif k == 'led':
-            apps.append((k, 'LED', LedScreen))          # real WS2812 colour control
         elif k == 'dht11':
-            apps.append((k, 'Environment', EnvironmentScreen))  # live temp/humidity
+            apps.append((k, 'Climate', EnvironmentScreen))   # live temp/humidity
         elif k == 'battery':
             apps.append((k, 'Battery', BatteryScreen))   # live %, voltage, charging
         elif k in _DIAG_ONLY:
             continue                                    # -> Diagnostics app
         else:
             apps.append((k, l, _mk_test(k, l)))
-    apps.append(('diag', 'Diagnostics', _diag_app))
+    apps.append(('diag', 'Hardware', _diag_app))
     apps.append(('kbd', 'Keyboard', _keyboard_demo))           # rotary text entry
-    apps.append(('fix', 'Troubleshoot', _troubleshoot_menu))   # recovery actions
+    apps.append(('fix', 'Repair', _troubleshoot_menu))         # recovery actions
     apps.append(('cmds', 'Commands', _commands_menu))          # curated shell commands
     apps.append(('store', 'App Store', AppStoreScreen))   # browse + install apps
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('wardrive', 'Wardrive', WardriveScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
-    apps.append(('notes', 'Notifications', NotificationsScreen))
+    apps.append(('notes', 'Alerts', NotificationsScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', ScriptsScreen))
@@ -1971,57 +2160,109 @@ class CommandScreen(Screen):
         return None
 
 
+def _lock_editor():
+    """Open the editor matching the configured lock kind. One 'Change code' row
+    instead of a Set-PIN row and a Set-password row, only one of which ever
+    applies."""
+    if str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+        return PasswordScreen('set')
+    return PinScreen('set')
+
+
+def _mk_group(title, fn):
+    return lambda: SettingsScreen(title, fn())
+
+
+def _rows_display():
+    return [
+        ('push', 'Brightness', DisplayScreen),
+        ('cycle', 'Dim After', 'Apps.NovaD1_DimSec', ['0', '5', '15', '30', '60'],
+         '15', None),
+        ('cycle', 'Screen Off', 'Apps.NovaD1_OffSec', ['0', '30', '60', '120', '300'],
+         '60', None),
+        ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
+        ('cycle', 'Panel', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306', 'ssd1309'],
+         'sh1106', None),
+    ]
+
+
+def _rows_home():
+    all_for_cfg = [(k, l) for k, l, _f in _all_apps() if not k.startswith('script_')]
+    cur = _home_keys() or [k for k, _l in all_for_cfg]
+    return [
+        ('cycle', 'Layout', 'Apps.NovaD1_HomeStyle', ['folders', 'gallery', 'menu'],
+         'folders', None),
+        ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
+        ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
+        ('cycle', 'Notify', 'Apps.NovaD1_Notify', ['on', 'off'], 'on', None),
+        ('cycle', 'Alert LED', 'Apps.NovaD1_Notify_LED', ['on', 'off'], 'on', None),
+    ]
+
+
+def _rows_network():
+    return [
+        ('push', 'WiFi', WiFiScreen),
+        ('cycle', 'LoRa MHz', 'Apps.NovaD1_LoRa_Freq', ['433', '868', '915'], '915',
+         None),
+        ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
+        ('action', 'Sync Clock', 'ntp sync'),
+        ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+        ('action', 'Web Info', 'novad1 web'),
+    ]
+
+
+def _rows_security():
+    return [
+        ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'], 'pin',
+         None),
+        ('push', 'Change code', _lock_editor),
+        ('action', 'Clear lock', 'novad1 pin clear'),
+        ('cycle', 'Auto-Lock', 'Apps.NovaD1_LockSec', ['0', '5', '15', '30', '60'],
+         '5', None),
+        ('cycle', 'Incognito', 'Apps.NovaD1_Stealth', ['off', 'on'], 'off',
+         _apply_stealth),
+        ('cycle', 'Random MAC', 'Apps.NovaD1_RandomMAC', ['off', 'on'], 'off', None),
+    ]
+
+
+def _rows_system():
+    return [
+        ('push', 'Set Time', TimeScreen),
+        ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false',
+         None),
+        ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
+        ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
+        ('action', 'System Info', 'sysinfo'),
+        ('push', 'Reboot', RebootScreen),
+    ]
+
+
+def _settings_index():
+    """The top level: six groups, exactly one screen, nothing to scroll past."""
+    return [
+        ('push', 'Display', _mk_group('Display', _rows_display)),
+        ('push', 'Home', _mk_group('Home', _rows_home)),
+        ('push', 'Network', _mk_group('Network', _rows_network)),
+        ('push', 'Security', _mk_group('Security', _rows_security)),
+        ('push', 'System', _mk_group('System', _rows_system)),
+        ('push', 'Updates', UpdatesScreen),
+    ]
+
+
 class SettingsScreen(Screen):
-    """Grouped settings under section headers. Rows:
+    """Grouped settings. Rows:
        ('head', label) — a section title (skipped by navigation)
        ('push', label, factory) — opens a sub-screen
        ('cycle', label, regkey, [values], default, apply) — flips a saved value
-       ('action', label, shell-cmd) — runs an OS command, shows output."""
-    def __init__(self):
-        self.title = 'Settings'
+       ('action', label, shell-cmd) — runs an OS command, shows output.
+
+    Settings used to be ONE list of 31 rows: five screens of scrolling to reach
+    anything, which is what made it feel cluttered. It's now a six-row index where
+    every group fits a single screen, so nothing below the top level scrolls."""
+    def __init__(self, title='Settings', rows=None):
+        self.title = title
         self.top = 0
-        all_for_cfg = [(k, l) for k, l, _f2 in _all_apps() if not k.startswith('script_')]
-        cur = _home_keys() or [k for k, _l in all_for_cfg]
-        self.rows = [
-            ('head', 'DISPLAY'),
-            ('push', 'Brightness', DisplayScreen),
-            ('cycle', 'Dim After', 'Apps.NovaD1_DimSec', ['0', '5', '15', '30', '60'], '15', None),
-            ('cycle', 'Screen Off', 'Apps.NovaD1_OffSec', ['0', '30', '60', '120', '300'], '60', None),
-            ('cycle', 'Auto-Lock', 'Apps.NovaD1_LockSec', ['0', '5', '15', '30', '60'], '5', None),
-            ('cycle', 'Invert', 'Apps.NovaD1_Invert', ['off', 'on'], 'off', _apply_invert),
-            ('cycle', 'Screen', 'Apps.NovaD1_Display', ['sh1106', 'ssd1306', 'ssd1309'],
-             'sh1106', None),
-            ('head', 'HOME'),
-            ('cycle', 'Layout', 'Apps.NovaD1_HomeStyle', ['folders', 'gallery', 'menu'], 'folders', None),
-            ('push', 'Manage Apps', lambda: ManageAppsScreen(all_for_cfg, cur)),
-            ('cycle', 'Chime', 'Apps.NovaD1_Chime', ['on', 'off'], 'on', None),
-            ('cycle', 'Notify', 'Apps.NovaD1_Notify', ['on', 'off'], 'on', None),
-            ('head', 'SYSTEM'),
-            ('push', 'Set Time', TimeScreen),
-            ('push', 'WiFi', WiFiScreen),
-            ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false', None),
-            ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
-            ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
-            ('head', 'RADIO'),
-            ('cycle', 'LoRa MHz', 'Apps.NovaD1_LoRa_Freq', ['433', '868', '915'], '915', None),
-            ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
-            ('head', 'SECURITY'),
-            ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'],
-             'pin', None),
-            ('push', 'Set PIN', lambda: PinScreen('set')),
-            ('push', 'Set password', lambda: PasswordScreen('set')),
-            ('action', 'Clear lock', 'novad1 pin clear'),
-            ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
-            ('cycle', 'Incognito', 'Apps.NovaD1_Stealth', ['off', 'on'], 'off',
-             _apply_stealth),
-            ('cycle', 'Random MAC', 'Apps.NovaD1_RandomMAC', ['off', 'on'], 'off', None),
-            ('head', 'ACTIONS'),
-            ('push', 'Updates', _updates_menu),
-            ('action', 'NTP Sync', 'ntp sync'),
-            ('action', 'Web Info', 'novad1 web'),
-            ('action', 'System Info', 'sysinfo'),
-            ('push', 'Reboot', RebootScreen),
-        ]
+        self.rows = rows if rows is not None else _settings_index()
         self.sel = self._step(0, 1)         # land on the first non-header row
 
     def _step(self, start, d):

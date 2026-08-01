@@ -319,7 +319,7 @@ class SystemCheckScreen(Screen):
 class NotificationsScreen(Screen):
     """View recent notifications (newest first); Select clears. Marks read on open."""
     def __init__(self):
-        self.title = 'Notes'
+        self.title = 'Alerts'
         self.top = 0
         try:
             import novanotify

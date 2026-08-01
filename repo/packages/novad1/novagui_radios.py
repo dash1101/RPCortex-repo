@@ -15,13 +15,17 @@ from novacore import reg as _reg  # noqa
 
 class MessagesScreen(Screen):
     """LoRa messaging view — backed by the shared novamsg manager (same inbox the
-    web panel uses). Shows the conversation; Select broadcasts a quick 'ping'.
-    Compose real text from the web panel (phone keyboard). The manager owns the
-    radio + listens in the background, so messages arrive even off this screen."""
+    web panel uses). Shows the conversation; SELECT opens the on-screen keyboard to
+    write a message, HOLD SELECT broadcasts a quick 'ping'. (Composing used to mean
+    reaching for the web panel on a phone — the device can do it itself now.) The
+    manager owns the radio + listens in the background, so messages arrive even off
+    this screen."""
     def __init__(self):
         self.title = 'Messages'
         self.top = 0
         self._last = -1
+        self._sent = None
+        self._sent_ms = 0        # countdown; the status clears itself (see tick)
 
     def _lines(self):
         try:
@@ -65,9 +69,18 @@ class MessagesScreen(Screen):
                 enc = ' *enc'
         except Exception:
             pass
-        _fit(c, 2, c.h - _FH, 'Sel=ping' + enc)
+        _fit(c, 2, c.h - _FH, (self._sent or 'Sel=write  hold=ping') + enc)
 
     def tick(self, dt_ms=0):
+        if self._sent_ms > 0:
+            # 'sent' is a transient status, not a new footer. Left permanent it
+            # replaces the 'Sel=write hold=ping' hint for the rest of the session,
+            # which is the same stuck-activity-text problem reported before.
+            self._sent_ms -= dt_ms
+            if self._sent_ms <= 0:
+                self._sent = None
+                self._sent_ms = 0
+                return True
         try:
             import novamsg
             n = len(novamsg.inbox())
@@ -78,14 +91,42 @@ class MessagesScreen(Screen):
             return True
         return False
 
+    def _status(self, msg):
+        self._sent = msg
+        self._sent_ms = 2500
+        self._last = -1                          # force a redraw with the new footer
+
+    def _send(self, text):
+        text = (text or '').strip()
+        if not text:
+            return False
+        try:
+            import novamsg
+            novamsg.send(text)
+            self._status('sent')
+        except Exception:
+            self._status('send failed')
+        return True
+
+    def _compose(self):
+        from novagui_system import KeyboardScreen
+
+        def done(txt):
+            self._send(txt)
+            return 'back'
+        return KeyboardScreen('Message', on_done=done)
+
     def on_event(self, e):
         if e == ev.SELECT:
+            return self._compose()
+        if e == ev.SELECT_HOLD:
             try:
                 import novamsg
                 import novamesh
                 novamsg.send('ping ' + str(novamesh.node_id()))
+                self._status('ping sent')
             except Exception:
-                pass
+                self._status('ping failed')
             return None
         if e in (ev.BACK, ev.HOME):
             return e
