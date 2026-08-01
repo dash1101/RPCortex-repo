@@ -1470,6 +1470,8 @@ class UpdatesScreen(Screen):
         self.os_new = None       # (version, build, notes) when an OS update exists
         self.pkg_new = None      # (version) when a package update exists
         self.err = ''
+        self._gen = None         # the in-flight check (see _check_steps)
+        self._status = 'Checking...'
 
     # ---- data -------------------------------------------------------------
     def _cur_os(self):
@@ -1482,9 +1484,16 @@ class UpdatesScreen(Screen):
             pass
         return v, b
 
-    def _check(self):
-        """Fetch both manifests. Kept short and guarded — any failure just shows a
-        message rather than dumping a traceback."""
+    def _check_steps(self):
+        """Fetch both manifests, as a GENERATOR that yields a status between each
+        one. Two HTTPS fetches back to back is a long stall, and the GUI shares its
+        event loop with the shell and the background services — running them in one
+        blocking call froze all of it and left the spinner motionless, which is the
+        opposite of what a spinner is for. Yielding between them lets the loop turn.
+
+        Each fetch is still atomic (net.wget is synchronous), so this reduces the
+        stall to one request rather than removing it. Any failure just shows a
+        message instead of dumping a traceback."""
         self.err = ''
         try:
             import net
@@ -1494,7 +1503,8 @@ class UpdatesScreen(Screen):
         except Exception:
             self.err = 'No network'
             return
-        # OS
+
+        yield 'Checking OS...'
         try:
             import json
             import net
@@ -1504,9 +1514,10 @@ class UpdatesScreen(Screen):
             lv, lb = m.get('version', '?'), str(m.get('build', ''))
             if lv != cv or (lb and lb != str(cb)):
                 self.os_new = (lv, lb, m.get('notes', ''))
-        except Exception as e:
+        except Exception:
             self.err = 'OS check failed'
-        # Package index
+
+        yield 'Checking app...'
         try:
             import json
             import net
@@ -1550,21 +1561,33 @@ class UpdatesScreen(Screen):
         if self.state == 'idle':
             self.state = 'checking'
             self._frames = 0
+            self._gen = None
             return True
         if self.state == 'checking':
             self._spin += 1
             self._frames += 1
             if self._frames < 2:
-                return True          # paint the spinner before blocking
-            self._check()
-            self._build_rows()
-            self.state = 'done'
+                return True          # paint the spinner before the first fetch
+            if self._gen is None:
+                self._gen = self._check_steps()
+            try:
+                self._status = next(self._gen) or self._status
+            except StopIteration:
+                self._gen = None
+                self._build_rows()
+                self.state = 'done'
+            except Exception:
+                self._gen = None
+                if not self.err:
+                    self.err = 'Check failed'
+                self._build_rows()
+                self.state = 'done'
             return True
         return False
 
     def draw(self, c):
         if self.state != 'done':
-            _fit(c, 2, _TOP + _ROWH, 'Checking...')
+            _fit(c, 2, _TOP + _ROWH, self._status)
             spinner(c, c.w - 8, c.h - 8, self._spin)
             return
         rows = (c.h - _TOP) // _ROWH
