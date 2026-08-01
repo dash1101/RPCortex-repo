@@ -15,8 +15,9 @@ import novaicons
 import novacanvas  # noqa  (kept for symmetry; canvas is passed in)
 # The UI leaf: Screen base, layout tokens, shared helpers, the input `ev` re-export.
 # Screens (here + the split-out novagui_* modules) + installed apps bind to novaui.
-from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH,
-                    Screen, Menu, _wrap, _scroll_tri)
+from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH, _SB_W,
+                    Screen, Menu, _wrap, _scroll_tri, rounded_rect, scrollbar,
+                    fit as _fit)
 # RF / wireless app screens live in novagui_radios (the monolith split); the
 # home-wiring factories below still reference them by name.
 from novagui_radios import (MessagesScreen, GPSScreen, NFCScreen, NfcSaveScreen,
@@ -1877,30 +1878,41 @@ class SettingsScreen(Screen):
             self.top = self.sel
         elif self.sel >= self.top + rows:
             self.top = self.sel - rows + 1
+        n = len(self.rows)
+        scrolls = n > rows
+        # Reserve a lane for the scrollbar. The old up/down triangles sat ON the
+        # rows, so a highlighted row swallowed them; a lane can't collide.
+        right = c.w - (_SB_W + 1) if scrolls else c.w
         for i in range(rows):
             idx = self.top + i
-            if idx >= len(self.rows):
+            if idx >= n:
                 break
             r = self.rows[idx]
             y = _TOP + i * _ROWH
             if r[0] == 'head':
-                c.text(2, y, r[1][:14], 1)
-                c.hline(2 + len(r[1]) * _ADV + 2, y + _FH // 2, c.w - (len(r[1]) * _ADV + 8), 1)
+                lbl = r[1][:14]
+                c.text(2, y, lbl, 1, 1, True)
+                lw = c.text_width(lbl, 1, True)
+                c.hline(2 + lw + 2, y + _FH // 2, max(0, right - (lw + 8)), 1)
                 continue
             inv = (idx == self.sel)
             if inv:
-                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                rounded_rect(c, 0, y - 1, right, _ROWH, 1)
             tc = 0 if inv else 1
-            c.text(7, y, r[1][:11], tc)
             if r[0] in ('push', 'action'):
-                c.text(c.w - _ADV - 2, y, '>', tc)
+                c.text(7, y, r[1], tc, 1, True)
+                c.text(right - _ADV - 2, y, '>', tc)
             else:
                 v = self._val(r)
-                c.text(c.w - len(v) * _ADV - 2, y, v, tc)
-        if self.top > 0:
-            _scroll_tri(c, c.w - 5, _TOP, True)          # more settings above
-        if self.top + rows < len(self.rows):
-            _scroll_tri(c, c.w - 5, c.h - 4, False)      # more settings below
+                vw = c.text_width(v, 1, True)
+                lbl = r[1]
+                avail = right - vw - 12
+                while lbl and c.text_width(lbl, 1, True) > avail:
+                    lbl = lbl[:-1]
+                c.text(7, y, lbl, tc, 1, True)
+                c.text(right - vw - 2, y, v, tc, 1, True)
+        if scrolls:
+            scrollbar(c, right + 1, _TOP, c.h - _TOP, self.top, rows, n)
 
     def on_event(self, e):
         if e == ev.ROT_CW:
