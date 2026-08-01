@@ -38,7 +38,14 @@ sys.modules['net'] = net
 import novagui
 import tempfile
 import os as _os
-novagui._FETCH_TMP = _os.path.join(tempfile.mkdtemp(), 'fetch.tmp')
+
+# Point the temp file at a directory that does NOT exist yet. /Vela/nova is only
+# created once something touches the code store, so a device where Settings ->
+# Updates is opened before Scripts hits exactly this. Pre-creating the parent
+# here would test something the device never does.
+_TMPROOT = tempfile.mkdtemp()
+novagui._FETCH_TMP = _os.path.join(_TMPROOT, 'nova', 'fetch.tmp')
+assert not _os.path.exists(_os.path.dirname(novagui._FETCH_TMP))
 
 scr = novagui.UpdatesScreen()
 
@@ -125,8 +132,10 @@ scr5 = novagui.UpdatesScreen()
 for _ in range(8):
     scr5.tick(40)
 t.ok(_dests and all(d for d in _dests), 'every fetch supplied a destination file')
+t.ok(_os.path.isdir(_os.path.dirname(novagui._FETCH_TMP)),
+     'the temp directory is created when it does not already exist')
 t.ok(not _os.path.exists(novagui._FETCH_TMP),
-     'and the temp file is cleaned up afterwards')
+     'and the temp file itself is cleaned up afterwards')
 
 # --------------------------------------------- out of memory is not a dead end
 def _oom(url, dest=None, verbose=False, **kw):

@@ -1459,6 +1459,19 @@ def _pkg_version(name='NovaD1'):
 _FETCH_TMP = '/Vela/nova/fetch.tmp'    # module-level so tests can point it elsewhere
 
 
+def _ensure_dir(path):
+    """Create the parent directories of `path`. Ignores 'already exists'."""
+    import uos
+    parts = path.strip('/').split('/')[:-1]
+    cur = ''
+    for seg in parts:
+        cur = cur + '/' + seg
+        try:
+            uos.mkdir(cur)
+        except Exception:
+            pass                      # exists, or the FS says no — the open reports it
+
+
 def _fetch_json(url, tmp=None):
     """Fetch a JSON document without ever holding the body in RAM.
 
@@ -1470,11 +1483,18 @@ def _fetch_json(url, tmp=None):
     possible moment. Reading it back from the file costs a second pass over
     flash and no large allocation at all.
 
-    The temp file is always removed, including on failure."""
+    The temp file is always removed, including on failure.
+
+    The parent directory is created first. /Vela/nova exists only once something
+    has touched the code store, so a device where Settings -> Updates is opened
+    before Scripts would otherwise fail with ENOENT — a working update check
+    broken by the very change meant to make it more reliable. The old code read
+    into memory and touched no filesystem at all, so this is new exposure."""
     import json
     import net
     import gc
     tmp = tmp or _FETCH_TMP
+    _ensure_dir(tmp)
     try:
         net.wget(url, dest=tmp, verbose=False)
         gc.collect()
