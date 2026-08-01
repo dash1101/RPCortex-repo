@@ -242,6 +242,23 @@ def _reg_on(key, default):
     return str(_reg(key, default)).lower() in ('on', 'true', '1')
 
 
+def silenced():
+    """True when the radios are locked down and nothing may listen.
+
+    Checked between every phase of the observer, not once per cycle: engaging
+    incognito must stop the CURRENT pass, not the one after it."""
+    try:
+        import novastealth
+        return novastealth.blocked()
+    except Exception:
+        pass
+    try:
+        import RPCortex as _R
+        return _R.radio_locked()
+    except Exception:
+        return False
+
+
 def events(clear_after=True):
     """Collect anything that happened since the last call."""
     out = list(_EVENTS)
@@ -355,13 +372,9 @@ async def observer():
             if not _reg_on('Apps.NovaD1_Watch', 'on'):
                 await asyncio.sleep_ms(4000)
                 continue
-            try:
-                import novastealth
-                if novastealth.blocked():
-                    await asyncio.sleep_ms(4000)
-                    continue
-            except Exception:
-                pass
+            if silenced():
+                await asyncio.sleep_ms(4000)
+                continue
 
             try:
                 import novable
@@ -373,6 +386,8 @@ async def observer():
             except Exception:
                 pass
             await asyncio.sleep_ms(500)
+            if silenced():
+                continue
 
             # WiFi only every few passes: an AP scan takes the STA interface for
             # a second or two, and doing it constantly fights the connect loop.
@@ -386,6 +401,8 @@ async def observer():
             except Exception:
                 pass
 
+            if silenced():
+                continue
             try:                              # clients joined to our own AP
                 sta = ap_stations()
                 if sta:
@@ -412,6 +429,8 @@ def ap_stations():
     this radio does not have under MicroPython.
     """
     out = []
+    if silenced():
+        return out
     try:
         import network
         ap = network.WLAN(network.AP_IF)

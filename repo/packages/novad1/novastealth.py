@@ -38,7 +38,19 @@ def blocked():
         return False
 
 
-def _kill_wifi():
+def _kill_wifi(hard=False):
+    """Take WiFi down. With hard=True, POWER THE RADIO CHIP OFF.
+
+    active(False) leaves the CYW43 powered and its driver running — enough to
+    stop associating, not enough to call the device radio-silent. deinit() runs
+    cyw43_deinit(), which drops the SDIO bus and cuts power to the WL chip, so
+    there is nothing left to emit. It is recoverable: the next active(True)
+    goes through cyw43_ensure_up(), which re-powers and re-initialises.
+
+    On a Pico W the CYW43 also drives the onboard LED and the VSYS sense line,
+    so both stop working while the chip is down. That is the price of the chip
+    genuinely being off, and it is the honest signal that it worked.
+    """
     silenced = False
     try:
         import network
@@ -59,6 +71,11 @@ def _kill_wifi():
                     pass
                 w.active(False)
                 silenced = True
+                if hard:
+                    try:
+                        w.deinit()             # power the chip down
+                    except Exception:
+                        pass
             except Exception:
                 pass
     except Exception:
@@ -334,14 +351,50 @@ def leaks():
     return out
 
 
+def blackout():
+    """The hardest stop available: POWER THE RADIOS OFF.
+
+    Incognito takes the interfaces down and latches them there, which stops this
+    device doing anything. Blackout goes further and cuts power to the CYW43
+    itself (cyw43_deinit drops the SDIO bus and powers down the WL chip), so
+    there is no radio left running to emit anything at all — nothing to detect,
+    however good the detector.
+
+    Recoverable without a reboot: the next active(True) goes through
+    cyw43_ensure_up(), which re-powers and re-initialises the chip. The lock
+    stays engaged until you release it, so nothing does that by accident.
+
+    Two things stop working while the chip is down, both on the Pico W, because
+    the CYW43 also drives them: the onboard LED and the VSYS battery sense. If
+    the LED stops responding, that is the confirmation it actually worked.
+
+    DEVICE-UNCONFIRMED: the power-down is a driver call the host cannot exercise.
+    """
+    _kill_wifi(hard=True)
+    for name, fn in _RADIOS:
+        if name == 'WiFi':
+            continue
+        try:
+            fn()
+        except Exception:
+            pass
+    _save_reg(_KEY, 'on')
+    try:
+        import RPCortex as _R
+        _R.lock_radios(True)
+    except Exception:
+        pass
+    return True
+
+
 def ghost():
-    """Go completely dark: every radio locked down, every service that announces
+    """Go completely dark: every radio powered off, every service that announces
     this device switched off, and the identity reset for next time.
 
     Listening is not transmitting, so the observer is left alone — a passive
     receiver emits nothing. What gets closed is everything that SPEAKS.
     """
-    kill_all()                              # radios down + OS-wide lock
+    blackout()                              # radios POWERED DOWN + OS-wide lock
     _save_reg('Apps.NovaD1_Web', 'off')     # stop serving the control panel
     _save_reg('Apps.NovaD1_Mesh_Beacon', 'off')
     _save_reg(_MAC_KEY, 'on')               # fresh identity when radios return

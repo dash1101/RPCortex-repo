@@ -177,6 +177,15 @@ def scan_steps(ms=4000):
         ble.gap_scan(ms, 30000, 30000, True)     # active scan -> get names
         t0 = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), t0) < ms:
+            # Re-check EVERY step, not just at the start. A 3-second scan that
+            # only checked once would keep the receiver running for the rest of
+            # its window after incognito was engaged mid-scan.
+            try:
+                import novastealth
+                if novastealth.blocked():
+                    break
+            except Exception:
+                pass
             yield None
     except Exception:
         pass

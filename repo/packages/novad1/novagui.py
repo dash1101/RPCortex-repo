@@ -1191,16 +1191,20 @@ class NovaUI:
         # so when the UI is idle it must CEDE cpu (long nap) or it starves the shell's
         # keystroke reader (choppy typing). When you're actually using the UI (recent
         # input) or animating, nap short so the UI stays snappy.
+        # The nap also sets how long a press waits before anything appears on
+        # screen. Presses themselves can no longer be MISSED (novainput captures
+        # them by interrupt), but a 400 ms wait for the first frame still reads as
+        # an unresponsive button, so the idle naps are shorter than they were.
         if self._level >= 2:
-            nap = 400                           # off -> deep idle, cede the loop
+            nap = 180                           # off -> deep idle, cede the loop
         elif scr.animating():
             nap = 16                            # smooth animation frames
         elif (now - self._idle_t0) < 1500:
             nap = 33                            # just interacted -> responsive UI
         elif self._level == 1:
-            nap = 250                           # dimmed but visible -> slow refresh
+            nap = 120                           # dimmed but visible -> slow refresh
         else:
-            nap = 160                           # idle -> hand the loop to the shell
+            nap = 100                           # idle -> hand the loop to the shell
         return now, nap
 
     def run(self, sleep_ms=40):
@@ -2339,6 +2343,9 @@ def _rows_home():
 
 
 def _rows_radar():
+    """Reached from the Radar app itself, not the global Settings menu. These
+    only mean anything while you are looking at Radar, and a setting is easiest
+    to find next to the thing it changes."""
     return [
         ('cycle', 'Observer', 'Apps.NovaD1_Watch', ['on', 'off'], 'on', None),
         ('cycle', 'Scan every', 'Apps.NovaD1_Watch_Period',
@@ -2441,7 +2448,6 @@ def _settings_index():
         ('push', 'Display', _mk_group('Display', _rows_display)),
         ('push', 'Home', _mk_group('Home', _rows_home)),
         ('push', 'Network', _mk_group('Network', _rows_network)),
-        ('push', 'Radar', _mk_group('Radar', _rows_radar)),
         ('push', 'Security', _mk_group('Security', _rows_security)),
         ('push', 'System', _mk_group('System', _rows_system)),
     ]

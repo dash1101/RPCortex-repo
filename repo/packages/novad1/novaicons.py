@@ -8,6 +8,46 @@
 # MicroPython-safe: no f-strings.
 
 
+# --- bitmap icons -----------------------------------------------------------
+# A few shapes are worth drawing as actual pixel art rather than from primitives.
+# A gear is the clearest case: built from circles and blocks it kept reading as a
+# revolver cylinder, because what makes a gear legible is the TEETH interrupting
+# the rim silhouette at an exact pitch, which is a pixel-grid decision rather than
+# a geometric one.
+#
+# GEAR is pixelarticons' settings-cog (MIT, (c) 2019 Gerrit Halfmann,
+# github.com/halfmage/pixelarticons), rasterised exactly by
+# repo/tools/novad1/gensvgicon.py — 24x24, one int per row, bit 0 leftmost.
+GEAR_W = 24
+GEAR = (
+    0x007E00, 0x007E00, 0x3E667C, 0x3E667C,
+    0x31E78C, 0x31E78C, 0x30000C, 0x0C0030,
+    0x0C3C30, 0xFC3C3F, 0xFCC33F, 0xC0C303,
+    0xC0C303, 0xFCC33F, 0xFC3C3F, 0x0C3C30,
+    0x0C0030, 0x30000C, 0x31E78C, 0x31E78C,
+    0x3E667C, 0x3E667C, 0x007E00, 0x007E00,
+)
+
+
+def _blit(c, bits, w, cx, cy, side):
+    """Draw a packed bitmap scaled to `side` pixels, centred on (cx, cy).
+
+    Nearest-neighbour on purpose. The source is pixel art on a 24-grid, so
+    smoothing it would be undoing the thing that makes it legible at this size."""
+    if side < 3:
+        side = 3
+    x0 = cx - side // 2
+    y0 = cy - side // 2
+    for py in range(side):
+        sy = (py * w) // side
+        row = bits[sy]
+        if not row:
+            continue
+        for px in range(side):
+            if row >> ((px * w) // side) & 1:
+                c.pixel(x0 + px, y0 + py, 1)
+
+
 def _box(c, cx, cy, r, col=1):
     c.rect(cx - r, cy - r, 2 * r, 2 * r, col)
 
@@ -196,25 +236,8 @@ def _doc(c, cx, cy, r):               # Logs — a page of lines with a folded c
 
 
 def _gear(c, cx, cy, r):              # Settings — a gear
-    # Built by CUTTING teeth out of a solid disc rather than sticking blocks on
-    # a ring. The ring-plus-blocks version, with a circle in the middle, read as
-    # a revolver cylinder — the teeth have to interrupt the rim silhouette to
-    # look like a gear at all.
-    body = max(3, r - 1)
-    c.fill_circle(cx, cy, body, 1)
-    notch = max(1, body // 3)
-    d = body                                     # cut notches ON the rim
-    for i in range(8):
-        a = i * 0.7854                           # 45 degrees
-        # cos/sin of multiples of 45 degrees, without importing math
-        cs = (1, 0.7071, 0, -0.7071, -1, -0.7071, 0, 0.7071)[i]
-        sn = (0, 0.7071, 1, 0.7071, 0, -0.7071, -1, -0.7071)[i]
-        nx = int(cx + cs * d)
-        ny = int(cy + sn * d)
-        c.fill_rect(nx - notch // 2, ny - notch // 2, notch, notch, 0)
-    hole = max(1, body // 3)
-    c.fill_circle(cx, cy, hole, 0)               # the bore
-    c.circle(cx, cy, hole, 1)
+    """Pixel art rather than primitives: see GEAR above for why."""
+    _blit(c, GEAR, GEAR_W, cx, cy, 2 * r)
 
 
 def _check(c, cx, cy, r):             # System Check — clipboard + tick

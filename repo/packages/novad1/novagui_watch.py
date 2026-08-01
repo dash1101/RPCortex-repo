@@ -70,11 +70,19 @@ class RadarScreen(Screen):
     MODE_NAME = ('all', 'BLE', 'WiFi', 'known')
 
     def _rows(self):
+        """The devices, with a settings row pinned to the front.
+
+        Radar's settings live here rather than in the global Settings menu: they
+        only mean anything while you are looking at this screen. Same synthetic
+        first-row pattern the WiFi list uses for '+ Add network', so it sits in a
+        predictable place instead of behind a gesture."""
         import novawatch
         if self.mode == 3:
             k = novawatch.known()
-            return [r for r in novawatch.devices() if r['mac'] in k]
-        return novawatch.devices(kind=self.MODES[self.mode])
+            devs = [r for r in novawatch.devices() if r['mac'] in k]
+        else:
+            devs = novawatch.devices(kind=self.MODES[self.mode])
+        return [None] + devs
 
     def tick(self, dt_ms=0):
         n = len(self._rows())
@@ -85,9 +93,19 @@ class RadarScreen(Screen):
 
     def draw(self, c):
         import novawatch
+        if novawatch.silenced():
+            # Say so, rather than showing the last table as though it were live.
+            # A stale list looks identical to a working one, which is exactly the
+            # wrong impression to give on a screen about what is around you.
+            _fit(c, 2, _TOP, 'Radios are OFF')
+            _fit(c, 2, _TOP + _ROWH, 'Incognito is engaged,')
+            _fit(c, 2, _TOP + 2 * _ROWH, 'so nothing is being')
+            _fit(c, 2, _TOP + 3 * _ROWH, 'received.')
+            _fit(c, 2, c.h - _FH, '{} last seen'.format(novawatch.count()))
+            return
         rows = self._rows()
         avail = (c.h - _TOP - _FH) // _ROWH
-        if not rows:
+        if len(rows) <= 1:
             _fit(c, 2, _TOP, 'Listening...')
             _fit(c, 2, _TOP + _ROWH, 'nothing heard yet')
             _fit(c, 2, c.h - _FH, 'turn=filter: ' + self.MODE_NAME[self.mode])
@@ -111,6 +129,10 @@ class RadarScreen(Screen):
             if inv:
                 rounded_rect(c, 0, y - 1, right, _ROWH, 1)
             tc = 0 if inv else 1
+            if r is None:
+                _fit(c, 2, y, 'Radar settings', tc)
+                c.text(right - _ADV - 2, y, '>', tc)
+                continue
             mark = '*' if r['mac'] in known else (
                 '!' if r.get('class') == 'tracker' else ' ')
             c.text(2, y, mark, tc)
@@ -120,8 +142,8 @@ class RadarScreen(Screen):
             c.text(right - len(db) * _ADV - 2, y, db, tc)
         if scrolls:
             scrollbar(c, right + 1, _TOP, c.h - _TOP - _FH, self.top, avail, len(rows))
-        _fit(c, 2, c.h - _FH, '{} {}  Sel=detail'.format(
-            len(rows), self.MODE_NAME[self.mode]))
+        _fit(c, 2, c.h - _FH, '{} {}  hold=filter'.format(
+            len(rows) - 1, self.MODE_NAME[self.mode]))
 
     def on_event(self, e):
         rows = self._rows()
@@ -130,7 +152,11 @@ class RadarScreen(Screen):
         elif e == ev.ROT_CCW:
             self.sel = max(0, self.sel - 1)
         elif e == ev.SELECT and rows and self.sel < len(rows):
-            return DeviceScreen(rows[self.sel]['mac'])
+            r = rows[self.sel]
+            if r is None:
+                import novagui
+                return novagui.SettingsScreen('Radar', novagui._rows_radar())
+            return DeviceScreen(r['mac'])
         elif e == ev.SELECT_HOLD:
             self.mode = (self.mode + 1) % 4      # cycle the filter
             self.sel = self.top = 0
@@ -253,6 +279,12 @@ class LocateScreen(Screen):
         return False
 
     def draw(self, c):
+        import novawatch
+        if novawatch.silenced():
+            _fit(c, 2, _TOP, 'Radios are OFF')
+            _fit(c, 2, _TOP + _ROWH, 'Cannot locate while')
+            _fit(c, 2, _TOP + 2 * _ROWH, 'incognito is engaged.')
+            return
         t = self.tracker
         _fit(c, 2, _TOP, self._name())
         # the meter

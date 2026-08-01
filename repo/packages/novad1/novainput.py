@@ -76,6 +76,34 @@ class GpioSource:
         self._pending = []                        # button presses awaiting delivery
         self._holds = {}                          # evt -> hold already fired
         self._irq = False
+
+        # --- interrupt-driven button capture ---------------------------------
+        # Polling alone LOSES TAPS. The UI loop naps 250-400 ms when idle, and it
+        # samples the pins once per iteration, so a normal press that starts and
+        # ends inside one nap is never seen at all — which is why a button
+        # sometimes did nothing until it was pressed again and held. An edge
+        # interrupt cannot miss it however long the loop sleeps.
+        #
+        # Everything below is allocation-free, because these run in a HARD IRQ:
+        # bytearray/list stores, small-int arithmetic, and function references
+        # bound up front (an `import` inside an ISR would allocate).
+        import utime
+        self._ticks = utime.ticks_ms
+        self._tdiff = utime.ticks_diff
+        self._counts = bytearray(6)        # [tap, hold] per button, in _btn_order
+        self._down = [0, 0, 0]             # press timestamp per button
+        self._is_down = bytearray(3)
+        # Set when the POLL has already reported a hold for a button that is
+        # still down, so the ISR does not report it a second time on release.
+        self._reported = bytearray(3)
+        self._btn_irq = False
+        try:
+            trig = P.IRQ_RISING | P.IRQ_FALLING
+            for i, evt in enumerate(self._btn_order):
+                self.btns[evt].irq(self._mk_btn_isr(i), trig)
+            self._btn_irq = True
+        except Exception:
+            self._btn_irq = False          # fall back to the polled scan
         try:
             trig = P.IRQ_RISING | P.IRQ_FALLING
             self.enc_a.irq(self._isr, trig)
@@ -83,6 +111,76 @@ class GpioSource:
             self._irq = True
         except Exception:
             self._irq = False          # fall back to polled decode
+
+    def _mk_btn_isr(self, idx):
+        """One handler per button, built ONCE here so the ISR itself closes over
+        an integer index and allocates nothing."""
+        pin = self.btns[self._btn_order[idx]]
+        counts = self._counts
+        down = self._down
+        is_down = self._is_down
+        reported = self._reported
+        ticks = self._ticks
+        tdiff = self._tdiff
+
+        def _isr(_p):
+            # HARD IRQ — no allocation, no imports, no exceptions.
+            t = ticks()
+            if pin.value() == 0:                 # pressed (active-low)
+                if is_down[idx] == 0:
+                    is_down[idx] = 1
+                    reported[idx] = 0
+                    down[idx] = t
+                    if idx == 1:                 # BACK reports on the press edge
+                        if counts[2] < 250:
+                            counts[2] += 1
+            else:                                # released
+                if is_down[idx] == 1:
+                    is_down[idx] = 0
+                    if reported[idx]:            # the poll already fired the hold
+                        reported[idx] = 0
+                    elif idx != 1:               # SELECT/HOME report on release,
+                        dt = tdiff(t, down[idx])  # so a hold can be told from a tap
+                        k = idx * 2 + (1 if dt >= HOLD_MS else 0)
+                        if counts[k] < 250:
+                            counts[k] += 1
+        return _isr
+
+    def _drain_buttons(self):
+        """Move whatever the interrupts recorded into the pending queue, and fire
+        a hold for a button still held past HOLD_MS.
+
+        The hold has to come from here rather than the ISR: HOME_HOLD opens the
+        power screen and must fire WHILE the button is down, not when it is let
+        go."""
+        counts = self._counts
+        if len(self._pending) > 32:
+            # A stuck or chattering button must not grow this without bound. 32
+            # queued presses is already far more than anyone meant.
+            del self._pending[:-32]
+        for i, evt in enumerate(self._btn_order):
+            n = counts[i * 2]
+            if n:
+                counts[i * 2] = 0
+                for _ in range(n):
+                    self._pending.append(evt)
+            n = counts[i * 2 + 1]
+            if n:
+                counts[i * 2 + 1] = 0
+                hold = SELECT_HOLD if evt == SELECT else (
+                    HOME_HOLD if evt == HOME else evt)
+                for _ in range(n):
+                    self._pending.append(hold)
+            # Still held, and long enough? Fire the hold NOW, once — HOME_HOLD
+            # opens the power screen, and waiting for the release would make the
+            # gesture feel broken. _reported tells the ISR not to count it again.
+            if self._is_down[i] and not self._reported[i]:
+                if self._tdiff(self._ticks(), self._down[i]) >= HOLD_MS:
+                    self._reported[i] = 1
+                    if evt == SELECT:
+                        self._pending.append(SELECT_HOLD)
+                    elif evt == HOME:
+                        self._pending.append(HOME_HOLD)
 
     def _isr(self, pin):
         # HARD IRQ — must stay allocation-free: pin reads, tuple index, int math.
@@ -174,7 +272,10 @@ class GpioSource:
         # ROTATION is still delivered FIRST so events stay in the order they
         # physically happened — a press queued behind pending detents must act on
         # where the knob ended up, not where it was.
-        self._scan_buttons()
+        if self._btn_irq:
+            self._drain_buttons()          # never misses a tap, whatever the nap
+        else:
+            self._scan_buttons()           # polled fallback
         e = self._poll_encoder()
         if e is not None:
             return e
