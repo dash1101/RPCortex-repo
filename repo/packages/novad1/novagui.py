@@ -268,31 +268,51 @@ class IconGallery(Screen):
 
 
 class TextScreen(Screen):
-    """Scrollable read-only lines (status dumps, help)."""
+    """Read-only text with word-wrap + vertical scroll. Long lines wrap to the panel
+    width so nothing runs off the edge; the encoder scrolls, with up/down hints."""
     def __init__(self, title, lines):
         self.title = title
-        self.lines = lines
+        self.src = list(lines)
         self.top = 0
+        self._wrapped = None
+        self._wrap_w = -1
+
+    def _lines(self, c):
+        # Wrap once per width (re-wrap only if the canvas width changes), so a long
+        # line becomes several rows instead of being clipped at the edge.
+        if self._wrapped is None or self._wrap_w != c.w:
+            cols = max(1, (c.w - 4) // _ADV)
+            out = []
+            for ln in self.src:
+                out.extend(_wrap(str(ln), cols))
+            self._wrapped = out or ['']
+            self._wrap_w = c.w
+        return self._wrapped
 
     def _rows(self, c):
-        return (c.h - _TOP) // _ROWH
+        return max(1, (c.h - _TOP) // _ROWH)
 
     def draw(self, c):
+        lines = self._lines(c)
         rows = self._rows(c)
+        if self.top > max(0, len(lines) - rows):     # clamp (also fixes over-scroll)
+            self.top = max(0, len(lines) - rows)
         for i in range(rows):
             idx = self.top + i
-            if idx >= len(self.lines):
+            if idx >= len(lines):
                 break
-            c.text(2, _TOP + i * _ROWH, self.lines[idx][:16], 1)
+            c.text(2, _TOP + i * _ROWH, lines[idx], 1)
+        if self.top > 0:
+            _scroll_tri(c, c.w - 6, _TOP, True)          # more above
+        if self.top + rows < len(lines):
+            _scroll_tri(c, c.w - 6, c.h - 4, False)      # more below
 
     def on_event(self, e):
-        rows = 4
+        n = len(self._wrapped) if self._wrapped else len(self.src)
         if e == ev.ROT_CW:
-            if self.top + rows < len(self.lines):
-                self.top += 1
+            self.top = min(self.top + 1, max(0, n - 1))  # draw() re-clamps to fit
         elif e == ev.ROT_CCW:
-            if self.top > 0:
-                self.top -= 1
+            self.top = max(0, self.top - 1)
         elif e in (ev.BACK, ev.HOME):
             return e
         return None
@@ -594,6 +614,7 @@ class SplashScreen(Screen):
         self.title = 'Nova D1'
         self.t = 0.0
         self.next = None
+        self._first = True
 
     def draw(self, c):
         import novasplash
@@ -603,7 +624,14 @@ class SplashScreen(Screen):
         if self.t >= 1.0:
             self.next = 'back'
             return False
-        self.t += (dt_ms or 16) / float(self.DUR)
+        if self._first:
+            # Panel init + the first full-frame push can take a while; the first
+            # tick's dt swallows all of it. Render the opening frame (t=0) here and
+            # start the clock now, so the animation plays in FULL instead of jumping
+            # past the opening — without padding boot time (init already happened).
+            self._first = False
+            return True
+        self.t += min(dt_ms or 16, 80) / float(self.DUR)   # cap dt so a stall can't skip
         return True
 
     def on_event(self, e):
