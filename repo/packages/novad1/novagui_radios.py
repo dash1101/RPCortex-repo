@@ -9,7 +9,7 @@
 # factories (_ir_app / _ble_app / ...) stay there. See ARCHITECTURE.md.
 # MicroPython-safe: no f-strings, .format() only.
 
-from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap  # noqa
+from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, fit as _fit  # noqa
 from novacore import reg as _reg  # noqa
 
 
@@ -43,8 +43,7 @@ class MessagesScreen(Screen):
             ok = False
         if not ok:
             c.text(2, _TOP, 'LoRa: no radio', 1)
-            c.text(2, _TOP + _ROWH, 'check SX1276 wiring', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            _fit(c, 2, _TOP + _ROWH, 'check SX1276 wiring')
             return
         lines = self._lines()
         rows = (c.h - _TOP - _FH) // _ROWH
@@ -66,7 +65,7 @@ class MessagesScreen(Screen):
                 enc = ' *enc'
         except Exception:
             pass
-        c.text(2, c.h - _FH, ('Sel=ping BACK=exit' + enc)[:16], 1)
+        _fit(c, 2, c.h - _FH, 'Sel=ping' + enc)
 
     def tick(self, dt_ms=0):
         try:
@@ -134,8 +133,7 @@ class GPSScreen(Screen):
 
     def draw(self, c):
         if self.u is None:
-            c.text(2, _TOP, 'GPS: ' + (self.err or 'n/a'), 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
+            _fit(c, 2, _TOP, 'GPS: ' + (self.err or 'n/a'))
             return
         y = _TOP
         if self.fix:
@@ -148,8 +146,8 @@ class GPSScreen(Screen):
             c.text(2, y, 'in view: ' + self.inview, 1); y += _ROWH
             c.text(2, y, 'used: ' + self.used, 1); y += _ROWH
             c.text(2, y, '(needs sky view)', 1)
-        foot = self.msg or ('Sel=save BACK=exit' if self.fix else 'BACK=exit')
-        c.text(2, c.h - _FH, foot[:16], 1)
+        foot = self.msg or ('Sel=save' if self.fix else '')
+        _fit(c, 2, c.h - _FH, foot)
 
     def tick(self, dt_ms=0):
         if self.u is None:
@@ -240,10 +238,10 @@ class NFCScreen(Screen):
         if self.saved:
             foot = 'Saved .nfc'
         elif self.uid:
-            foot = 'Sel=save BACK=exit'
+            foot = 'Sel=save'
         else:
-            foot = 'BACK=exit'
-        c.text(2, c.h - _FH, foot[:21], 1)
+            foot = ''
+        _fit(c, 2, c.h - _FH, foot)
 
     def tick(self, dt_ms=0):
         self._acc += dt_ms or 16
@@ -297,8 +295,8 @@ class NfcSaveScreen(Screen):
         dt2, sub = novanfc.identify(self.card['sak'], self.card['atqa'])
         c.text(2, _TOP, 'Save: ' + (sub or dt2)[:15], 1)
         c.text(2, _TOP + _ROWH, novanfc.hexs(self.card['uid'])[:21], 1)
-        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
-        c.text(2, c.h - _FH, ('BACK=exit' if self.state == 'done' else 'BACK=cancel'), 1)
+        _fit(c, 2, _TOP + 2 * _ROWH, self.msg)
+        _fit(c, 2, c.h - _FH, '' if self.state == 'done' else 'BACK=cancel')
 
     def _save(self, doc):
         import novanfc, novastore
@@ -399,7 +397,6 @@ class CodeListScreen(Screen):
         if not self.rows:
             c.text(2, _TOP, '(no codes)', 1)
             c.text(2, _TOP + _ROWH, 'add via web/SD', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
         if self.sel < self.top:
             self.top = self.sel
@@ -416,7 +413,7 @@ class CodeListScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        c.text(2, c.h - _FH, (self.msg or ('Sel=' + self.fire_label))[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or ('Sel=' + self.fire_label))
 
     def on_event(self, e):
         if not self.rows:
@@ -478,13 +475,13 @@ class IRCaptureScreen(Screen):
     """Record a raw IR burst and save it as a Flipper-compatible .ir file."""
     def __init__(self):
         self.title = 'Record IR'
-        self.msg = 'point remote + Sel'
+        self.msg = 'point remote+Sel'
         self._cap = False
 
     def draw(self, c):
         c.text(2, _TOP, 'Record IR', 1)
-        c.text(2, _TOP + _ROWH, self.msg[:16], 1)
-        c.text(2, c.h - _FH, 'Sel=rec BACK=exit', 1)
+        _fit(c, 2, _TOP + _ROWH, self.msg)
+        _fit(c, 2, c.h - _FH, 'Sel=rec')
 
     def tick(self, dt_ms=0):
         if not self._cap:
@@ -545,7 +542,7 @@ class IRSignalsScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        c.text(2, c.h - _FH, (self.msg or 'Sel=send BACK=back')[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or 'Sel=send')
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -602,7 +599,7 @@ class IRFilesScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        c.text(2, c.h - _FH, (self.msg or 'Sel=open Home=del')[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or 'Sel=open Home=del')
 
     def on_event(self, e):
         rows_list = ['+ Record'] + self._files()
@@ -667,8 +664,8 @@ class SubGhzFireScreen(Screen):
     def draw(self, c):
         c.text(2, _TOP, 'Sub-GHz TX', 1)
         c.text(2, _TOP + _ROWH, self.name[:21], 1)
-        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
-        c.text(2, c.h - _FH, ('BACK=exit' if self.state == 'done' else 'BACK=cancel'), 1)
+        _fit(c, 2, _TOP + 2 * _ROWH, self.msg)
+        _fit(c, 2, c.h - _FH, '' if self.state == 'done' else 'BACK=cancel')
 
     def tick(self, dt_ms=0):
         if self.state == 'check':
@@ -721,8 +718,8 @@ class BlePingScreen(Screen):
     def draw(self, c):
         c.text(2, _TOP, 'BLE Ping: ' + self.platform, 1)
         c.text(2, _TOP + _ROWH, (self.model or 'default')[:21], 1)
-        c.text(2, _TOP + 2 * _ROWH, self.msg[:21], 1)
-        c.text(2, c.h - _FH, 'BACK=stop', 1)
+        _fit(c, 2, _TOP + 2 * _ROWH, self.msg)
+        _fit(c, 2, c.h - _FH, 'BACK=stop')
 
     def tick(self, dt_ms=0):
         import utime
@@ -784,7 +781,6 @@ class ButtonGridScreen(Screen):
     def draw(self, c):
         if not self.buttons:
             c.text(2, _TOP, '(no buttons)', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
         cols = 2
         bw = (c.w - 6) // cols
@@ -807,7 +803,7 @@ class ButtonGridScreen(Screen):
             else:
                 c.rect(x, y, bw - 2, bh - 2, 1)
                 c.text(x + 3, y + 2, lbl, 1)
-        c.text(2, c.h - _FH, (self.msg or 'Sel=run BACK=exit')[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or 'Sel=run')
 
     def on_event(self, e):
         n = len(self.buttons)
@@ -969,7 +965,7 @@ class WardriveScreen(Screen):
         loc = 'SD' if self.on_sd else 'flash'
         gps = 'GPS ok' if self.fix else 'no fix'
         c.text(2, y, loc + '  ' + gps, 1); y += _ROWH
-        c.text(2, c.h - _FH, (self.msg or '')[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or '')
 
     def on_event(self, e):
         if e == ev.SELECT:

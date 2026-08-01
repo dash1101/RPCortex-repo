@@ -68,6 +68,8 @@ class GpioSource:
         self._count = 0
         self._last = {k: 1 for k in self.btns}
         self._bt = {k: 0 for k in self.btns}
+        self._btn_order = (SELECT, BACK, HOME)   # stable scan order
+        self._pending = []                        # button presses awaiting delivery
         self._irq = False
         try:
             trig = P.IRQ_RISING | P.IRQ_FALLING
@@ -87,6 +89,32 @@ class GpioSource:
         elif st & _DIR_CCW:
             self._count -= 1
 
+    def _take_step(self):
+        """Consume ONE pending encoder detent. The read-modify-write of _count is
+        guarded against the hard IRQ (which also writes it) — without the guard an
+        ISR landing mid-update loses a detent, so the UI's selection silently drifts
+        out of step with how far the knob was actually turned."""
+        m = self._machine
+        try:
+            s = m.disable_irq()
+        except Exception:
+            s = None
+        try:
+            c = self._count
+            if c > 0:
+                self._count = c - 1
+                return ROT_CW
+            if c < 0:
+                self._count = c + 1
+                return ROT_CCW
+            return None
+        finally:
+            if s is not None:
+                try:
+                    m.enable_irq(s)
+                except Exception:
+                    pass
+
     def _poll_encoder(self):
         if not self._irq:              # polled fallback: step the table now
             ps = (self.enc_a.value() << 1) | self.enc_b.value()
@@ -96,30 +124,39 @@ class GpioSource:
                 self._count += 1
             elif st & _DIR_CCW:
                 self._count -= 1
-        if self._count > 0:
-            self._count -= 1
-            return ROT_CW
-        if self._count < 0:
-            self._count += 1
-            return ROT_CCW
-        return None
+        return self._take_step()
 
-    def poll(self):
-        e = self._poll_encoder()
-        if e is not None:
-            return e
-        # Buttons: active-low, edge-triggered with a small debounce window.
+    def _scan_buttons(self):
+        """Update EVERY button's edge/debounce state and queue any presses.
+        Scanning all of them on every poll matters: the old code returned on the
+        first press, so the other buttons' release state went stale, and while the
+        encoder had queued detents the buttons were never scanned at all — a press
+        during a fast spin was dropped entirely."""
         try:
             import utime
             now = utime.ticks_ms()
         except Exception:
             now = 0
-        for evt, pin in self.btns.items():
+        for evt in self._btn_order:
+            pin = self.btns[evt]
             v = pin.value()
-            if v == 0 and self._last[evt] == 1 and (now - self._bt[evt]) > 30:
-                self._last[evt] = 0
-                self._bt[evt] = now
-                return evt
-            if v == 1:
+            if v == 0:
+                if self._last[evt] == 1 and (now - self._bt[evt]) > 30:
+                    self._last[evt] = 0
+                    self._bt[evt] = now
+                    self._pending.append(evt)
+            else:
                 self._last[evt] = 1
+
+    def poll(self):
+        # Buttons are scanned every call (never starved by the encoder), but
+        # ROTATION is still delivered FIRST so events stay in the order they
+        # physically happened — a press queued behind pending detents must act on
+        # where the knob ended up, not where it was.
+        self._scan_buttons()
+        e = self._poll_encoder()
+        if e is not None:
+            return e
+        if self._pending:
+            return self._pending.pop(0)
         return None

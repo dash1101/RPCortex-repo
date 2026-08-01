@@ -25,11 +25,14 @@ def _stub_adc(volts_at_pin):
     machine.ADC = ADC
 
 
-# No pins configured -> nothing is claimed (the anti-lying guarantee)
+# No pins configured -> no battery is claimed (the anti-lying guarantee). USB is a
+# separate question: with no vbus pin, Pico W-class boards can still read USB power
+# from the wireless module's VBUS sense ('WL_GPIO2'), so usb is a real bool there and
+# only None where that pin doesn't exist. What must NEVER happen is a claimed battery.
 _shims.set_reg({})
 d = P._read_raw()
 t.ok(not d['have'], 'no battery pin -> have=False')
-t.eq(d['usb'], None, 'no vbus pin -> usb unknown')
+t.ok(d['usb'] in (True, False, None), 'no vbus pin -> usb from WL_GPIO2 sense, else None')
 t.ok(not d['low'], 'no data -> not low')
 
 # A plausible 3.75 V pack (divider 2.0 -> 1.875 V at the pin) -> ~50%

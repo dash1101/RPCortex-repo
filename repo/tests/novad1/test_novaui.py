@@ -21,6 +21,10 @@ class _FakeC:
         self.calls.append(('fill',) + a)
     def hline(self, *a, **k):
         self.calls.append(('hline',) + a)
+    def text_width(self, s, scale=1, narrow=False):
+        # Mirrors Canvas: narrow text is proportional (~5px/char here), fixed cell
+        # is 8px. Menu/fit() measure with this to keep rows inside the panel.
+        return len(s) * (5 if narrow else 8) * scale
 
 
 # layout tokens are sane integers derived from the font

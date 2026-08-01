@@ -61,6 +61,20 @@ def _wrap(s, ncols):
     return out or ['']
 
 
+def fit(c, x, y, s, col=1):
+    """Draw ONE line guaranteed to fit the panel: narrow (proportional) spacing,
+    truncated if it still doesn't fit. Use this for any message whose length isn't
+    fixed (error strings, status lines, footers) — a plain c.text() at the 8px cell
+    silently ran off the right edge, which is what clipped these screens."""
+    if not s:
+        return
+    s = str(s)
+    avail = c.w - x
+    while s and c.text_width(s, 1, True) > avail:
+        s = s[:-1]
+    c.text(x, y, s, col, 1, True)
+
+
 def _scroll_tri(c, x, y, up):
     """A tiny 5px up/down triangle — a 'more above/below' scroll hint for lists."""
     if up:
@@ -95,15 +109,19 @@ class Menu(Screen):
             if idx >= len(self.items):
                 break
             label, fac = self.items[idx]
-            label = label[:(c.w - 14) // _ADV]      # truncate to fit (no overflow)
+            # Narrow (proportional) rows: same glyphs, ~25% less width, so longer
+            # labels fit whole instead of being chopped at the 8px cell.
+            avail = c.w - 16
+            while label and c.text_width(label, 1, True) > avail:
+                label = label[:-1]
             y = _TOP + i * _ROWH
             if idx == self.sel:
                 c.fill_rect(0, y - 1, c.w, _ROWH, 1)
-                c.text(4, y, label, 0)
+                c.text(4, y, label, 0, 1, True)
                 if fac is not None:
                     c.text(c.w - _ADV - 2, y, '>', 0)
             else:
-                c.text(4, y, label, 1)
+                c.text(4, y, label, 1, 1, True)
                 if fac is None:
                     c.text(c.w - _ADV - 2, y, 'x', 1)
         if self.top > 0:

@@ -6,7 +6,7 @@
 # (novapower/novamods), never to novagui orchestration. novagui imports them back.
 # See ARCHITECTURE.md. MicroPython-safe: no f-strings, .format() only.
 
-from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, _scroll_tri  # noqa
+from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, _scroll_tri, fit as _fit  # noqa
 
 
 class LedScreen(Screen):
@@ -21,7 +21,7 @@ class LedScreen(Screen):
     def __init__(self):
         self.title = 'LED'
         self.sel = 0
-        self.msg = 'turn = pick   Sel = set'
+        self.msg = 'turn=pick Sel=set'
         self._apply()
 
     def _apply(self):
@@ -48,18 +48,18 @@ class LedScreen(Screen):
                 c.fill_rect(x, y, 5, 5, 1)
             else:
                 c.rect(x, y, 5, 5, 1)
-        c.text(2, c.h - _FH, self.msg[:21], 1)
+        _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         if e == ev.ROT_CW:
             self.sel = (self.sel + 1) % len(self.COLORS)
             self._apply()
-            self.msg = 'turn = pick   Sel = set'
+            self.msg = 'turn=pick Sel=set'
             return None
         if e == ev.ROT_CCW:
             self.sel = (self.sel - 1) % len(self.COLORS)
             self._apply()
-            self.msg = 'turn = pick   Sel = set'
+            self.msg = 'turn=pick Sel=set'
             return None
         if e == ev.SELECT:
             self.msg = 'set: ' + self.COLORS[self.sel][0]
@@ -89,8 +89,8 @@ class BatteryScreen(Screen):
         c.text(2, _TOP, 'Battery', 1)
         d = self.d or {}
         if not d.get('have'):
-            c.text(2, _TOP + _ROWH, 'No battery detected', 1)
-            c.text(2, _TOP + 2 * _ROWH, 'set Apps.NovaD1_PIN_battery', 1)
+            _fit(c, 2, _TOP + _ROWH, 'No battery detected')
+            _fit(c, 2, _TOP + 2 * _ROWH, 'set the battery pin')
         else:
             pct = d.get('pct', 0)
             bw = c.w - 8
@@ -100,7 +100,6 @@ class BatteryScreen(Screen):
             usb = d.get('usb')
             usbs = 'charging' if usb else ('on battery' if usb is not None else 'USB ?')
             c.text(2, _TOP + 3 * _ROWH + 2, usbs + ('  LOW' if d.get('low') else ''), 1)
-        c.text(2, c.h - _FH, 'BACK = exit', 1)
 
     def tick(self, dt_ms=0):
         self._acc += dt_ms or 16
@@ -142,13 +141,12 @@ class EnvironmentScreen(Screen):
         c.text(2, _TOP, 'Environment', 1)
         if self.t is None:
             c.text(2, _TOP + _ROWH, 'reading...', 1)
-            c.text(2, _TOP + 2 * _ROWH, '(no DHT? check pin)', 1)
+            _fit(c, 2, _TOP + 2 * _ROWH, '(no DHT? check pin)')
         else:
             c.text(2, _TOP + _ROWH, 'Temp:  {} C'.format(self.t), 1)
             c.text(2, _TOP + 2 * _ROWH, 'Humid: {} %'.format(self.h), 1)
             if self.tmin is not None:
                 c.text(2, _TOP + 3 * _ROWH + 2, 'min {}  max {}'.format(self.tmin, self.tmax), 1)
-        c.text(2, c.h - _FH, 'BACK = exit', 1)
 
     def tick(self, dt_ms=0):
         self._acc += dt_ms or 16

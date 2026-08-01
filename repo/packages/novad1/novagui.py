@@ -153,19 +153,34 @@ def draw_status_bar(c, state):
     # Right-aligned clock, then (battery)(usb)(wifi) leftward, then title fills the
     # rest — all measured from _ADV so a font swap can't clip the clock. Battery +
     # USB icons appear ONLY when power info says they're present (no lying icon).
+    # The bar is tight, so its text is drawn NARROW (proportional spacing — same
+    # glyphs, ~25% less width) to leave room for the title and icons.
     w = c.w
     tstr = state.get('time', '--:--')
-    tx = w - len(tstr) * _ADV
-    c.text(tx, 1, tstr, 1)
+    tw = c.text_width(tstr, 1, True)
+    tx = w - tw
+    c.text(tx, 1, tstr, 1, 1, True)
     x = tx - 3
     pwr = state.get('power') or {}
-    if pwr.get('have'):
+    if pwr.get('usb'):
+        # On USB: show the USB icon (mains power, battery level irrelevant).
+        x -= 7
+        _usb(c, x, 1)
+        x -= 3
+        if pwr.get('have'):                 # charging with a sensed pack: show both
+            x -= 12
+            _battery(c, x, 2, pwr.get('pct', 0), pwr.get('low'))
+            x -= 3
+    elif pwr.get('have'):
         x -= 12
         _battery(c, x, 2, pwr.get('pct', 0), pwr.get('low'))
         x -= 3
-    if pwr.get('usb'):
-        x -= 7
-        _usb(c, x, 1)
+    else:
+        # Running, but NOT on USB and with no battery sense pin — it must be on
+        # battery (VSYS) with an unknown level, so show an EMPTY battery rather
+        # than nothing, which read as "no power source".
+        x -= 12
+        _battery(c, x, 2, 0, False)
         x -= 3
     x -= 8
     _wifi(c, x, 2, state.get('wifi', False))
@@ -176,8 +191,10 @@ def draw_status_bar(c, state):
         x -= 9
         _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
-    maxc = max(1, (x - 4) // _ADV)
-    c.text(2, 1, title[:maxc], 1)
+    avail = max(0, x - 4)
+    while title and c.text_width(title, 1, True) > avail:
+        title = title[:-1]
+    c.text(2, 1, title, 1, 1, True)
     c.hline(0, _BARH, w, 1)
 
 
@@ -260,6 +277,11 @@ class IconGallery(Screen):
             else:
                 self.sel -= 1
         elif e == ev.SELECT:
+            # Snap the slide before launching. Mid-animation the CENTRED ICON is the
+            # item at sel_f (where the slide is) while sel is already the target —
+            # so a select during the slide launched something the screen wasn't
+            # showing yet. Snapping makes the visual and the action agree.
+            self.sel_f = float(self.sel)
             fac = self.items[self.sel][2]
             return fac() if fac else None
         elif e == ev.BACK:
@@ -337,7 +359,7 @@ class RunningScreen(Screen):
             fw = (self.progress * (bw - 2)) // max(1, self.total)
             c.fill_rect(bx + 1, by + 1, fw, 6, 1)
             c.text(4, by + 12, '{}%'.format((self.progress * 100) // max(1, self.total)), 1)
-        c.text(4, c.h - _FH, 'BACK = cancel' if not self.done else 'BACK = exit', 1)
+        c.text(4, c.h - _FH, 'BACK = cancel' if not self.done else '', 1)
 
     def step(self, n=1):
         if not self.done and not self.cancelled:
@@ -365,7 +387,7 @@ class ModuleTestScreen(Screen):
     def __init__(self, key, label):
         self.title = label
         self.key = key
-        self.lines = ['Select = run', 'BACK = exit']
+        self.lines = ['Select = run']
         self.ok = None
         self._gen = None
         self._cancel = False
@@ -769,7 +791,6 @@ class ScriptsScreen(Screen):
         if not files:
             c.text(2, _TOP, '(no scripts)', 1)
             c.text(2, _TOP + _ROWH, 'upload via web', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
         rows = (c.h - _TOP - _FH) // _ROWH
         if self.sel >= len(files):
@@ -789,7 +810,7 @@ class ScriptsScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        c.text(2, c.h - _FH, (self.msg or 'Sel=open BACK=exit')[:16], 1)
+        _fit(c, 2, c.h - _FH, self.msg or 'Sel=open')
 
     def on_event(self, e):
         files = self._files()
@@ -1457,7 +1478,7 @@ class AppStoreScreen(Screen):
     def __init__(self):
         self.title = 'App Store'
         self.state = 'init'
-        self.msg = 'Sel=install  BACK=exit'
+        self.msg = 'Sel=install'
         self.apps = []
         self.installed = set()
         self.sel = 0
@@ -1471,11 +1492,9 @@ class AppStoreScreen(Screen):
         if self.state == 'error':
             c.text(2, _TOP + _ROWH, self.msg[:21], 1)
             c.text(2, _TOP + 2 * _ROWH, 'need WiFi + web PIN', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
         if not self.apps:
             c.text(2, _TOP + _ROWH, '(no apps found)', 1)
-            c.text(2, c.h - _FH, 'BACK = exit', 1)
             return
         rows = (c.h - _TOP - _FH) // _ROWH
         if self.sel < self.top:
@@ -1629,6 +1648,19 @@ def _strip_ansi(s):
     return out
 
 
+def _fmt_capture(out):
+    """Captured shell text -> wrapped display lines (ANSI stripped, blanks dropped)."""
+    out = _strip_ansi(out or '')
+    lines = []
+    cols = (128 - 3) // _ADV
+    for ln in out.split('\n'):
+        ln = ln.rstrip('\r')
+        if ln == '':
+            continue
+        lines.extend(_wrap(ln, cols))
+    return lines
+
+
 def _run_capture(cmd):
     """Run an OS shell command, return its output as wrapped display lines."""
     import sys
@@ -1636,6 +1668,20 @@ def _run_capture(cmd):
     if lp is None or not hasattr(lp, '_run_line'):
         return ['shell n/a']
     out = ''
+    # Use the OS's own capture buffer FIRST: on MicroPython reassigning
+    # sys.stdout does not reliably redirect the shell's output, so the old
+    # StringIO path captured nothing and every command looked like '(done)'.
+    try:
+        import RPCortex as _R
+        prev = _R.begin_capture()
+        try:
+            lp._run_line(cmd)
+        finally:
+            out = _R.end_capture(prev) or ''
+    except Exception:
+        out = ''
+    if out.strip():
+        return _fmt_capture(out)
     try:
         import io
         buf = io.StringIO()
@@ -1657,15 +1703,34 @@ def _run_capture(cmd):
             out = RPCortex.end_capture() or ''
         except Exception:
             out = ''
-    out = _strip_ansi(out)
-    lines = []
-    cols = (128 - 3) // _ADV
-    for ln in out.split('\n'):
-        ln = ln.rstrip('\r')
-        if ln == '':
-            continue
-        lines.extend(_wrap(ln, cols))
-    return lines[:60] or ['(done)']
+    lines = _fmt_capture(out)
+    if lines:
+        return lines[:60]
+    # A command that printed nothing used to show a bare '(done)', which says
+    # nothing about what happened. Report the state the command was about instead.
+    return _silent_result(cmd)
+
+
+def _silent_result(cmd):
+    """Meaningful output for a command that printed nothing, so the screen never
+    just says '(done)'."""
+    c = (cmd or '').strip().lower()
+    try:
+        if c.startswith('wifi'):
+            import novawifi
+            st = novawifi.status() if hasattr(novawifi, 'status') else None
+            if isinstance(st, dict) and st.get('ip'):
+                return ['Connected', st.get('ssid', ''), st.get('ip', '')]
+            return ['Not connected', 'no WiFi link']
+        if c.startswith('freeup') or c.startswith('gc'):
+            import gc
+            gc.collect()
+            return ['Memory freed', '{} KB free'.format(gc.mem_free() // 1024)]
+        if c.startswith('novad1 refresh') or c.startswith('novad1 service'):
+            return ['GUI service', 'restarted']
+    except Exception:
+        pass
+    return ['Done - no output']
 
 
 class CommandScreen(Screen):
@@ -1686,8 +1751,7 @@ class CommandScreen(Screen):
             if idx >= len(self.lines):
                 break
             c.text(2, _TOP + i * _ROWH, self.lines[idx], 1)
-        c.text(2, c.h - _FH, 'turn=scroll BACK=exit', 1)
-
+        
     def tick(self, dt_ms=0):
         if not self._ran:
             self._ran = True

@@ -9,7 +9,7 @@
 # ManageApps, Settings, AppStore, Command) stay in novagui by design. See
 # ARCHITECTURE.md. MicroPython-safe: no f-strings, .format() only.
 
-from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap  # noqa
+from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, fit as _fit  # noqa
 from novacore import reg as _reg, save_reg as _save_reg  # noqa
 
 
@@ -56,7 +56,7 @@ class WiFiScreen(Screen):
                     c.text(2, y, row, 1)
         else:
             c.text(2, _TOP + _ROWH, self.msg[:16], 1)
-            c.text(2, c.h - _FH, 'OK=scan BACK=exit', 1)
+            c.text(2, c.h - _FH, 'OK=scan', 1)
 
     def tick(self, dt_ms=0):
         if self._pending == 'scan':
@@ -171,7 +171,7 @@ class TimeScreen(Screen):
         # underline the active field
         ux = x if self.field == 0 else x + 3 * _ADV * sc
         c.hline(ux, y + _FH * sc + 1, 2 * _ADV * sc, 1)
-        c.text(2, c.h - _FH, 'Sel=field BACK=set', 1)
+        _fit(c, 2, c.h - _FH, 'Sel=field  Sel-hold=set')
 
     def on_event(self, e):
         d = 1 if e == ev.ROT_CW else (-1 if e == ev.ROT_CCW else 0)
@@ -314,7 +314,7 @@ class NotificationsScreen(Screen):
             if idx >= len(wl):
                 break
             c.text(2, _TOP + i * _ROWH, wl[idx], 1)
-        c.text(2, c.h - _FH, 'Sel=clear BACK=exit', 1)
+        c.text(2, c.h - _FH, 'Sel=clear', 1)
 
     def on_event(self, e):
         if e == ev.ROT_CW:

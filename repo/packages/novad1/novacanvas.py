@@ -18,6 +18,8 @@
 
 import novafont as _f
 
+_GW = {}        # glyph ink-width cache (narrow/proportional text)
+
 try:
     import framebuf as _fb
     _HAVE_FB = True
@@ -185,13 +187,42 @@ class Canvas:
                     else:
                         self.fill_rect(x + col * scale, y + row * scale, scale, scale, c)
 
-    def text(self, x, y, s, c=1, scale=1):
+    def glyph_w(self, code):
+        """Ink width of a glyph (trailing blank columns trimmed), min 1. Cached —
+        this runs per character in narrow text."""
+        w = _GW.get(code)
+        if w is not None:
+            return w
+        if code < _f.FIRST or code > _f.FIRST + 0x5e:
+            code = ord('?')
+        gi = (code - _f.FIRST) * _f.WIDTH
+        w = 0
+        for col in range(_f.WIDTH):
+            if _f.DATA[gi + col]:
+                w = col + 1
+        if code == 0x20:                 # space keeps a sensible width
+            w = 3
+        w = w or 1
+        _GW[code] = w
+        return w
+
+    def text(self, x, y, s, c=1, scale=1, narrow=False):
+        """Draw text. narrow=True uses PROPORTIONAL spacing (each glyph advances by
+        its own ink width + 1px) instead of the fixed 8px cell — same glyphs, so
+        legibility is untouched, but a line fits roughly a quarter more characters.
+        Used where space is tight (status bar, menu rows)."""
         cx = x
         for ch in s:
-            self.char(cx, y, ord(ch), c, scale)
-            cx += _f.ADVANCE * scale
+            code = ord(ch)
+            self.char(cx, y, code, c, scale)
+            if narrow:
+                cx += (self.glyph_w(code) + 1) * scale
+            else:
+                cx += _f.ADVANCE * scale
 
-    def text_width(self, s, scale=1):
+    def text_width(self, s, scale=1, narrow=False):
+        if narrow:
+            return sum(self.glyph_w(ord(ch)) + 1 for ch in s) * scale
         return len(s) * _f.ADVANCE * scale
 
     def icon(self, x, y, rows, c=1):

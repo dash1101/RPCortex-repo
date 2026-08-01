@@ -59,6 +59,14 @@ def _read_raw():
             d['usb'] = bool(machine.Pin(vp, machine.Pin.IN).value())
         except Exception:
             d['usb'] = None
+    else:
+        # No wired VBUS pin: on Pico W-class boards USB power is readable from the
+        # wireless module's VBUS-sense line ('WL_GPIO2'), so USB vs battery can be
+        # told apart with no extra wiring. Silently stays None on other boards.
+        try:
+            d['usb'] = bool(machine.Pin('WL_GPIO2', machine.Pin.IN).value())
+        except Exception:
+            d['usb'] = None
     try:
         low_th = int(_reg('Apps.NovaD1_LowPct', '15'))
     except (TypeError, ValueError):
