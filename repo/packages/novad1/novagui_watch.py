@@ -37,11 +37,18 @@ def _age(ms):
 
 
 def _line(rec):
-    """The one line a device gets in the list.
+    """The one line a device gets in the list. Resolves the vendor on the way —
+    identification is deferred until something is actually being shown, so a
+    device that never opens Radar never loads the lookup tables.
 
     Name if it advertised one, else vendor, else the OUI prefix — never a guess.
     A randomised MAC says so, because 'unknown' would imply we failed to identify
     it when in fact there is nothing there to identify."""
+    try:
+        import novawatch
+        novawatch.identify(rec)
+    except Exception:
+        pass
     nm = rec.get('name') or rec.get('ssid')
     if not nm:
         nm = rec.get('vendor')
@@ -105,6 +112,13 @@ class RadarScreen(Screen):
             return
         rows = self._rows()
         avail = (c.h - _TOP - _FH) // _ROWH
+        if not novawatch.enabled():
+            _fit(c, 2, _TOP, 'Observer is OFF')
+            _fit(c, 2, _TOP + _ROWH, 'It listens constantly,')
+            _fit(c, 2, _TOP + 2 * _ROWH, 'which uses memory.')
+            _fit(c, 2, _TOP + 3 * _ROWH, 'Turn on in settings.')
+            _fit(c, 2, c.h - _FH, 'Sel = Radar settings')
+            return
         if len(rows) <= 1:
             _fit(c, 2, _TOP, 'Listening...')
             _fit(c, 2, _TOP + _ROWH, 'nothing heard yet')
@@ -151,6 +165,9 @@ class RadarScreen(Screen):
             self.sel = min(self.sel + 1, max(0, len(rows) - 1))
         elif e == ev.ROT_CCW:
             self.sel = max(0, self.sel - 1)
+        elif e == ev.SELECT and not __import__('novawatch').enabled():
+            import novagui
+            return novagui.SettingsScreen('Radar', novagui._rows_radar())
         elif e == ev.SELECT and rows and self.sel < len(rows):
             r = rows[self.sel]
             if r is None:
@@ -176,7 +193,7 @@ class DeviceScreen(Screen):
 
     def _rec(self):
         import novawatch
-        return novawatch.get(self.mac) or {'mac': self.mac}
+        return novawatch.identify(novawatch.get(self.mac)) or {'mac': self.mac}
 
     def _actions(self):
         import novawatch

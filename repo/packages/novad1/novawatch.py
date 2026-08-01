@@ -102,28 +102,62 @@ def observe(entries, kind='ble', now=None):
 
 
 def _identify(rec, entry):
-    """Attach vendor + device class. Both modules are imported lazily so a device
-    that never opens this app does not pay for the OUI table."""
+    """Note what we have, but do NOT look up who made it yet.
+
+    The OUI table is ~10 KB of bytecode and the BLE decoder another 3 KB, and the
+    background observer does not need either — only a screen showing names does.
+    Importing them here meant every device paid for them the moment the observer
+    saw its first advertisement, whether or not Radar was ever opened. The raw
+    advertisement is kept instead, and identify() below resolves it on demand.
+
+    The locally-administered bit is the exception: it is one bit of the MAC we
+    already have, it decides whether there IS anything to look up, and it costs
+    nothing."""
     try:
-        import novaoui
-        v, c = novaoui.lookup(rec['mac'])
-        rec['vendor'] = v
-        rec['class'] = c
-        rec['random'] = (c == 'random')
+        first = int(rec['mac'].replace(':', '')[0:2], 16)
+        rec['random'] = bool(first & 0x02)
     except Exception:
         rec['random'] = False
     adv = entry.get('adv')
     if adv:
+        # Decode NOW and drop the payload. Keeping it so identification could be
+        # deferred meant holding a small bytes object per device, up to the table
+        # cap, indefinitely — dozens of little long-lived allocations in a heap
+        # that never compacts. novableid is ~3 KB; the OUI table it would
+        # otherwise pull in is ~10 KB and stays deferred to the UI.
         try:
             import novableid
-            info = novableid.identify(rec['mac'], adv, rec.get('name', ''))
-            rec['vendor'] = info.get('vendor') or rec.get('vendor')
-            rec['class'] = info.get('kind') or rec.get('class')
-            rec['name'] = info.get('name') or rec.get('name', '')
-            rec['tx'] = info.get('tx')
-            rec['random'] = info.get('random', rec.get('random', False))
+            cid, label, rest = novableid.company(adv)
+            if label:
+                rec['vendor'] = label
+            rec['tx'] = novableid.tx_power(adv)
+            if cid == 0x004C and rest and rest[0] == 0x12:
+                rec['class'] = 'tracker'
+            elif cid == 0x067C or cid == 0x08C3:
+                rec['class'] = 'tracker'
         except Exception:
             pass
+
+
+def identify(rec):
+    """Resolve vendor/class/name for one record, caching the result.
+
+    Called by the UI when a device is about to be SHOWN. That is the only time
+    the answer is needed, and doing it here keeps the lookup tables out of a
+    device that never opens Radar."""
+    if rec is None or rec.get('_id'):
+        return rec
+    rec['_id'] = True
+    try:
+        import novaoui
+        v, c = novaoui.lookup(rec['mac'])
+        if v:
+            rec['vendor'] = v
+        if c and c != 'random':
+            rec['class'] = c
+    except Exception:
+        pass
+    return rec
 
 
 def _sweep(now):
@@ -353,12 +387,25 @@ def started():
     return _started
 
 
+def enabled():
+    """Whether the background observer is switched on.
+
+    OFF by default. It is the one feature here that allocates CONTINUOUSLY — a
+    BLE scan fires an interrupt per advertisement, many times a second, forever.
+    Those are small short-lived objects in a heap that never compacts, and on a
+    board where the package already uses most of the RAM it fragments the heap
+    until ordinary imports start failing. Radar offers to turn it on, so the
+    trade is made deliberately by someone who wants it rather than silently on
+    every device."""
+    return _reg_on('Apps.NovaD1_Watch', 'off')
+
+
 async def observer():
     """Background service: keep listening, so the picture builds while you use
     the device for something else.
 
-    Alternates BLE and WiFi with a rest in between rather than scanning flat out
-    — a continuous scan would hold the radio permanently, block WiFi from
+    Alternates BLE and WiFi with a rest in between rather than scanning flat out:
+    a continuous scan would hold the radio permanently, block WiFi from
     connecting, and drain the battery for no extra information. Every wait is an
     await, so the UI stays responsive throughout.
     """
@@ -369,7 +416,7 @@ async def observer():
     import asyncio
     while True:
         try:
-            if not _reg_on('Apps.NovaD1_Watch', 'on'):
+            if not _reg_on('Apps.NovaD1_Watch', 'off'):
                 await asyncio.sleep_ms(4000)
                 continue
             if silenced():

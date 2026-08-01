@@ -24,6 +24,7 @@ SELECT_HOLD = 'selecthold'  # SELECT held past HOLD_MS (a shortcut, e.g. keyboar
 HOME_HOLD   = 'homehold'    # HOME held past HOLD_MS -> the power screen, always
 
 HOLD_MS = 600               # press longer than this counts as a hold
+DEBOUNCE_MS = 25            # contact chatter shorter than this is not a real edge
 
 # Buxton full-step table. Index = state*4 + ((A<<1)|B). Low 3 bits = next state;
 # 0x10 = a CW step, 0x20 = a CCW step. (If your encoder reads reversed, swap the
@@ -95,6 +96,7 @@ class GpioSource:
         self._tdiff = utime.ticks_diff
         self._counts = bytearray(6)        # [tap, hold] per button, in _btn_order
         self._down = [0, 0, 0]             # press timestamp per button
+        self._up = [0, 0, 0]               # release timestamp per button
         self._is_down = bytearray(3)
         # Set when the POLL has already reported a hold for a button that is
         # still down, so the ISR does not report it a second time on release.
@@ -121,6 +123,7 @@ class GpioSource:
         pin = self.btns[self._btn_order[idx]]
         counts = self._counts
         down = self._down
+        up = self._up
         is_down = self._is_down
         reported = self._reported
         ticks = self._ticks
@@ -128,9 +131,22 @@ class GpioSource:
 
         def _isr(_p):
             # HARD IRQ — no allocation, no imports, no exceptions.
+            #
+            # DEBOUNCED. A mechanical switch chatters for a few milliseconds on
+            # both edges, so one press produces a burst of press/release pairs.
+            # Undebounced, every one of those counted as a separate tap — which
+            # is why a single press sometimes fired twice. The polled scan this
+            # replaced had a 30 ms guard; dropping it was the regression.
+            #
+            # Bounce is rejected by DURATION rather than by ignoring edges
+            # outright: an edge is only believed once the button has been in its
+            # new state longer than a bounce lasts. Ignoring edges by timestamp
+            # would swallow the genuine release of a fast tap.
             t = ticks()
             if pin.value() == 0:                 # pressed (active-low)
                 if is_down[idx] == 0:
+                    if tdiff(t, up[idx]) < DEBOUNCE_MS:
+                        return                   # chatter after the last release
                     is_down[idx] = 1
                     reported[idx] = 0
                     down[idx] = t
@@ -139,11 +155,14 @@ class GpioSource:
                             counts[2] += 1
             else:                                # released
                 if is_down[idx] == 1:
+                    dt = tdiff(t, down[idx])
+                    if dt < DEBOUNCE_MS:
+                        return                   # chatter — treat it as still down
                     is_down[idx] = 0
+                    up[idx] = t
                     if reported[idx]:            # the poll already fired the hold
                         reported[idx] = 0
                     elif idx != 1:               # SELECT/HOME report on release,
-                        dt = tdiff(t, down[idx])  # so a hold can be told from a tap
                         k = idx * 2 + (1 if dt >= HOLD_MS else 0)
                         if counts[k] < 250:
                             counts[k] += 1

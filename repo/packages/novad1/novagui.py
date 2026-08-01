@@ -11,6 +11,8 @@
 # Layout is derived from the font's ADVANCE/HEIGHT, so swapping the font never
 # re-breaks the status bar (the 5x7->6x8 bug). MicroPython-safe: no f-strings.
 
+import novacore as _novacore
+from novacore import reg as _reg
 import novaicons
 import novacanvas  # noqa  (kept for symmetry; canvas is passed in)
 # The UI leaf: Screen base, layout tokens, shared helpers, the input `ev` re-export.
@@ -18,21 +20,62 @@ import novacanvas  # noqa  (kept for symmetry; canvas is passed in)
 from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH, _SB_W, spinner,
                     Screen, Menu, _wrap, _scroll_tri, rounded_rect, scrollbar,
                     fit as _fit)
-# RF / wireless app screens live in novagui_radios (the monolith split); the
-# home-wiring factories below still reference them by name.
-from novagui_radios import (MessagesScreen, GPSScreen, NFCScreen, NfcSaveScreen,
-                            CodeListScreen, IRCaptureScreen, IRSignalsScreen,
-                            IRFilesScreen, SubGhzFireScreen, BlePingScreen,
-                            ButtonGridScreen, WardriveScreen)
-# System app screens (leaf-safe subset) live in novagui_system (the monolith
-# split); novagui re-exports them so novagui.PinScreen etc. still resolve.
-from novagui_system import (WiFiScreen, TimeScreen, SystemCheckScreen,
-                            NotificationsScreen, PinScreen, KeyboardScreen,
-                            PasswordScreen, lock_screen, lock_is_set)
+# Screen modules are NOT imported here. They are ~26 KB of bytecode between
+# them, and importing them at module level meant every one was resident from the
+# moment the GUI started, whether or not a single one of their screens was ever
+# opened. On a board where the whole package already costs ~190 KB of a 223 KB
+# budget, that is the difference between working and not.
+#
+# Each name below is a thin proxy that imports its module on FIRST USE and then
+# constructs the real screen. Call sites are unchanged — they were all either
+# `SomeScreen` passed as a zero-argument factory or `SomeScreen(args)` — and
+# novagui.PinScreen and friends still resolve, which the split relied on.
 
 
-import novacore as _novacore
-from novacore import reg as _reg
+def _proxy(mod, name):
+    def make(*a, **k):
+        m = __import__(mod)
+        return getattr(m, name)(*a, **k)
+    return make
+
+
+MessagesScreen = _proxy('novagui_radios', 'MessagesScreen')
+GPSScreen = _proxy('novagui_radios', 'GPSScreen')
+NFCScreen = _proxy('novagui_radios', 'NFCScreen')
+NfcSaveScreen = _proxy('novagui_radios', 'NfcSaveScreen')
+CodeListScreen = _proxy('novagui_radios', 'CodeListScreen')
+IRCaptureScreen = _proxy('novagui_radios', 'IRCaptureScreen')
+IRSignalsScreen = _proxy('novagui_radios', 'IRSignalsScreen')
+IRFilesScreen = _proxy('novagui_radios', 'IRFilesScreen')
+SubGhzFireScreen = _proxy('novagui_radios', 'SubGhzFireScreen')
+BlePingScreen = _proxy('novagui_radios', 'BlePingScreen')
+ButtonGridScreen = _proxy('novagui_radios', 'ButtonGridScreen')
+WardriveScreen = _proxy('novagui_radios', 'WardriveScreen')
+
+WiFiScreen = _proxy('novagui_system', 'WiFiScreen')
+TimeScreen = _proxy('novagui_system', 'TimeScreen')
+SystemCheckScreen = _proxy('novagui_system', 'SystemCheckScreen')
+NotificationsScreen = _proxy('novagui_system', 'NotificationsScreen')
+PinScreen = _proxy('novagui_system', 'PinScreen')
+KeyboardScreen = _proxy('novagui_system', 'KeyboardScreen')
+PasswordScreen = _proxy('novagui_system', 'PasswordScreen')
+lock_screen = _proxy('novagui_system', 'lock_screen')
+
+
+def lock_is_set():
+    """True if either lock is configured.
+
+    Deliberately a local registry read rather than novagui_system.lock_is_set:
+    the idle loop calls this on every frame, so importing it would have pulled
+    the whole system-screens module in at the first tick and undone the point of
+    deferring it. The lock SCREEN still comes from there — that only loads when
+    something actually locks."""
+    if str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+        return bool(_reg('Apps.NovaD1_Pass', ''))
+    return bool(_reg('Apps.NovaD1_PIN', ''))
+
+
+
 
 
 from novacore import save_reg as _save_reg
@@ -823,7 +866,10 @@ def _ble_app():
     ])
 
 
-from novagui_sensors import BatteryScreen, EnvironmentScreen, ClockScreen
+# Deferred like the others — see _proxy above.
+BatteryScreen = _proxy('novagui_sensors', 'BatteryScreen')
+EnvironmentScreen = _proxy('novagui_sensors', 'EnvironmentScreen')
+ClockScreen = _proxy('novagui_sensors', 'ClockScreen')
 
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
@@ -1254,20 +1300,22 @@ class NovaUI:
         # so when the UI is idle it must CEDE cpu (long nap) or it starves the shell's
         # keystroke reader (choppy typing). When you're actually using the UI (recent
         # input) or animating, nap short so the UI stays snappy.
-        # The nap also sets how long a press waits before anything appears on
-        # screen. Presses themselves can no longer be MISSED (novainput captures
-        # them by interrupt), but a 400 ms wait for the first frame still reads as
-        # an unresponsive button, so the idle naps are shorter than they were.
+        # Presses can no longer be MISSED — novainput captures them by interrupt —
+        # so the idle nap only decides how soon the first FRAME appears, not
+        # whether the press registers at all. That means it can be generous again:
+        # cutting these to 100-180 ms made the GUI wake three times as often and
+        # took CPU away from the serial shell, which is what made the whole device
+        # feel slower. The short nap that matters is the one right after input.
         if self._level >= 2:
-            nap = 180                           # off -> deep idle, cede the loop
+            nap = 300                           # off -> deep idle, cede the loop
         elif scr.animating():
             nap = 16                            # smooth animation frames
         elif (now - self._idle_t0) < 1500:
             nap = 33                            # just interacted -> responsive UI
         elif self._level == 1:
-            nap = 120                           # dimmed but visible -> slow refresh
+            nap = 200                           # dimmed but visible -> slow refresh
         else:
-            nap = 100                           # idle -> hand the loop to the shell
+            nap = 140                           # idle -> hand the loop to the shell
         return now, nap
 
     def run(self, sleep_ms=40):
@@ -2500,7 +2548,7 @@ def _rows_radar():
     only mean anything while you are looking at Radar, and a setting is easiest
     to find next to the thing it changes."""
     return [
-        ('cycle', 'Observer', 'Apps.NovaD1_Watch', ['on', 'off'], 'on', None),
+        ('cycle', 'Observer', 'Apps.NovaD1_Watch', ['off', 'on'], 'off', None),
         ('cycle', 'Scan every', 'Apps.NovaD1_Watch_Period',
          ['4000', '8000', '20000', '60000'], '8000', None),
         ('cycle', 'Tell me', 'Apps.NovaD1_Watch_Notify', ['on', 'off'], 'on', None),
@@ -2560,8 +2608,22 @@ class PrivacyScreen(Screen):
         return None
 
 
+def _lock_status():
+    """What the lock ACTUALLY is right now.
+
+    'Lock type' stores a preference, and it keeps its last value after the code
+    is cleared — so the screen went on saying "PIN" for a device with no PIN on
+    it. This reports None when nothing is stored, because that is the fact that
+    matters."""
+    if not lock_is_set():
+        return 'None'
+    return ('Password' if str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower()
+            == 'password' else 'PIN')
+
+
 def _rows_security():
     return [
+        ('info', 'Lock', _lock_status),
         ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'], 'pin',
          None),
         ('push', 'Change code', _lock_editor),
@@ -2611,7 +2673,10 @@ class SettingsScreen(Screen):
        ('head', label) — a section title (skipped by navigation)
        ('push', label, factory) — opens a sub-screen
        ('cycle', label, regkey, [values], default, apply) — flips a saved value
-       ('action', label, shell-cmd) — runs an OS command, shows output.
+       ('action', label, shell-cmd) — runs an OS command, shows output
+       ('info', label, fn) — a computed read-only value, e.g. a lock that is
+           configured as 'pin' but has no PIN stored: the setting says one thing
+           and the truth is another, and the truth is what belongs on screen.
 
     Settings used to be ONE list of 31 rows: five screens of scrolling to reach
     anything, which is what made it feel cluttered. It's now a six-row index where
@@ -2636,6 +2701,11 @@ class SettingsScreen(Screen):
         return (c.h - _TOP) // _ROWH
 
     def _val(self, row):
+        if row[0] == 'info':
+            try:
+                return str(row[2]())
+            except Exception:
+                return '?'
         return _reg(row[2], row[4])
 
     def draw(self, c):
@@ -2672,7 +2742,12 @@ class SettingsScreen(Screen):
             if inv:
                 rounded_rect(c, 0, y - 1, right, _ROWH, 1)
             tc = 0 if inv else 1
-            if r[0] in ('push', 'action'):
+            if r[0] == 'info':
+                v = self._val(r)
+                vw = c.text_width(v)
+                c.text(7, y, r[1], tc)
+                c.text(right - vw - 2, y, v, tc)
+            elif r[0] in ('push', 'action'):
                 c.text(7, y, r[1], tc)
                 c.text(right - _ADV - 2, y, '>', tc)
             else:
@@ -2694,6 +2769,8 @@ class SettingsScreen(Screen):
             self.sel = self._step((self.sel - 1) % len(self.rows), -1)
         elif e == ev.SELECT:
             r = self.rows[self.sel]
+            if r[0] == 'info':
+                return None                     # nothing to do; it is a readout
             if r[0] == 'push':
                 return r[2]()
             if r[0] == 'action':

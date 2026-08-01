@@ -70,9 +70,13 @@ def reclaim():
         return 0
 
 
-def largest_block(cap=32768):
+def largest_block(cap=262144):
     """Size of the largest block that can actually be allocated right now, by
-    probing. This is the number that matters; gc.mem_free() is not."""
+    probing. This is the number that matters; gc.mem_free() is not.
+
+    The cap must sit above any plausible answer: at 32 KB, a device with 200 KB
+    free reported its own ceiling as the maximum, which reads as severe
+    fragmentation that is not there."""
     import gc
     lo, hi, best = 0, cap, 0
     while lo <= hi:

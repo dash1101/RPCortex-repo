@@ -101,13 +101,13 @@ t.eq(drain(), [ni.SELECT],
      'a tap that begins and ends between polls is still delivered')
 
 back.press()
-CLOCK['t'] += 30
+CLOCK['t'] += 60
 back.release()
 CLOCK['t'] += 400
 t.eq(drain(), [ni.BACK], 'the same for BACK')
 
 home.press()
-CLOCK['t'] += 30
+CLOCK['t'] += 60
 home.release()
 CLOCK['t'] += 400
 t.eq(drain(), [ni.HOME], 'and for HOME')
@@ -117,16 +117,16 @@ t.eq(drain(), [ni.HOME], 'and for HOME')
 # all arrive, in order, rather than collapsing into one.
 for _ in range(4):
     sel.press()
-    CLOCK['t'] += 20
+    CLOCK['t'] += 60
     sel.release()
-    CLOCK['t'] += 20
+    CLOCK['t'] += 60
 CLOCK['t'] += 400
 t.eq(drain(), [ni.SELECT] * 4, 'four taps during one nap all queue up')
 
 # mixed buttons keep their events
-sel.press(); CLOCK['t'] += 15; sel.release()
-back.press(); CLOCK['t'] += 15; back.release()
-home.press(); CLOCK['t'] += 15; home.release()
+sel.press(); CLOCK['t'] += 60; sel.release(); CLOCK['t'] += 40
+back.press(); CLOCK['t'] += 60; back.release(); CLOCK['t'] += 40
+home.press(); CLOCK['t'] += 60; home.release()
 CLOCK['t'] += 400
 got = drain()
 t.eq(sorted(got), sorted([ni.SELECT, ni.BACK, ni.HOME]),
@@ -147,6 +147,7 @@ t.eq(drain(), [ni.HOME_HOLD], 'and HOME_HOLD for HOME')
 # A hold must fire WHILE the button is down — HOME_HOLD opens the power screen,
 # and waiting for the release would make it feel broken.
 drain()
+CLOCK['t'] += 60          # a real gap since the last release, not instant re-press
 home.press()
 CLOCK['t'] += ni.HOLD_MS + 10
 t.eq(drain(), [ni.HOME_HOLD], 'the hold fires while the button is still held')
@@ -156,7 +157,7 @@ CLOCK['t'] += 10
 t.eq(drain(), [], 'nor does releasing it then produce a tap as well')
 
 # a short press after a hold is a tap again
-sel.press(); CLOCK['t'] += 20; sel.release(); CLOCK['t'] += 20
+sel.press(); CLOCK['t'] += 60; sel.release(); CLOCK['t'] += 60
 t.eq(drain(), [ni.SELECT], 'a tap after a hold is still a tap')
 
 # ------------------------------------------------------- rotation still works
@@ -170,7 +171,7 @@ t.eq(src.poll(), ni.ROT_CCW, 'both directions')
 # rotation is delivered BEFORE queued presses, so a press acts on where the knob
 # ended up rather than where it was
 drain()
-sel.press(); CLOCK['t'] += 15; sel.release()
+sel.press(); CLOCK['t'] += 60; sel.release()
 src._count = 1
 t.eq(src.poll(), ni.ROT_CW, 'a pending detent is delivered before a queued press')
 t.eq(src.poll(), ni.SELECT, 'then the press')
@@ -181,9 +182,9 @@ t.eq(src.poll(), ni.SELECT, 'then the press')
 drain()
 for _ in range(300):
     back.press()
-    CLOCK['t'] += 1
+    CLOCK['t'] += 40
     back.release()
-    CLOCK['t'] += 1
+    CLOCK['t'] += 40
 n = len(drain())
 t.ok(n >= 32, 'a long burst queues rather than being lost ({} delivered)'.format(n))
 t.ok(n <= 64, 'but the queue is bounded, so a stuck button cannot grow it forever')
@@ -206,5 +207,48 @@ home.release()
 t.eq(src.held_ms(ni.HOME), 0, 'releasing resets it')
 drain()
 t.eq(src.held_ms('nonsense'), 0, 'an unknown event does not raise')
+
+# --------------------------------------------------------- CONTACT BOUNCE
+# One press must be ONE event. A mechanical switch chatters for a few ms on both
+# edges; undebounced, every bounce pair counted as another tap, which is why a
+# single press sometimes fired twice.
+def bounce_press(pin, hold_ms=120, bounces=4):
+    """A realistic press: chatter, settle, hold, chatter, release."""
+    for _ in range(bounces):
+        pin.press()
+        CLOCK['t'] += 2
+        pin.release()
+        CLOCK['t'] += 2
+    pin.press()                      # settles down
+    CLOCK['t'] += hold_ms
+    for _ in range(bounces):
+        pin.release()
+        CLOCK['t'] += 2
+        pin.press()
+        CLOCK['t'] += 2
+    pin.release()
+    CLOCK['t'] += 60
+
+
+drain()
+bounce_press(sel)
+t.eq(drain(), [ni.SELECT], 'a bouncing SELECT press produces exactly one event')
+
+bounce_press(back)
+t.eq(drain(), [ni.BACK], 'a bouncing BACK press produces exactly one event')
+
+bounce_press(home)
+t.eq(drain(), [ni.HOME], 'a bouncing HOME press produces exactly one event')
+
+# ...and a bouncing LONG press is still one hold, not a hold plus taps
+bounce_press(sel, hold_ms=ni.HOLD_MS + 100)
+t.eq(drain(), [ni.SELECT_HOLD], 'a bouncing long press is one hold')
+
+# two genuinely separate presses are still two events
+drain()
+sel.press(); CLOCK['t'] += 80; sel.release(); CLOCK['t'] += 80
+sel.press(); CLOCK['t'] += 80; sel.release(); CLOCK['t'] += 80
+t.eq(drain(), [ni.SELECT, ni.SELECT],
+     'two real presses are still two events — the debounce does not merge them')
 
 sys.exit(t.done())

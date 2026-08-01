@@ -129,6 +129,9 @@ def scan(ms=5000, cancel=None):
     return out
 
 
+MAX_RESULTS = 24        # a crowded room must not be able to fill the heap
+
+
 def scan_steps(ms=4000):
     """Scan for BLE devices as a GENERATOR, yielding between polls.
 
@@ -151,21 +154,27 @@ def scan_steps(ms=4000):
         pass
     import utime
     found = {}
+    cap = MAX_RESULTS
 
     def _irq(event, data):
+        # This runs in a BLE INTERRUPT and fires once per advertisement — many
+        # times a second in any populated area. It used to build a dict, two
+        # bytes objects and a formatted MAC string every time, forever. Those are
+        # small, short-lived allocations scattered through a heap that never
+        # compacts, and they are what left the device with 36 KB free in ~1 KB
+        # scraps: enough memory, none of it usable.
+        #
+        # It now stores a plain tuple and does no formatting at all; the strings
+        # are built once per scan, below, for the handful of devices we keep.
         if event == _IRQ_SCAN_RESULT:
-            addr_type, addr, adv_type, rssi, adv = data
-            mac = bytes(addr)
-            prev = found.get(mac)
-            if prev is None or rssi > prev['rssi']:
-                payload = bytes(adv)
-                nm = _adv_name(payload)
-                found[mac] = {
-                    'mac': ':'.join('{:02x}'.format(b) for b in mac),
-                    'rssi': rssi,
-                    'name': nm or (prev['name'] if prev else ''),
-                    'adv': payload,
-                }
+            _at, addr, _t, rssi, adv = data
+            prev = found.get(addr)
+            if prev is not None:
+                if rssi <= prev[0]:
+                    return
+            elif len(found) >= cap:
+                return                      # bounded: a crowded room cannot
+            found[bytes(addr)] = (rssi, bytes(adv))
 
     try:
         ble = _radio()
@@ -194,7 +203,16 @@ def scan_steps(ms=4000):
             ble.gap_scan(None)
         except Exception:
             pass
-    out = list(found.values())
+    # Format outside the interrupt, once, for what we actually kept.
+    out = []
+    for mac, (rssi, payload) in found.items():
+        out.append({
+            'mac': ':'.join('{:02x}'.format(b) for b in mac),
+            'rssi': rssi,
+            'name': _adv_name(payload) or '',
+            'adv': payload,
+        })
+    found.clear()
     out.sort(key=lambda d: d['rssi'], reverse=True)
     yield out
 

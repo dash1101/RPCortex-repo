@@ -31,7 +31,13 @@ new = W.observe([{'mac': '44:19:B6:00:11:22', 'rssi': -50, 'name': 'CAM'}],
 t.eq(new, ['44:19:b6:00:11:22'], 'a first sighting is reported as new')
 t.eq(W.count(), 1, 'and is recorded')
 rec = W.get('44:19:B6:00:11:22')
-t.eq(rec['vendor'], 'Hikvision', 'the vendor comes from the OUI table')
+# Identification is DEFERRED. The observer records what it heard; it does not
+# import the 10 KB OUI table or the BLE decoder, because only a screen showing
+# names needs them and a device that never opens Radar should not pay for them.
+t.ok(rec.get('vendor') is None, 'the observer does not resolve a vendor by itself')
+W.identify(rec)
+t.eq(rec['vendor'], 'Hikvision', 'identify() resolves it when the UI asks')
+t.eq(W.identify(rec)['vendor'], 'Hikvision', 'and the answer is cached')
 t.eq(rec['first'], 1000, 'first-seen is stamped')
 t.eq(rec['count'], 1, 'and the sighting counted')
 
@@ -49,8 +55,12 @@ t.eq(rec['name'], 'CAM', 'a name learned once is not lost by a later nameless sc
 # a BLE advert identifies things the MAC alone cannot
 W.observe([{'mac': 'DA:11:22:33:44:55', 'rssi': -70, 'adv': FINDMY}], 'ble', now=2000)
 rec = W.get('da:11:22:33:44:55')
+t.ok(rec['random'],
+     'a randomised address is flagged immediately — it is one bit of the MAC we '
+     'already have, and it decides whether there is anything to look up')
+W.identify(rec)
 t.eq(rec['class'], 'tracker', 'an Apple Find My advert is classed as a tracker')
-t.ok(rec['random'], 'and its rotating address is flagged as randomised')
+t.eq(rec['vendor'], 'Apple', 'from the advertisement, not the rotating MAC')
 
 # entries with no MAC at all must not create phantom rows
 W.observe([{'rssi': -60}, {}, None], 'ble', now=2000)
