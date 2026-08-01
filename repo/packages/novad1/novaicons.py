@@ -191,11 +191,18 @@ def _terminal(c, cx, cy, r):          # Commands — a terminal window with a pr
     c.hline(cx - r + 8, cy + 5, max(2, r - 2), 1)       # cursor line
 
 
-def _store(c, cx, cy, r):             # App Store — a shopping bag
-    c.rect(cx - r + 2, cy - r + 4, 2 * r - 4, 2 * r - 6, 1)
-    c.line(cx - r + 5, cy - r + 4, cx - r + 5, cy - r + 1, 1)   # handle
-    c.line(cx + r - 6, cy - r + 4, cx + r - 6, cy - r + 1, 1)
-    c.hline(cx - r + 5, cy - r + 1, (r - 4) if r > 5 else 2, 1)
+def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle
+    # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
+    bx, by = cx - r + 2, cy - r + 5
+    bw, bh = 2 * r - 4, 2 * r - 7
+    c.rect(bx, by, bw, bh, 1)
+    c.hline(bx + 1, by + 2, bw - 2, 1)          # seam under the opening
+    # Handle: a proper arch above the bag, sized from the bag width.
+    hw = max(2, bw // 4)
+    hy = by - 3
+    c.vline(cx - hw, hy + 1, 3, 1)
+    c.vline(cx + hw, hy + 1, 3, 1)
+    c.hline(cx - hw + 1, hy, 2 * hw - 1, 1)
 
 
 def _stethoscope(c, cx, cy, r):       # Diagnostics — pulse/heartbeat trace
@@ -251,5 +258,5 @@ def draw(c, key, cx, cy, r, label=''):
     c.rect(cx - r, cy - r, 2 * r, 2 * r, 1)
     ch = (label[:1] or key[:1] or '?').upper()
     sc = 2 if r >= 9 else 1
-    import novafont as _f
+    import novafont5x7 as _f
     c.char(cx - (_f.WIDTH * sc) // 2, cy - (_f.HEIGHT * sc) // 2, ord(ch), 1, sc)

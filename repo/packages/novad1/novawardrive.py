@@ -53,6 +53,14 @@ def parse_scan(raw):
 
 def scan_now():
     """Run one WiFi scan on the STA interface; return parsed APs (or [])."""
+    # Incognito latch: refuse while stealth is engaged. Killing the radio isn't
+    # enough by itself — this call would just re-activate it.
+    try:
+        import novastealth
+        if novastealth.blocked():
+            return []
+    except Exception:
+        pass
     try:
         import network
         w = network.WLAN(network.STA_IF)

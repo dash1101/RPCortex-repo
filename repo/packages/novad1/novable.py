@@ -88,6 +88,14 @@ def _adv_name(payload):
 def scan(ms=5000, cancel=None):
     """Scan for BLE devices for `ms`. Returns a list of dicts:
     {'mac':'aa:bb:..', 'rssi':int, 'name':str}, strongest first."""
+    # Incognito latch: refuse while stealth is engaged. Killing the radio isn't
+    # enough by itself — this call would just re-activate it.
+    try:
+        import novastealth
+        if novastealth.blocked():
+            return []
+    except Exception:
+        pass
     cancel = cancel or (lambda: False)
     import utime
     found = {}
@@ -175,6 +183,14 @@ def ping(platform='apple', model=None, secs=10, cancel=None):
     is the same effect a Flipper BLE 'ping' has, so cross-tool scripts port over.
     BOUNDED on purpose — point it at YOUR phone (own-device / authorized use).
     Returns the model used, or None if BLE is unavailable. `cancel()` stops early."""
+    # Incognito latch: refuse while stealth is engaged. Killing the radio isn't
+    # enough by itself — this call would just re-activate it.
+    try:
+        import novastealth
+        if novastealth.blocked():
+            return False
+    except Exception:
+        pass
     if not available():
         return None
     import utime
@@ -199,6 +215,14 @@ def start_ping(platform='apple', model=None):
     """Start advertising a pairing packet and RETURN immediately (non-blocking) —
     the BLE radio keeps broadcasting on its own. Call stop() to end. For the GUI,
     which can't block the event loop. Returns the model used, or None."""
+    # Incognito latch: refuse while stealth is engaged. Killing the radio isn't
+    # enough by itself — this call would just re-activate it.
+    try:
+        import novastealth
+        if novastealth.blocked():
+            return False
+    except Exception:
+        pass
     if not available():
         return None
     if model is None:

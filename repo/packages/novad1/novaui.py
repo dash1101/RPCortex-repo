@@ -11,18 +11,17 @@
 # MicroPython-safe: no f-strings, positional str.split(), .format() only.
 
 import novainput as ev          # re-exported: screens/apps do `from novaui import ev`
-import novafont as _f
+import novafont5x7 as _f
 
 # Layout tokens — derived from the font so a font swap reflows every screen.
 _ADV = _f.ADVANCE               # px per character cell (incl. spacing)
 _FH = _f.HEIGHT                 # glyph height
 _BARH = _FH + 1                 # status-bar height
 _TOP = _BARH + 1                # body starts below the status bar + rule
-# Row pitch. Only 8 of 95 glyphs use the 8th row (descenders: , ; _ g j p q y) — the
-# other 77 are 7 tall — so a 9px pitch stays legible and buys a whole extra row on a
-# 64px panel (5 rows -> 6). That leftover strip at the bottom of a list was the row
-# that didn't quite fit at the old pitch.
-_ROWH = _FH + 1
+# Row pitch: glyph height + 2px of breathing room. With the compact 5x7 face that's
+# a 9px pitch, which still gives 6 rows on a 64px panel (the old 8x8 face only fit
+# 5) while leaving the rows visually separated — at +1 they crowded each other.
+_ROWH = _FH + 2
 
 
 class Screen:
@@ -74,8 +73,18 @@ def fit(c, x, y, s, col=1):
         return
     s = str(s)
     avail = c.w - x
-    while s and c.text_width(s, 1, True) > avail:
-        s = s[:-1]
+    w = c.text_width(s, 1, True)
+    if w > avail:
+        # Trim by SUBTRACTING each dropped glyph's width instead of re-measuring
+        # the whole string every step. The old loop was O(n^2) per string and ran
+        # for every row of every frame, which stole enough loop time to make
+        # button presses feel laggy.
+        gw = c.glyph_w
+        i = len(s)
+        while i > 0 and w > avail:
+            i -= 1
+            w -= gw(ord(s[i])) + 1
+        s = s[:i]
     c.text(x, y, s, col, 1, True)
 
 
@@ -146,8 +155,14 @@ class Menu(Screen):
                 break
             label, fac = self.items[idx]
             avail = right - 12
-            while label and c.text_width(label, 1, True) > avail:
-                label = label[:-1]
+            lw = c.text_width(label, 1, True)
+            if lw > avail:                      # incremental trim (see fit())
+                gw = c.glyph_w
+                j = len(label)
+                while j > 0 and lw > avail:
+                    j -= 1
+                    lw -= gw(ord(label[j])) + 1
+                label = label[:j]
             y = _TOP + i * _ROWH
             if idx == self.sel:
                 rounded_rect(c, 0, y - 1, right, _ROWH, 1)   # soft highlight

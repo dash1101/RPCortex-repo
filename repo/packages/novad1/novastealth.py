@@ -21,6 +21,14 @@ _MAC_KEY = 'Apps.NovaD1_RandomMAC'  # 'on' -> randomise MACs at bring-up
 # --------------------------------------------------------------- per-radio kills
 # Each returns True if it actually silenced something, False/None otherwise. None
 # of them raise — a kill switch must never fail because one radio is absent.
+def blocked():
+    """True while incognito is engaged. Radio entry points MUST consult this and
+    refuse: deactivating an interface is not enough on its own, because any later
+    scan()/connect() simply re-activates it — which is why a 'killed' radio could
+    still be scanned. This is the latch that makes the kill stick."""
+    return active()
+
+
 def _kill_wifi():
     silenced = False
     try:
@@ -34,6 +42,10 @@ def _kill_wifi():
                 try:
                     if w.isconnected():
                         w.disconnect()
+                except Exception:
+                    pass
+                try:
+                    w.config(pm=0xa11140)      # best-effort: stop background scans
                 except Exception:
                     pass
                 w.active(False)

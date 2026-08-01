@@ -60,6 +60,17 @@ async def manager():
         pass
     while True:
         try:
+            # Incognito: never re-associate while stealth is engaged. Without this
+            # the manager brings the radio straight back up after the kill.
+            try:
+                import novastealth
+                if novastealth.blocked():
+                    if _state != 'off':
+                        _state = 'off'
+                    await asyncio.sleep_ms(1000)
+                    continue
+            except Exception:
+                pass
             if _paused:                         # a scan owns the interface — wait
                 await asyncio.sleep_ms(400)
                 continue

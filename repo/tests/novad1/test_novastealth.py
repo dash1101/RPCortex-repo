@@ -118,4 +118,25 @@ st._sw_last = 1
 edges = [st.poll_edge() for _ in range(4)]
 t.eq(edges, [False, False, True, False], 'poll_edge fires once on the falling edge')
 
+
+
+# --------------------------------------------------- the incognito LATCH
+# Killing a radio is not enough on its own: any later scan()/connect() simply
+# re-activates the interface, which is why a "killed" WiFi could still be scanned.
+# blocked() is the latch every radio entry point must consult.
+_shims.set_reg({})
+t.ok(not st.blocked(), 'not blocked when stealth is off')
+st.kill_all()
+t.ok(st.blocked(), 'blocked while stealth is engaged')
+
+import novawardrive as _wd
+t.eq(_wd.scan_now(), [], 'WiFi scan refuses while incognito (no re-activation)')
+
+import novable as _ble
+t.eq(_ble.scan(100), [], 'BLE scan refuses while incognito')
+t.ok(_ble.start_ping('apple') is False, 'BLE advertising refuses while incognito')
+
+st.restore()
+t.ok(not st.blocked(), 'latch clears when stealth is left')
+
 sys.exit(t.done())

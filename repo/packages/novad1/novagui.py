@@ -1185,6 +1185,44 @@ def _power_exit():
     return None
 
 
+class RebootScreen(Screen):
+    """Hard reboot from the UI. Running 'sreboot' through the shell deferred the
+    reset until the async loop unwound — and the GUI service runs inside that loop,
+    so it never happened and the screen just printed '(done)'. This paints a notice,
+    lets one frame land, then resets the chip directly."""
+    title = 'Reboot'
+    fullscreen = True
+
+    def __init__(self):
+        self._n = 0
+
+    def draw(self, c):
+        c.clear(0)
+        a = 'Rebooting'
+        c.text((c.w - c.text_width(a, 2, True)) // 2, c.h // 2 - _FH, a, 1, 2, True)
+
+    def tick(self, dt_ms=0):
+        self._n += 1
+        if self._n < 3:                 # let the notice actually render first
+            return True
+        try:
+            from RPCortex import close_session_log
+            close_session_log()
+        except Exception:
+            pass
+        try:
+            import regedit
+            regedit.save('Settings.Startup', '0')     # clean-shutdown sentinel
+        except Exception:
+            pass
+        try:
+            import machine
+            machine.reset()             # hard reset — works from inside the loop
+        except Exception:
+            pass
+        return False
+
+
 class ShutdownScreen(Screen):
     """A safe power-down. There's no true power-off on the Pico, so this kills every
     radio (stealth) and darkens the panel; any button reboots. Serial stays alive."""
@@ -1213,7 +1251,7 @@ class ShutdownScreen(Screen):
 
     def on_event(self, e):
         if e in (ev.SELECT, ev.BACK, ev.HOME, ev.ROT_CW, ev.ROT_CCW):
-            return CommandScreen('Reboot', 'sreboot')
+            return RebootScreen()
         return None
 
 
@@ -1267,7 +1305,7 @@ def _power_menu():
         ('Lock', _power_lock),
         ('Incognito', StealthSplashScreen),
         ('Reload', lambda: CommandScreen('Reload', 'novad1 refresh')),
-        ('Reboot', lambda: CommandScreen('Reboot', 'sreboot')),
+        ('Reboot', RebootScreen),
         ('Shutdown', ShutdownScreen),
         ('Sleep', _power_sleep),
         ('Exit to shell', _power_exit),
@@ -1301,7 +1339,7 @@ def _troubleshoot_menu():
         ('Restart GUI', lambda: CommandScreen('GUI', 'novad1 service restart')),
         ('Free memory', lambda: CommandScreen('Free RAM', 'freeup')),
         ('I2C scan', lambda: CommandScreen('I2C', 'novad1 scan')),
-        ('Soft reboot', lambda: CommandScreen('Reboot', 'sreboot')),
+        ('Reboot device', RebootScreen),
     ])
 
 
@@ -1852,7 +1890,7 @@ class SettingsScreen(Screen):
             ('action', 'NTP Sync', 'ntp sync'),
             ('action', 'Web Info', 'novad1 web'),
             ('action', 'System Info', 'sysinfo'),
-            ('action', 'Reboot', 'sreboot'),
+            ('push', 'Reboot', RebootScreen),
         ]
         self.sel = self._step(0, 1)         # land on the first non-header row
 
@@ -1878,6 +1916,13 @@ class SettingsScreen(Screen):
             self.top = self.sel
         elif self.sel >= self.top + rows:
             self.top = self.sel - rows + 1
+        # Keep the section header visible. Headers can't be selected, so scrolling
+        # into a section pushed its 'DISPLAY'/'HOME' title off the top and you lost
+        # track of which group you were in. If the row just above the window is a
+        # header, pull it into view.
+        if self.top > 0 and self.rows[self.top - 1][0] == 'head' \
+                and (self.sel - (self.top - 1)) < rows:
+            self.top -= 1
         n = len(self.rows)
         scrolls = n > rows
         # Reserve a lane for the scrollbar. The old up/down triangles sat ON the

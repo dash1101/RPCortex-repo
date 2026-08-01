@@ -16,7 +16,7 @@
 # transparently falls back to the pure-Python primitives below — pixel-true.
 # MicroPython-safe: no f-strings, positional split, .format() only.
 
-import novafont as _f
+import novafont5x7 as _f
 
 _GW = {}        # glyph ink-width cache (narrow/proportional text)
 
