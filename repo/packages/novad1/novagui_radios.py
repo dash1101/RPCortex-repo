@@ -824,3 +824,161 @@ class ButtonGridScreen(Screen):
         elif e in (ev.BACK, ev.HOME):
             return e
         return None
+
+
+class WardriveScreen(Screen):
+    """Wardriving — a rolling WiFi survey. Scans every few seconds, tags each new AP
+    with the live GPS fix + time, dedups by BSSID, and appends a WiGLE-compatible CSV
+    (SD if present, else flash with the storage guard). SELECT starts/pauses; the scan
+    runs cooperatively in tick() so the UI/services stay live. BACK stops + closes the
+    file."""
+    def __init__(self):
+        self.title = 'Wardrive'
+        self.running = False
+        self.msg = 'SELECT = start'
+        self.sess = None
+        self.path = None
+        self.on_sd = False
+        self._acc = 0
+        self._interval = 4000        # ms between scans
+        self._gpsu = None
+        self._gbuf = b''
+        self.fix = None              # (lat, lon)
+        self.alt = None
+        self._err = None
+        self._open_gps()
+
+    def _open_gps(self):
+        try:
+            import machine
+            import novaboard
+            tx = novaboard.pin('gps_tx', 0)
+            rx = novaboard.pin('gps_rx', 1)
+            self._gpsu = machine.UART(1, baudrate=9600, tx=machine.Pin(tx), rx=machine.Pin(rx))
+        except Exception:
+            self._gpsu = None        # GPS optional — survey still logs APs without coords
+
+    def _ts(self):
+        try:
+            import utime
+            t = utime.localtime()
+            return '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(
+                t[0], t[1], t[2], t[3], t[4], t[5])
+        except Exception:
+            return ''
+
+    def _start(self):
+        import novawardrive as wd
+        base, on_sd = wd.log_dir()
+        ok, why = wd.can_write(on_sd)
+        if not ok:
+            self.msg = why[:16]
+            return
+        try:
+            import uos
+            try:
+                uos.mkdir(base)
+            except OSError:
+                pass
+            self.path = base + '/wardrive.csv'
+            newfile = True
+            try:
+                uos.stat(self.path)
+                newfile = False
+            except OSError:
+                pass
+            f = open(self.path, 'a')
+            if newfile:
+                f.write(wd.wigle_header())
+            f.close()
+        except Exception as e:
+            self.msg = 'log err'
+            self._err = str(e)[:16]
+            return
+        self.sess = wd.Session()
+        self.on_sd = on_sd
+        self.running = True
+        self._acc = self._interval           # scan immediately on start
+        self.msg = 'scanning...'
+
+    def _pause(self):
+        self.running = False
+        self.msg = 'paused'
+
+    def _do_scan(self):
+        import novawardrive as wd
+        aps = wd.scan_now()
+        lat = self.fix[0] if self.fix else None
+        lon = self.fix[1] if self.fix else None
+        rows = self.sess.add(aps, self._ts(), lat, lon, self.alt)
+        if rows:
+            # flash guard mid-run: stop cleanly if the disk hit the block level
+            ok, why = wd.can_write(self.on_sd)
+            if not ok:
+                self._pause()
+                self.msg = 'FULL-stopped'
+                return
+            try:
+                f = open(self.path, 'a')
+                for r in rows:
+                    f.write(r)
+                f.close()
+            except Exception:
+                self._pause()
+                self.msg = 'write err'
+                return
+        self.msg = '{} APs / {} pass'.format(self.sess.total, self.sess.scans)
+
+    def _pump_gps(self):
+        if self._gpsu is None:
+            return
+        try:
+            import novagui_radios as _self   # reuse the shared NMEA decoder
+            while self._gpsu.any():
+                d = self._gpsu.read()
+                if not d:
+                    break
+                self._gbuf += d
+                while b'\n' in self._gbuf:
+                    line, self._gbuf = self._gbuf.split(b'\n', 1)
+                    s = line.decode('ascii', 'ignore')
+                    f = s.split(',')
+                    if 'GGA' in s and len(f) > 9 and f[6] not in ('', '0'):
+                        self.fix = (float(_nmea_dec(f[2], f[3])),
+                                    float(_nmea_dec(f[4], f[5])))
+                        self.alt = f[9]
+        except Exception:
+            pass
+
+    def tick(self, dt_ms=0):
+        if not self.running:
+            return False
+        self._pump_gps()
+        self._acc += dt_ms
+        if self._acc >= self._interval:
+            self._acc = 0
+            self._do_scan()
+            return True
+        return False
+
+    def draw(self, c):
+        y = _TOP
+        c.text(2, y, 'Wardrive ' + ('REC' if self.running else 'idle'), 1); y += _ROWH
+        if self.sess is not None:
+            c.text(2, y, 'APs: {}'.format(self.sess.total), 1); y += _ROWH
+        loc = 'SD' if self.on_sd else 'flash'
+        gps = 'GPS ok' if self.fix else 'no fix'
+        c.text(2, y, loc + '  ' + gps, 1); y += _ROWH
+        c.text(2, c.h - _FH, (self.msg or '')[:16], 1)
+
+    def on_event(self, e):
+        if e == ev.SELECT:
+            if self.running:
+                self._pause()
+            else:
+                self._start()
+            return None
+        if e in (ev.BACK, ev.HOME):
+            self.running = False
+            return e
+        return None

@@ -22,7 +22,7 @@ from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH,
 from novagui_radios import (MessagesScreen, GPSScreen, NFCScreen, NfcSaveScreen,
                             CodeListScreen, IRCaptureScreen, IRSignalsScreen,
                             IRFilesScreen, SubGhzFireScreen, BlePingScreen,
-                            ButtonGridScreen)
+                            ButtonGridScreen, WardriveScreen)
 # System app screens (leaf-safe subset) live in novagui_system (the monolith
 # split); novagui re-exports them so novagui.PinScreen etc. still resolve.
 from novagui_system import (WiFiScreen, TimeScreen, SystemCheckScreen,
@@ -1249,6 +1249,54 @@ def _power_menu():
     ])
 
 
+def _blink_display():
+    """Turn the panel off and on again — a common 'my screen is glitchy' fix, one tap."""
+    if _active_ui is not None:
+        try:
+            d = _disp()
+            if d is not None:
+                d.power(False)
+                import utime
+                utime.sleep_ms(400)
+                d.power(True)
+                d.invalidate()          # force a full repaint after the blink
+        except Exception:
+            pass
+    return None
+
+
+def _troubleshoot_menu():
+    """Recovery actions one tap away — the things you'd otherwise drop to the shell
+    for when something's misbehaving."""
+    return Menu('Troubleshoot', [
+        ('Reconnect WiFi', lambda: CommandScreen('WiFi', 'wifi autoconnect')),
+        ('WiFi status', lambda: CommandScreen('WiFi', 'wifi status')),
+        ('Blink display', _blink_display),
+        ('Reload pins', lambda: CommandScreen('Reload', 'novad1 refresh')),
+        ('Restart GUI', lambda: CommandScreen('GUI', 'novad1 service restart')),
+        ('Free memory', lambda: CommandScreen('Free RAM', 'freeup')),
+        ('I2C scan', lambda: CommandScreen('I2C', 'novad1 scan')),
+        ('Soft reboot', lambda: CommandScreen('Reboot', 'sreboot')),
+    ])
+
+
+def _commands_menu():
+    """Curated read-only / safe shell commands surfaced in the GUI, grouped. Anything
+    that reconfigures hardware (pins) or is destructive is deliberately left to the
+    shell — this is for status + quick actions, moving the GUI toward TUI parity."""
+    return Menu('Commands', [
+        ('System info', lambda: CommandScreen('sysinfo', 'sysinfo')),
+        ('Nova status', lambda: CommandScreen('status', 'novad1 status')),
+        ('Memory', lambda: CommandScreen('meminfo', 'meminfo')),
+        ('Storage', lambda: CommandScreen('df', 'df')),
+        ('Uptime', lambda: CommandScreen('uptime', 'uptime')),
+        ('Pins', lambda: CommandScreen('pins', 'novad1 pins')),
+        ('WiFi status', lambda: CommandScreen('wifi', 'wifi status')),
+        ('Incognito status', lambda: CommandScreen('stealth', 'novad1 incognito status')),
+        ('Nova logs', _logs_screen),
+    ])
+
+
 def _logs_screen():
     try:
         import novalog
@@ -1277,11 +1325,12 @@ def _scripts_screen():
 _CATEGORIES = ('Wireless', 'Sensors', 'Tools', 'System')
 _APP_CAT = {
     'pn532': 'Wireless', 'bt': 'Wireless', 'cc1101': 'Wireless', 'sx1276': 'Wireless',
-    'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless',
+    'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless', 'wardrive': 'Wireless',
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
     'store': 'Tools', 'clock': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
+    'fix': 'System', 'cmds': 'System',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
 _CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'scripts', 'System': 'settings'}
@@ -1529,8 +1578,11 @@ def _all_apps():
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('diag', 'Diagnostics', _diag_app))
+    apps.append(('fix', 'Troubleshoot', _troubleshoot_menu))   # recovery actions
+    apps.append(('cmds', 'Commands', _commands_menu))          # curated shell commands
     apps.append(('store', 'App Store', AppStoreScreen))   # browse + install apps
     apps.append(('wifi', 'WiFi', WiFiScreen))
+    apps.append(('wardrive', 'Wardrive', WardriveScreen))
     apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('notes', 'Notifications', NotificationsScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))

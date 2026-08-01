@@ -492,6 +492,74 @@ def _display_cmd(info, ok, warn, error, multi, rest=''):
         error("Could not save: {}".format(e))
 
 
+def _wardrive(info, ok, warn, error, multi, rest=''):
+    """One-shot wardriving scan from the shell: scan WiFi, tag with GPS if a fix is
+    available, append new APs to the WiGLE CSV. The GUI Wardrive app does continuous
+    logging; this is a quick manual pass / status check."""
+    import novawardrive as wd
+    parts = (rest or '').split()
+    sub = parts[0].lower() if parts else 'scan'
+
+    base, on_sd = wd.log_dir()
+    if sub == 'status':
+        info("Wardrive", p="NovaD1")
+        multi("  Log dir : {}  ({})".format(base, 'SD card' if on_sd else 'onboard flash'))
+        okw, why = wd.can_write(on_sd)
+        multi("  Writable: {}{}".format('yes' if okw else 'NO', '  - ' + why if why else ''))
+        if not on_sd:
+            multi("  Tip: an SD card is recommended for wardriving (many writes).")
+        return
+
+    okw, why = wd.can_write(on_sd)
+    if not okw:
+        error(why or "Storage full — cannot log.")
+        return
+    if why:
+        warn(why, p="NovaD1")
+
+    info("Scanning WiFi...", p="NovaD1")
+    aps = wd.scan_now()
+    if not aps:
+        warn("No networks found (or WiFi unavailable).", p="NovaD1")
+        return
+    # GPS is optional for a shell one-shot; log without coords.
+    ts = ''
+    try:
+        import utime
+        t = utime.localtime()
+        ts = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(t[0], t[1], t[2], t[3], t[4], t[5])
+    except Exception:
+        pass
+    try:
+        import uos
+        try:
+            uos.mkdir(base)
+        except OSError:
+            pass
+        path = base + '/wardrive.csv'
+        newfile = not _file_there(path)
+        f = open(path, 'a')
+        if newfile:
+            f.write(wd.wigle_header())
+        sess = wd.Session()
+        rows = sess.add(aps, ts)
+        for r in rows:
+            f.write(r)
+        f.close()
+        ok("Logged {} networks -> {}".format(len(rows), path), p="NovaD1")
+    except Exception as e:
+        error("Log failed: {}".format(e))
+
+
+def _file_there(path):
+    try:
+        import uos
+        uos.stat(path)
+        return True
+    except OSError:
+        return False
+
+
 def _fav(info, ok, warn, error, multi, rest=''):
     """Manage the home favorites bar — pinned apps launch from the top of the home."""
     parts = (rest or '').split()
@@ -1167,6 +1235,7 @@ def novad1(args=None):
         multi("  novad1 pins        Show/edit the pinmap (pins set <name> <gpio>)")
         multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
         multi("  incognito on|off   Kill ALL radios instantly (stealth mode)")
+        multi("  novad1 wardrive    WiFi survey -> WiGLE CSV (scan|status)")
         multi("  novad1 fav ...      Pin apps to the home favorites bar")
         multi("  novad1 service ... GUI service: start|stop|restart|status")
         multi("  novad1 refresh     Reload pins (restart the GUI service)")
@@ -1202,6 +1271,8 @@ def novad1(args=None):
     elif cmd in ('fav', 'favorite', 'favorites'):
         rest_cs = (args or '').strip().split(None, 1)
         _fav(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
+    elif cmd in ('wardrive', 'wardriving'):
+        _wardrive(info, ok, warn, error, multi, rest)
     elif cmd in ('refresh', 'reload'):
         _svc(info, ok, warn, error, multi, 'refresh')
     elif cmd == 'apps':
