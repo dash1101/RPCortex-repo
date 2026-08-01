@@ -30,6 +30,10 @@ mods = set(re.findall(r"'([^']+)'", block))
 t.ok(len(mods) > 10, 'the MODS list parsed ({} modules)'.format(len(mods)))
 
 local = set(f[:-3] for f in os.listdir(PKG) if f.endswith('.py'))
+
+# The other direction: a name in MODS with no file behind it is a 404 at load.
+for name in sorted(mods):
+    t.ok(name in local, 'MODS entry {!r} has a file'.format(name))
 _TOP_IMPORT = re.compile(r'^(?:import|from)\s+(\w+)', re.M)
 
 for name in sorted(mods & local):

@@ -39,6 +39,24 @@ def _saved():
         return []
 
 
+async def _sync_clock():
+    """Step the NTP sync, awaiting between every step.
+
+    This used to be a bare `novartc.online_sync()` call — a SYNCHRONOUS blocking
+    function invoked from inside this coroutine without an await. DNS plus a recv
+    with a multi-second timeout stalled the whole event loop, and the GUI runs on
+    that loop, so the device locked up on first WiFi connect. That is the reported
+    'ntp sync freezes the OS'. Driving the generator and awaiting between steps is
+    the fix; the sync path stays available for callers that aren't on the loop."""
+    import asyncio
+    try:
+        import novartc
+        for _st in novartc.sync_steps():
+            await asyncio.sleep_ms(0)           # hand the loop back between steps
+    except Exception:
+        pass
+
+
 async def manager():
     """Run forever as a background task: keep WiFi connected, update state()."""
     global _state, _started
@@ -80,11 +98,7 @@ async def manager():
                     global _synced
                     if not _synced:             # one-shot NTP sync on first connect
                         _synced = True
-                        try:
-                            import novartc
-                            novartc.online_sync()
-                        except Exception:
-                            pass
+                        await _sync_clock()
                 await asyncio.sleep_ms(5000)
                 continue
             saved = _saved()
