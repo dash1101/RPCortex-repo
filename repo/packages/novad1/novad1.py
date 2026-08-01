@@ -1291,7 +1291,7 @@ def novad1(args=None):
         _setup(info, ok, warn, error, multi)
     elif cmd == 'status':
         _status(info, ok, warn, error, multi)
-    elif cmd in ('pins', 'pin'):
+    elif cmd == 'pins':
         rest_cs = (args or '').strip().split(None, 1)
         _pins(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd in ('display', 'screen'):
@@ -1305,7 +1305,7 @@ def novad1(args=None):
         _fav(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd in ('wardrive', 'wardriving'):
         _wardrive(info, ok, warn, error, multi, rest)
-    elif cmd == 'pin':
+    elif cmd in ('pin', 'lock'):
         _pin(info, ok, warn, error, multi, rest)
     elif cmd in ('refresh', 'reload'):
         _svc(info, ok, warn, error, multi, 'refresh')
