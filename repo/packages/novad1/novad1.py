@@ -1182,16 +1182,27 @@ async def _gui_service():
                 asyncio.create_task(novawifi.manager())
         except Exception:
             pass
-        try:                                  # background LoRa messaging (once; self-
-            import novamsg                    # disables if no SX1276 answers)
-            if not novamsg._started:
-                asyncio.create_task(novamsg.manager())
+        # Background services are imported only if they are actually going to
+        # RUN. Importing them to ask whether they should run costs the same RAM
+        # as running them: novamsg pulls in the LoRa stack and novawatch the BLE
+        # scanner, together ~12 KB, on a device where the package already uses
+        # most of the heap. Both are checked from config first.
+        # LoRa messaging is opt-in for the same reason. A board profile defines
+        # sx_cs whether or not an SX1276 is actually soldered on, so the pin says
+        # nothing about whether the radio exists — and importing novamsg to ask
+        # costs the whole LoRa stack. Most devices do not have the module fitted.
+        try:
+            if str(_reg('Apps.NovaD1_LoRa', 'off')).lower() in ('on', 'true', '1'):
+                import novamsg
+                if not novamsg._started:
+                    asyncio.create_task(novamsg.manager())
         except Exception:
             pass
-        try:                                  # background radio observer (once) — keeps
-            import novawatch                  # building the picture while you use the
-            if not novawatch.started():       # device for something else
-                asyncio.create_task(novawatch.observer())
+        try:                                  # radio observer — opt-in, off by default
+            if str(_reg('Apps.NovaD1_Watch', 'off')).lower() in ('on', 'true', '1'):
+                import novawatch
+                if not novawatch.started():
+                    asyncio.create_task(novawatch.observer())
         except Exception:
             pass
         try:                                  # background code -> SD backup mover (once)

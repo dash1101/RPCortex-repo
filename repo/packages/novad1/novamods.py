@@ -755,22 +755,20 @@ def test_bt(cfg, cancel=None):
 
 # --- the registry the GUI builds apps from ----------------------------------
 # (key, label, test_fn). Order = home order.
-MODULES = [
-    ('dht11',     'DHT11 Temp',   test_dht11),
-    ('gps',       'GPS',          test_gps),
-    ('pn532',     'NFC (PN532)',  test_pn532),
-    ('cc1101',    'Sub-GHz',      test_cc1101),
-    ('sx1276',    'LoRa',         test_sx1276),
-    ('bt',        'Bluetooth',    test_bt),
-    ('ir_rx',     'IR Receive',   test_ir_rx),
-    ('ir_tx',     'IR Send',      test_ir_tx),
-    ('ibutton',   'iButton',      test_ibutton),
-    ('sdcard',    'SD Card',      test_sdcard),
-    ('battery',   'Battery',      test_battery),
-    ('buzzer',    'Buzzer',       test_buzzer),
-    ('vibration', 'Vibration',    test_vibration),
-    ('led',       'Status LED',   test_led),
-]
+# The (key, label) pairs live in novamodtab so the home screen can read them
+# WITHOUT importing this module and its ~15 KB of drivers. Here they are paired
+# back up with the probe that tests each one.
+_TESTS = {
+    'dht11': test_dht11, 'gps': test_gps, 'pn532': test_pn532,
+    'cc1101': test_cc1101, 'sx1276': test_sx1276, 'bt': test_bt,
+    'ir_rx': test_ir_rx, 'ir_tx': test_ir_tx, 'ibutton': test_ibutton,
+    'sdcard': test_sdcard, 'battery': test_battery, 'buzzer': test_buzzer,
+    'vibration': test_vibration, 'led': test_led,
+}
+
+import novamodtab as _tab
+
+MODULES = [(k, l, _TESTS[k]) for k, l in _tab.MODULES if k in _TESTS]
 
 
 def run_test(key, cancel=None):

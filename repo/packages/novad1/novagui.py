@@ -1974,6 +1974,7 @@ def _commands_menu():
         ('Nova status', lambda: CommandScreen('status', 'novad1 status')),
         ('Memory', lambda: CommandScreen('meminfo', 'meminfo')),
         ('Contiguous RAM', lambda: CommandScreen('defrag', 'defrag')),
+        ('Web panel info', lambda: CommandScreen('web', 'novad1 web')),
         ('Storage', lambda: CommandScreen('df', 'df')),
         ('Uptime', lambda: CommandScreen('uptime', 'uptime')),
         ('Pins', lambda: CommandScreen('pins', 'novad1 pins')),
@@ -2138,9 +2139,9 @@ def _presence_app():
 def _diag_app():
     """Diagnostics: run any module's hardware self-test (absorbs the old per-module
     test icons, and keeps every module reachable for bring-up)."""
-    import novamods
-    items = []
-    for k, label, _fn in novamods.MODULES:
+    import novamodtab                      # the Hardware MENU is names only; the
+    items = []                             # probes load when a test is run
+    for k, label in novamodtab.MODULES:
         if k == 'ir_tx':
             continue
         items.append((label, _mk_test(k, label)))
@@ -2250,9 +2251,9 @@ class AppStoreScreen(Screen):
 def _all_apps():
     """Every possible home app: (key, label, factory). Modules + built-in apps. Real
     apps replace the raw hardware tests; pure probes go to the Diagnostics app."""
-    import novamods
+    import novamodtab                      # names only; novamods is the drivers
     apps = []
-    for k, l, _fn in novamods.MODULES:
+    for k, l in novamodtab.MODULES:
         if k == 'gps':
             apps.append((k, 'GPS', GPSScreen))
         elif k == 'pn532':
@@ -2560,12 +2561,12 @@ def _rows_radar():
 def _rows_network():
     return [
         ('push', 'WiFi', WiFiScreen),
+        ('cycle', 'LoRa radio', 'Apps.NovaD1_LoRa', ['off', 'on'], 'off', None),
         ('cycle', 'LoRa MHz', 'Apps.NovaD1_LoRa_Freq', ['433', '868', '915'], '915',
          None),
         ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
         ('action', 'Sync Clock', 'ntp sync'),
         ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
-        ('action', 'Web Info', 'novad1 web'),
     ]
 
 
