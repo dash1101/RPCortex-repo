@@ -188,4 +188,23 @@ n = len(drain())
 t.ok(n >= 32, 'a long burst queues rather than being lost ({} delivered)'.format(n))
 t.ok(n <= 64, 'but the queue is bounded, so a stuck button cannot grow it forever')
 
+
+
+
+# ------------------------------------------------- live hold duration
+# held_ms lets the UI show a gesture IN PROGRESS. A hold that gives no feedback
+# until it fires is indistinguishable from a button that did nothing.
+drain()
+t.eq(src.held_ms(ni.HOME), 0, 'nothing held reads as 0')
+home.press()
+CLOCK['t'] += 200
+t.eq(src.held_ms(ni.HOME), 200, 'a held button reports how long it has been held')
+CLOCK['t'] += 300
+t.eq(src.held_ms(ni.HOME), 500, 'and keeps counting')
+t.eq(src.held_ms(ni.SELECT), 0, 'a button that is up still reads 0')
+home.release()
+t.eq(src.held_ms(ni.HOME), 0, 'releasing resets it')
+drain()
+t.eq(src.held_ms('nonsense'), 0, 'an unknown event does not raise')
+
 sys.exit(t.done())

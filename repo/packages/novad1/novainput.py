@@ -52,6 +52,9 @@ class ScriptedSource:
     def poll(self):
         return self._q.pop(0) if self._q else None
 
+    def held_ms(self, evt):
+        return 0
+
 
 class GpioSource:
     """On-device source: EC11 quadrature (IRQ + table) + debounced buttons.
@@ -266,6 +269,19 @@ class GpioSource:
                     self._pending.append(evt)           # a tap -> reported on release
                 self._holds[evt] = False
                 self._last[evt] = 1
+
+    def held_ms(self, evt):
+        """How long `evt`'s button has been held right now, in ms; 0 if it is up.
+
+        Lets the UI show a gesture IN PROGRESS rather than only its result — a
+        hold that gives no feedback until it fires feels like nothing happened."""
+        try:
+            i = self._btn_order.index(evt)
+        except ValueError:
+            return 0
+        if not self._is_down[i]:
+            return 0
+        return self._tdiff(self._ticks(), self._down[i])
 
     def poll(self):
         # Buttons are scanned every call (never starved by the encoder), but

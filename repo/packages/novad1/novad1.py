@@ -1215,8 +1215,13 @@ async def _gui_service():
             # Screen ON immediately with the splash — ALWAYS on a fresh start, so it
             # shows 100% of the time (a stored error now shows after it, not instead).
             try:
+                # The FIRST frame, not a middle one. Painting t=0.5 here put a
+                # half-finished "Nova" on screen, and then SplashScreen started
+                # its animation from t=0 — so it looked like the boot began,
+                # stalled, and began again. t=0 is where the animation starts, so
+                # the handover is invisible.
                 import novasplash
-                novasplash.draw(ui.canvas, 0.5)
+                novasplash.draw(ui.canvas, 0.0)
                 ui.display.show(ui.canvas)
             except Exception:
                 pass

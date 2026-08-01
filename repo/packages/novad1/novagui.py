@@ -181,6 +181,17 @@ def _disk(c, x, y):
     c.fill_rect(x + 1, y + 4, 5, 3, 1)          # label
 
 
+def _centre(c, s, scale=1):
+    """x for text visually centred. text_width() counts the blank advance after
+    the last glyph, so centring on it sits a couple of pixels left."""
+    w = c.text_width(s, scale)
+    try:
+        w -= (c.text_width('M', 1) - c.glyph_w(ord(s[-1]))) * scale
+    except Exception:
+        pass
+    return (c.w - w) // 2
+
+
 def draw_status_bar(c, state):
     # Right-aligned clock, then (battery)(usb)(wifi) leftward, then the title fills
     # what's left — all measured from the font so a font swap can't clip anything.
@@ -959,6 +970,7 @@ class NovaUI:
         self._lock_scr = None
         self._low_warned = False
         self._last_sig = None
+        self._home_hold = 0          # ms HOME has been held, for the hold indicator
         self._render_us = 0          # last render time (us) — perf instrumentation
         self._render_max = 0         # worst render since reset
         self._shows = 0
@@ -989,6 +1001,7 @@ class NovaUI:
             st = self._get_state(now)
             st['title'] = scr.title
             draw_status_bar(c, st)
+            self._draw_home_hold(c)
         scr.draw(c)
         # Incognito indicator: drawn LAST so it sits above whatever the screen
         # painted, in the bottom-left where content is thinnest. Pulses so it reads
@@ -1019,6 +1032,32 @@ class NovaUI:
             return True
         self._apply(self.stack[-1].on_event(e))
         return True
+
+    def _draw_home_hold(self, c):
+        """A row of pips filling toward the power screen while HOME is held.
+
+        Drawn over the status bar's left edge, where the title is, because that is
+        where the eye already is and the gesture is over in well under a second."""
+        hold = self._home_hold
+        if hold <= 120:
+            return
+        try:
+            import novainput as _ni
+            full = _ni.HOLD_MS
+        except Exception:
+            full = 600
+        n = 5
+        done = int(min(1.0, hold / float(full)) * n + 0.5)
+        # Clear enough of the bar to take the WHOLE title. Blanking only the pips'
+        # width left the tail of the title beside them, which reads as a glitch
+        # rather than as an indicator.
+        c.fill_rect(0, 0, 40, _BARH, 0)
+        for i in range(n):
+            x = 2 + i * 4
+            if i < done:
+                c.fill_rect(x, 2, 3, 5, 1)
+            else:
+                c.rect(x, 2, 3, 5, 1)
 
     def _set_level(self, level):
         """Idle power tier via CONTRAST only — NEVER power-off, so it's 100%
@@ -1067,12 +1106,20 @@ class NovaUI:
         # 'spread out over time'. Applying them all here keeps input snappy.
         e = self.source.poll()
         if e is not None and self._dimmed:       # WAKE only — swallow everything queued
-            self._wake_display()
-            self._idle_t0 = now                  # reset idle so it doesn't re-dim at once
-            dirty = True
-            while self.source.poll() is not None:
-                pass
-            e = None
+            # A screen can opt out of wake-on-any-input (ShutdownScreen wants a
+            # deliberate hold instead). Its events are dropped rather than acted
+            # on, so a stray press cannot do something while the panel is dark.
+            if getattr(self.stack[-1], 'manual_wake', False):
+                while self.source.poll() is not None:
+                    pass
+                e = None
+            else:
+                self._wake_display()
+                self._idle_t0 = now              # reset idle so it doesn't re-dim at once
+                dirty = True
+                while self.source.poll() is not None:
+                    pass
+                e = None
         while e is not None:
             self._idle_t0 = now
             dirty = self.handle(e) or dirty
@@ -1110,6 +1157,22 @@ class NovaUI:
         # minute, wifi/battery/notify/save icons) — not every second. A full redraw
         # is tens of ms of non-yielding work; doing it 1x/sec was starving the
         # serial shell's keystroke reader on the shared event loop.
+        # Holding HOME opens the power screen. Show the gesture WHILE it is
+        # happening — a hold with no feedback until it fires is indistinguishable
+        # from a button that did nothing, which is how it felt.
+        hold = 0
+        src = self.source
+        if hasattr(src, 'held_ms') and not self._dimmed:
+            try:
+                hold = src.held_ms(ev.HOME)
+            except Exception:
+                hold = 0
+        if (hold > 120) != (self._home_hold > 120):
+            dirty = True
+        elif hold > 120 and (hold // 120) != (self._home_hold // 120):
+            dirty = True                          # each new pip
+        self._home_hold = hold
+
         st = self._get_state(now)
         pwr = st.get('power') or {}
         sig = (st.get('time'), st.get('wifi'), st.get('notify'), st.get('saving'),
@@ -1304,12 +1367,32 @@ class RebootScreen(Screen):
 
 
 class ShutdownScreen(Screen):
-    """A safe power-down. There's no true power-off on the Pico, so this kills every
-    radio (stealth) and darkens the panel; any button reboots. Serial stays alive."""
+    """A safe power-down. There is no true power-off on the Pico, so this silences
+    every radio, shows what happened for a few seconds, then turns the panel off.
+
+    Waking does NOT reboot. The old screen restarted the whole system on any
+    button, which meant reloading the GUI from scratch — and on a device that had
+    been running a while there was no longer enough contiguous RAM to do it, so
+    "turning it back on" failed. The GUI is still resident the entire time; all
+    waking has to do is turn the panel back on.
+
+    It takes a deliberate three-second hold of HOME, so a knock in a pocket does
+    not light it up."""
     title = 'Shutdown'
+    HOLD_WAKE_MS = 3000
+    SHOW_MS = 5000
+
+    # The runner checks this: while the panel is off here, ordinary input must NOT
+    # wake it, or the hold requirement means nothing.
+    manual_wake = True
 
     def __init__(self):
         self._done = False
+        self._elapsed = 0
+        self._asleep = False
+
+    def animating(self):
+        return not self._asleep
 
     def tick(self, dt_ms=0):
         if not self._done:
@@ -1320,19 +1403,44 @@ class ShutdownScreen(Screen):
             except Exception:
                 pass
             return True
-        return False
+        self._elapsed += dt_ms
+        if not self._asleep and self._elapsed >= self.SHOW_MS:
+            self._asleep = True
+            if _active_ui is not None:
+                _active_ui.sleep_display()
+            return False
+        if self._asleep:
+            src = getattr(_active_ui, 'source', None)
+            if src is not None and hasattr(src, 'held_ms'):
+                if src.held_ms(ev.HOME) >= self.HOLD_WAKE_MS:
+                    self._asleep = False
+                    self._elapsed = 0
+                    if _active_ui is not None:
+                        _active_ui._wake_display()
+                    return 'back'          # straight back to what was on screen
+            return False
+        return True
 
     def draw(self, c):
         c.clear(0)
         a = 'Powered down'
-        b = 'press to reboot'
-        c.text((c.w - len(a) * _ADV) // 2, c.h // 2 - _FH, a, 1)
-        c.text((c.w - len(b) * _ADV) // 2, c.h // 2 + 2, b, 1)
+        b = 'hold HOME 3s to wake'
+        c.text(_centre(c, a), c.h // 2 - _FH - 4, a, 1)
+        _fit(c, 2, c.h // 2 + 2, b)
+        left = max(0, self.SHOW_MS - self._elapsed)
+        if left:
+            n = int(left / 1000) + 1
+            bar = int((c.w - 20) * (left / float(self.SHOW_MS)))
+            c.hline(10, c.h - 6, max(1, bar), 1)
+            c.hline(10, c.h - 5, max(1, bar), 1)
+            t = 'screen off in {}'.format(n)
+            c.text(_centre(c, t), c.h - 6 - _FH - 2, t, 1)
 
     def on_event(self, e):
-        if e in (ev.SELECT, ev.BACK, ev.HOME, ev.ROT_CW, ev.ROT_CCW):
-            return RebootScreen()
+        # Nothing here wakes it. The hold is checked in tick(), because a hold is
+        # a duration rather than an event and must be observable while it happens.
         return None
+
 
 
 class StealthSplashScreen(Screen):
@@ -1515,6 +1623,36 @@ def _fetch_json(url, tmp=None):
 _PKG_UPDATE_CMD = 'novad1 selfupdate -y'
 
 
+def _fail_reason(exc, which):
+    """Why a check failed, in words that fit the panel and point somewhere.
+
+    'OS check failed' is true and useless. The two things that actually go wrong
+    are running out of contiguous RAM for the TLS handshake and the network
+    dropping, and they need completely different responses — so they have to be
+    told apart on screen. The free-block size is included because it is the
+    number that decides whether a retry can possibly work."""
+    if _novacore.is_oom(exc):
+        # The block size AND the action. The number says whether a retry could
+        # possibly work (a handshake needs ~17K unbroken); 'reboot' is the thing
+        # that reliably produces one, because the heap never compacts.
+        try:
+            blk = _novacore.largest_block(20480) // 1024
+            return 'Low RAM {}K - reboot'.format(blk)
+        except Exception:
+            return 'Low memory - reboot'
+    txt = str(exc)
+    if 'ENOMEM' in txt or 'memory' in txt.lower():
+        return 'Low memory - reboot'
+    for needle, msg in (('ETIMEDOUT', 'Timed out'), ('ECONNRESET', 'Connection reset'),
+                        ('ECONNABORTED', 'Connection lost'),
+                        ('EHOSTUNREACH', 'Host unreachable'),
+                        ('ENOENT', 'No such file'),
+                        ('-202', 'DNS lookup failed')):
+        if needle in txt:
+            return msg
+    return '{} check: {}'.format(which, (txt or exc.__class__.__name__)[:14])
+
+
 def _cache_bust():
     try:
         import utime
@@ -1593,6 +1731,13 @@ class UpdatesScreen(Screen):
         message instead of dumping a traceback."""
         self.err = ''
         try:
+            import RPCortex as _R
+            if _R.radio_locked():
+                self.err = 'Radios are locked'
+                return
+        except Exception:
+            pass
+        try:
             import net
             if not net.status().get('connected'):
                 self.err = 'No WiFi'
@@ -1600,6 +1745,16 @@ class UpdatesScreen(Screen):
         except Exception:
             self.err = 'No network'
             return
+
+        # Reclaim BEFORE the first handshake, not after it fails. Each fetch
+        # needs one unbroken ~16.7 KB block for the TLS input buffer, and on a
+        # device that has been up a while the shell's command cache is usually
+        # the only thing standing between us and having it.
+        yield 'Freeing memory...'
+        try:
+            _novacore.reclaim()
+        except Exception:
+            pass
 
         yield 'Checking OS...'
         try:
@@ -1609,8 +1764,7 @@ class UpdatesScreen(Screen):
             if _newer(lv, cv) or (lb and lb != str(cb)):
                 self.os_new = (lv, lb, m.get('notes', ''))
         except Exception as e:
-            self.err = _novacore.oom_message() if _novacore.is_oom(e) \
-                else 'OS check failed'
+            self.err = _fail_reason(e, 'OS')
 
         yield 'Checking app...'
         try:
@@ -1627,8 +1781,7 @@ class UpdatesScreen(Screen):
                     break
         except Exception as e:
             if not self.err:
-                self.err = _novacore.oom_message() if _novacore.is_oom(e) \
-                    else 'App check failed'
+                self.err = _fail_reason(e, 'App')
 
     def _build_rows(self):
         """Build the display rows.

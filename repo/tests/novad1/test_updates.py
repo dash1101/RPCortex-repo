@@ -59,7 +59,10 @@ t.eq(fetched, [], 'the spinner frame still fetches nothing')
 # one fetch per tick from here
 scr.tick(40)
 t.eq(len(fetched), 0, 'the first step only reports what it is about to do')
-t.eq(scr._status, 'Checking OS...', 'and says so on screen')
+t.eq(scr._status, 'Freeing memory...',
+     'the heap is reclaimed BEFORE the first handshake, not after it fails')
+scr.tick(40)
+t.eq(scr._status, 'Checking OS...', 'then the OS check is announced')
 scr.tick(40)
 t.eq(len(fetched), 1, 'the OS manifest is fetched on its own step')
 t.eq(scr._status, 'Checking app...', 'the status advances between fetches')
@@ -83,7 +86,7 @@ def _boom(url, dest=None, verbose=False, **kw):
 
 net.wget = _boom
 scr2 = novagui.UpdatesScreen()
-for _ in range(8):
+for _ in range(10):
     scr2.tick(40)
 t.eq(scr2.state, 'done', 'a failing fetch still finishes the check')
 t.ok(scr2.err != '', 'and reports the failure')
@@ -91,8 +94,8 @@ t.ok(scr2.rows, 'the screen still has rows to show')
 
 net.status = lambda: {'connected': False}
 scr3 = novagui.UpdatesScreen()
-for _ in range(8):
-    scr3.tick(40)
+for _ in range(10):
+    scr3.tick(10)
 t.eq(scr3.err, 'No WiFi', 'offline is reported as offline, not as a failed fetch')
 t.eq(scr3.state, 'done', 'and the screen does not sit spinning forever')
 
@@ -129,7 +132,7 @@ def _wget_check(url, dest=None, verbose=False, **kw):
 net.wget = _wget_check
 net.status = lambda: {'connected': True}
 scr5 = novagui.UpdatesScreen()
-for _ in range(8):
+for _ in range(10):
     scr5.tick(40)
 t.ok(_dests and all(d for d in _dests), 'every fetch supplied a destination file')
 t.ok(_os.path.isdir(_os.path.dirname(novagui._FETCH_TMP)),
@@ -144,13 +147,23 @@ def _oom(url, dest=None, verbose=False, **kw):
 
 net.wget = _oom
 scr6 = novagui.UpdatesScreen()
-for _ in range(8):
+for _ in range(10):
     scr6.tick(40)
 t.eq(scr6.state, 'done', 'an out-of-memory check still completes')
-t.ok('memory' in scr6.err.lower(),
+t.ok('ram' in scr6.err.lower() or 'memory' in scr6.err.lower(),
      'and is reported as a memory problem, not a generic failure (got {!r})'.format(
          scr6.err))
 t.ok('reboot' in scr6.err.lower(), 'with something the user can actually do')
+t.ok(len(scr6.err) <= 22, 'and it fits the panel ({} chars)'.format(len(scr6.err)))
+
+# The reason has to distinguish the two things that actually go wrong, because
+# they need completely different responses. 'OS check failed' told you nothing.
+t.eq(novagui._fail_reason(OSError('[Errno 110] ETIMEDOUT'), 'OS'), 'Timed out',
+     'a timeout is reported as a timeout')
+t.eq(novagui._fail_reason(OSError('[Errno 104] ECONNRESET'), 'OS'),
+     'Connection reset', 'a reset is reported as a reset')
+t.eq(novagui._fail_reason(OSError(-202), 'OS'), 'DNS lookup failed',
+     'a DNS failure is named')
 
 # ------------------------------------------- "up to date" must mean CHECKED
 # Reported: on 0.71.0 with 0.72.0 available, the screen said everything was up to
@@ -166,7 +179,7 @@ def _boom2(url, dest=None, verbose=False, **kw):
 
 net.wget = _boom2
 scr7 = novagui.UpdatesScreen()
-for _ in range(8):
+for _ in range(10):
     scr7.tick(40)
 labels = [r[1] for r in scr7.rows]
 t.ok(not any('up to date' in l for l in labels),
