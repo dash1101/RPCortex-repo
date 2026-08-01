@@ -17,8 +17,12 @@ import novafont as _f
 _ADV = _f.ADVANCE               # px per character cell (incl. spacing)
 _FH = _f.HEIGHT                 # glyph height
 _BARH = _FH + 1                 # status-bar height
-_TOP = _BARH + 2                # body starts below the status bar + rule
-_ROWH = _FH + 2                 # menu row height (font-agnostic)
+_TOP = _BARH + 1                # body starts below the status bar + rule
+# Row pitch. Only 8 of 95 glyphs use the 8th row (descenders: , ; _ g j p q y) — the
+# other 77 are 7 tall — so a 9px pitch stays legible and buys a whole extra row on a
+# 64px panel (5 rows -> 6). That leftover strip at the bottom of a list was the row
+# that didn't quite fit at the old pitch.
+_ROWH = _FH + 1
 
 
 class Screen:
@@ -75,6 +79,34 @@ def fit(c, x, y, s, col=1):
     c.text(x, y, s, col, 1, True)
 
 
+_SB_W = 3           # scrollbar lane width
+
+
+def rounded_rect(c, x, y, w, h, col=1):
+    """A filled rect with the 4 corner pixels knocked out — a 1px 'radius'. On a
+    1-bit panel that's the most curve available, and it visibly softens the
+    selection highlight versus a hard white block."""
+    if w <= 2 or h <= 2:
+        c.fill_rect(x, y, w, h, col)
+        return
+    c.fill_rect(x + 1, y, w - 2, h, col)          # middle block
+    c.fill_rect(x, y + 1, 1, h - 2, col)          # left edge, inset
+    c.fill_rect(x + w - 1, y + 1, 1, h - 2, col)  # right edge, inset
+
+
+def scrollbar(c, x, y, h, top, visible, total):
+    """A real scrollbar: a full-height track plus a thumb sized/positioned by how
+    much of the list is on screen. Replaces the tiny up/down triangles, which only
+    said 'there is more' without showing how much or where you are."""
+    if total <= visible or h <= 4:
+        return
+    c.vline(x + _SB_W // 2, y, h, 1)                       # track
+    th = max(4, (h * visible) // total)                    # thumb height
+    span = h - th
+    ty = y + (span * top) // max(1, (total - visible))
+    c.fill_rect(x, ty, _SB_W, th, 1)                       # thumb
+
+
 def _scroll_tri(c, x, y, up):
     """A tiny 5px up/down triangle — a 'more above/below' scroll hint for lists."""
     if up:
@@ -104,30 +136,30 @@ class Menu(Screen):
             self.top = self.sel
         elif self.sel >= self.top + rows:
             self.top = self.sel - rows + 1
+        n = len(self.items)
+        scrolls = n > rows
+        # Leave a lane for the scrollbar only when there IS something to scroll.
+        right = c.w - (_SB_W + 1) if scrolls else c.w
         for i in range(rows):
             idx = self.top + i
-            if idx >= len(self.items):
+            if idx >= n:
                 break
             label, fac = self.items[idx]
-            # Narrow (proportional) rows: same glyphs, ~25% less width, so longer
-            # labels fit whole instead of being chopped at the 8px cell.
-            avail = c.w - 16
+            avail = right - 12
             while label and c.text_width(label, 1, True) > avail:
                 label = label[:-1]
             y = _TOP + i * _ROWH
             if idx == self.sel:
-                c.fill_rect(0, y - 1, c.w, _ROWH, 1)
+                rounded_rect(c, 0, y - 1, right, _ROWH, 1)   # soft highlight
                 c.text(4, y, label, 0, 1, True)
                 if fac is not None:
-                    c.text(c.w - _ADV - 2, y, '>', 0)
+                    c.text(right - _ADV - 2, y, '>', 0)
             else:
                 c.text(4, y, label, 1, 1, True)
                 if fac is None:
-                    c.text(c.w - _ADV - 2, y, 'x', 1)
-        if self.top > 0:
-            _scroll_tri(c, c.w - 6, _TOP, True)          # more items above
-        if self.top + rows < len(self.items):
-            _scroll_tri(c, c.w - 6, c.h - 4, False)      # more items below
+                    c.text(right - _ADV - 2, y, 'x', 1)
+        if scrolls:
+            scrollbar(c, right + 1, _TOP, c.h - _TOP, self.top, rows, n)
 
     def on_event(self, e):
         if e == ev.ROT_CW:

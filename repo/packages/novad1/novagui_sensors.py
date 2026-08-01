@@ -174,9 +174,16 @@ class ClockScreen(Screen):
         self._last_s = -1
 
     def _lt(self):
+        # Apply System.TZ_Offset (whole hours) like the status-bar clock and
+        # notifications do — the Clock app was showing raw RTC/UTC time.
         try:
             import utime
-            return utime.localtime()
+            from novacore import reg as _r
+            try:
+                off = int(_r('System.TZ_Offset', 0) or 0)
+            except (TypeError, ValueError):
+                off = 0
+            return utime.localtime(utime.time() + off * 3600)
         except Exception:
             return (2026, 1, 1, 0, 0, 0, 0, 0)
 

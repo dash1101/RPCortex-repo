@@ -492,6 +492,37 @@ def _display_cmd(info, ok, warn, error, multi, rest=''):
         error("Could not save: {}".format(e))
 
 
+def _pin(info, ok, warn, error, multi, rest=''):
+    """Show / set / CLEAR the UI lock PIN. Clearing previously meant reinstalling
+    the package, because the only way in was the on-screen 'Set PIN' entry."""
+    parts = (rest or '').split()
+    sub = parts[0].lower() if parts else 'status'
+    cur = _reg('Apps.NovaD1_PIN', '')
+
+    if sub in ('clear', 'off', 'remove', 'reset'):
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_PIN', '')
+            ok("UI PIN cleared — the lock screen is off.", p="NovaD1")
+        except Exception as e:
+            error("Could not clear the PIN: {}".format(e))
+        return
+    if sub == 'set':
+        if len(parts) < 2 or not parts[1].isdigit() or len(parts[1]) != 6:
+            error("Usage: d1 pin set <6 digits>   (or: d1 pin clear)")
+            return
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_PIN', parts[1])
+            ok("UI PIN set.", p="NovaD1")
+        except Exception as e:
+            error("Could not set the PIN: {}".format(e))
+        return
+    info("Nova D1 — UI lock PIN", p="NovaD1")
+    multi("  PIN: {}".format('set' if cur else 'not set'))
+    multi("  d1 pin set <6 digits> | clear")
+
+
 def _wardrive(info, ok, warn, error, multi, rest=''):
     """One-shot wardriving scan from the shell: scan WiFi, tag with GPS if a fix is
     available, append new APs to the WiGLE CSV. The GUI Wardrive app does continuous
@@ -1236,6 +1267,7 @@ def novad1(args=None):
         multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
         multi("  incognito on|off   Kill ALL radios instantly (stealth mode)")
         multi("  novad1 wardrive    WiFi survey -> WiGLE CSV (scan|status)")
+        multi("  novad1 pin ...      UI lock PIN: set <6 digits> | clear")
         multi("  novad1 fav ...      Pin apps to the home favorites bar")
         multi("  novad1 service ... GUI service: start|stop|restart|status")
         multi("  novad1 refresh     Reload pins (restart the GUI service)")
@@ -1273,6 +1305,8 @@ def novad1(args=None):
         _fav(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd in ('wardrive', 'wardriving'):
         _wardrive(info, ok, warn, error, multi, rest)
+    elif cmd == 'pin':
+        _pin(info, ok, warn, error, multi, rest)
     elif cmd in ('refresh', 'reload'):
         _svc(info, ok, warn, error, multi, 'refresh')
     elif cmd == 'apps':

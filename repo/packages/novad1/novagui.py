@@ -630,7 +630,10 @@ class DisplayScreen(Screen):
 class SplashScreen(Screen):
     """Animated RPCortex / Nova D1 boot reveal. Auto-advances; any key skips."""
     fullscreen = True
-    DUR = 1500
+    # Short on purpose: the splash is the first thing between power-on and a usable
+    # UI, so it must read as snappy. It plays in FULL (the opening frame is no
+    # longer swallowed by panel init) — it just plays quickly.
+    DUR = 850
 
     def __init__(self):
         self.title = 'Nova D1'
@@ -1728,6 +1731,36 @@ def _silent_result(cmd):
             return ['Memory freed', '{} KB free'.format(gc.mem_free() // 1024)]
         if c.startswith('novad1 refresh') or c.startswith('novad1 service'):
             return ['GUI service', 'restarted']
+        if c.startswith('update check') or c.startswith('update'):
+            # 'update check' prints nothing when already current — say so, and show
+            # what's installed, instead of a bare '(done)'.
+            try:
+                import RPCortex as _R
+                v = getattr(_R, 'OS_VERSION', '?')
+                b = ''
+                try:
+                    import buildinfo
+                    b = getattr(buildinfo, 'BUILD', '')
+                except Exception:
+                    pass
+                return ['Up to date', '{} {}'.format(v, b).strip(),
+                        '(no newer build)']
+            except Exception:
+                return ['Up to date', '(no newer build)']
+        if c.startswith('ntp'):
+            try:
+                import utime
+                from novacore import reg as _r
+                try:
+                    off = int(_r('System.TZ_Offset', 0) or 0)
+                except (TypeError, ValueError):
+                    off = 0
+                t = utime.localtime(utime.time() + off * 3600)
+                return ['Clock synced',
+                        '{:04d}-{:02d}-{:02d}'.format(t[0], t[1], t[2]),
+                        '{:02d}:{:02d}:{:02d}'.format(t[3], t[4], t[5])]
+            except Exception:
+                return ['Clock synced']
     except Exception:
         pass
     return ['Done - no output']
@@ -1805,9 +1838,10 @@ class SettingsScreen(Screen):
             ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
             ('head', 'SECURITY'),
             ('push', 'Set PIN', lambda: PinScreen('set')),
+            ('action', 'Clear PIN', 'novad1 pin clear'),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             ('head', 'ACTIONS'),
-            ('action', 'Check Updates', 'update check'),
+            ('action', 'Updates', 'update check'),
             # Updates run via safeboot: the device reboots to a serviceless
             # maintenance shell (full RAM), runs the update there, then reboots
             # back. Running them inline froze the UI and OOM'd the TLS download

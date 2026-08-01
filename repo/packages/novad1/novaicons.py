@@ -168,18 +168,77 @@ def _notes(c, cx, cy, r):             # Notifications — bell
     c.fill_circle(cx, cy - r, 1, 1)
 
 
+def _clock(c, cx, cy, r):             # Clock — dial + hands
+    c.circle(cx, cy, r - 1, 1)
+    c.line(cx, cy, cx, cy - (r - 4), 1)          # hour hand (up)
+    c.line(cx, cy, cx + (r - 3), cy, 1)          # minute hand (right)
+    c.pixel(cx, cy, 1)
+
+
+def _wrench(c, cx, cy, r):            # Troubleshoot — wrench
+    # open jaws top-left, shaft running to bottom-right
+    c.line(cx - r + 2, cy - r + 3, cx + r - 3, cy + r - 2, 1)
+    c.line(cx - r + 3, cy - r + 2, cx + r - 2, cy + r - 3, 1)
+    c.circle(cx - r + 4, cy - r + 4, 3, 1)
+    c.fill_rect(cx - r + 2, cy - r + 1, 3, 2, 0)  # knock the jaw opening out
+
+
+def _terminal(c, cx, cy, r):          # Commands — a terminal window with a prompt
+    c.rect(cx - r, cy - r + 1, 2 * r, 2 * r - 2, 1)
+    c.hline(cx - r, cy - r + 4, 2 * r, 1)         # title bar
+    c.line(cx - r + 3, cy - 1, cx - r + 6, cy + 2, 1)   # '>' chevron
+    c.line(cx - r + 6, cy + 2, cx - r + 3, cy + 5, 1)
+    c.hline(cx - r + 8, cy + 5, max(2, r - 2), 1)       # cursor line
+
+
+def _store(c, cx, cy, r):             # App Store — a shopping bag
+    c.rect(cx - r + 2, cy - r + 4, 2 * r - 4, 2 * r - 6, 1)
+    c.line(cx - r + 5, cy - r + 4, cx - r + 5, cy - r + 1, 1)   # handle
+    c.line(cx + r - 6, cy - r + 4, cx + r - 6, cy - r + 1, 1)
+    c.hline(cx - r + 5, cy - r + 1, (r - 4) if r > 5 else 2, 1)
+
+
+def _stethoscope(c, cx, cy, r):       # Diagnostics — pulse/heartbeat trace
+    c.rect(cx - r, cy - r + 2, 2 * r, 2 * r - 4, 1)
+    y = cy
+    c.hline(cx - r + 2, y, 3, 1)
+    c.line(cx - r + 5, y, cx - r + 7, y - 4, 1)   # spike up
+    c.line(cx - r + 7, y - 4, cx - r + 9, y + 4, 1)
+    c.line(cx - r + 9, y + 4, cx - r + 11, y, 1)
+    c.hline(cx - r + 11, y, max(2, r - 4), 1)
+
+
+def _wardrive(c, cx, cy, r):          # Wardrive — a car below broadcast waves
+    # car: body + cabin + wheels, sitting on the lower half
+    by = cy + 3
+    c.fill_rect(cx - r + 2, by, 2 * r - 4, 3, 1)
+    c.fill_rect(cx - r + 5, by - 3, r + 1, 3, 1)
+    c.pixel(cx - r + 4, by + 4, 1)
+    c.pixel(cx + r - 5, by + 4, 1)
+    c.hline(cx - r + 3, by + 4, 2, 1)
+    c.hline(cx + r - 6, by + 4, 2, 1)
+    # two broadcast chevrons above (drawn as lines, not knocked-out circles —
+    # the knockout approach erased the car)
+    for k, w in ((0, 4), (3, 7)):
+        ty = cy - 6 + k
+        c.line(cx - w, ty + w // 2, cx, ty, 1)
+        c.line(cx, ty, cx + w, ty + w // 2, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
     'wifi': _wifi, 'scripts': _doc, 'settings': _gear, 'logs': _doc,
     'check': _check, 'msg': _chat, 'power': _power, 'notes': _notes,
+    'clock': _clock, 'fix': _wrench, 'cmds': _terminal, 'store': _store,
+    'diag': _stethoscope, 'wardrive': _wardrive,
 }
 
 
 def draw(c, key, cx, cy, r, label=''):
     try:
-        if key == 'ir_rx':
+        if key in ('ir', 'ir_rx'):
             return _remote(c, cx, cy, r, False)
         if key == 'ir_tx':
             return _remote(c, cx, cy, r, True)
