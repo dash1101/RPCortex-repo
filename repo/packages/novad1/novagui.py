@@ -1681,7 +1681,7 @@ def _troubleshoot_menu():
         ('Blink display', _blink_display),
         ('Reload pins', lambda: CommandScreen('Reload', 'novad1 refresh')),
         ('Restart GUI', lambda: CommandScreen('GUI', 'novad1 service restart')),
-        ('Free memory', lambda: CommandScreen('Free RAM', 'freeup')),
+        ('Free memory', lambda: CommandScreen('Free RAM', 'defrag')),
         ('I2C scan', lambda: CommandScreen('I2C', 'novad1 scan')),
         ('Reboot device', RebootScreen),
     ])
@@ -1695,6 +1695,7 @@ def _commands_menu():
         ('System info', lambda: CommandScreen('sysinfo', 'sysinfo')),
         ('Nova status', lambda: CommandScreen('status', 'novad1 status')),
         ('Memory', lambda: CommandScreen('meminfo', 'meminfo')),
+        ('Contiguous RAM', lambda: CommandScreen('defrag', 'defrag')),
         ('Storage', lambda: CommandScreen('df', 'df')),
         ('Uptime', lambda: CommandScreen('uptime', 'uptime')),
         ('Pins', lambda: CommandScreen('pins', 'novad1 pins')),
