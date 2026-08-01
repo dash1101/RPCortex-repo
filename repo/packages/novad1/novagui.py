@@ -70,7 +70,10 @@ def lock_is_set():
     the whole system-screens module in at the first tick and undone the point of
     deferring it. The lock SCREEN still comes from there — that only loads when
     something actually locks."""
-    if str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+    kind = str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower()
+    if kind == 'none':
+        return False
+    if kind == 'password':
         return bool(_reg('Apps.NovaD1_Pass', ''))
     return bool(_reg('Apps.NovaD1_PIN', ''))
 
@@ -870,6 +873,7 @@ def _ble_app():
 BatteryScreen = _proxy('novagui_sensors', 'BatteryScreen')
 EnvironmentScreen = _proxy('novagui_sensors', 'EnvironmentScreen')
 ClockScreen = _proxy('novagui_sensors', 'ClockScreen')
+ResourcesScreen = _proxy('novagui_res', 'ResourcesScreen')
 
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
@@ -1572,6 +1576,14 @@ def _keyboard_demo():
     return KeyboardScreen('Keyboard', on_done=done)
 
 
+def _shell_app():
+    """The RPCortex shell, on the panel. Imported on open, not at boot — the
+    scrollback and the command runner are dead weight until someone asks for
+    them, and resident RAM is the constraint this package lives under."""
+    import novagui_shell
+    return novagui_shell.ShellScreen()
+
+
 def _update_status():
     """What's installed right now — OS build and the Nova D1 package version."""
     lines = []
@@ -1598,11 +1610,26 @@ def _update_status():
 
 
 def _os_manifest_url():
-    """The OTA manifest for the channel this device tracks (stable vs beta)."""
+    """The OTA manifest for the channel this device tracks (stable vs beta).
+
+    With no explicit choice, the channel follows the STAGE of the build that is
+    running. A device on a Pre-release image checking the stable manifest is
+    comparing itself against something older than itself, which is how it ended
+    up being offered v0.9.1 as an upgrade from v1.0.0. An explicit
+    Settings.Update_Channel always wins.
+
+    Only the stage values that genuinely mean pre-release move a device onto beta.
+    Anything unrecognised — including the 'dev' placeholder used when buildinfo is
+    missing — stays on stable, so a device whose stage cannot be read is never
+    silently switched tracks. PRE_STAGES is kept identical to the OS-side list in
+    Core/Launchpad/sys_sys.py; test_updates pins the two together."""
     from novacore import reg as _r
-    beta = str(_r('Settings.Update_Channel', '')).strip().lower() == 'beta'
+    choice = str(_r('Settings.Update_Channel', '')).strip().lower()
+    if choice not in ('beta', 'stable'):
+        stage = str(_r('System.Stage', '')).strip().lower()
+        choice = 'beta' if stage in PRE_STAGES else 'stable'
     return ('https://rpc.novalabs.app/releases/'
-            + ('latest-dev.json' if beta else 'latest.json'))
+            + ('latest-dev.json' if choice == 'beta' else 'latest.json'))
 
 
 def _pkg_version(name='NovaD1'):
@@ -1709,6 +1736,26 @@ def _cache_bust():
         return 0
 
 
+# Stage values that mean "this is a pre-release build", and so select the beta
+# manifest when no channel has been chosen explicitly. Kept identical to
+# Core/Launchpad/sys_sys.py PRE_STAGES; test_updates asserts the two match.
+PRE_STAGES = ('pre-release', 'prerelease', 'beta', 'alpha', 'rc')
+
+
+def _build_n(b):
+    """The running build counter from a build id like '0.91.114' -> 114.
+
+    build.py composes the id as <major>.<rest><counter>, where the counter is a
+    monotonic number bumped on every build. Only the counter is comparable, and
+    only between two ids of the same version — which is the sole place it is used.
+    Returns -1 when there is no counter to read, so an unknown id never counts as
+    newer than what is installed."""
+    try:
+        return int(str(b or '').strip().split('.')[-1])
+    except Exception:
+        return -1
+
+
 def _vtuple(v):
     """'v1.2.3' / '0.72.0' -> (1, 2, 3). Unparseable parts sort as 0."""
     out = []
@@ -1809,7 +1856,16 @@ class UpdatesScreen(Screen):
             m = _fetch_json(_os_manifest_url())
             cv, cb = self._cur_os()
             lv, lb = m.get('version', '?'), str(m.get('build', ''))
-            if _newer(lv, cv) or (lb and lb != str(cb)):
+            # A different BUILD only counts as an update when the VERSION is the
+            # same AND the manifest's build counter is ahead of the installed one.
+            # Without the version guard the stable channel's build id (0.91.114)
+            # differs from a beta device's (1.00.44), so v0.9.1 was offered as an
+            # update to a machine running v1.0.0 — a downgrade presented as an
+            # upgrade. Without the counter guard the same thing happens within one
+            # version whenever the device is ahead of what has been published.
+            newer_build = (_vtuple(lv) == _vtuple(cv)
+                           and _build_n(lb) > _build_n(cb))
+            if _newer(lv, cv) or newer_build:
                 self.os_new = (lv, lb, m.get('notes', ''))
         except Exception as e:
             self.err = _fail_reason(e, 'OS')
@@ -2015,7 +2071,7 @@ _APP_CAT = {
     'wifi': 'Wireless', 'ir': 'Wireless', 'msg': 'Wireless', 'wardrive': 'Wireless',
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'clock': 'Tools',
-    'store': 'Tools', 'cmds': 'Tools',
+    'store': 'Tools', 'cmds': 'Tools', 'res': 'Tools', 'shell': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
     'fix': 'System',
     'kbd': 'Testing',
@@ -2291,6 +2347,8 @@ def _all_apps():
     apps.append(('logs', 'Logs', _logs_screen))
     apps.append(('scripts', 'Scripts', ScriptsScreen))
     apps.append(('clock', 'Clock', ClockScreen))          # time + date + stopwatch
+    apps.append(('res', 'Resources', ResourcesScreen))    # live link/RAM/disk/clock
+    apps.append(('shell', 'Shell', _shell_app))           # the OS shell, on screen
     apps.append(('power', 'Power', _power_menu))
     apps.extend(_script_apps())              # installed button-grid script-apps -> home
     apps.extend(_py_apps())                  # installed kind:py apps -> home
@@ -2508,8 +2566,13 @@ class CommandScreen(Screen):
 def _lock_editor():
     """Open the editor matching the configured lock kind. One 'Change code' row
     instead of a Set-PIN row and a Set-password row, only one of which ever
-    applies."""
-    if str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+    applies. With the type on 'none' there is no code to change, so the row says
+    so rather than opening an editor whose result would be ignored."""
+    kind = str(_reg('Apps.NovaD1_Lock_Kind', 'pin')).lower()
+    if kind == 'none':
+        return TextScreen('Lock', ['Lock type is None.',
+                                   'Set it to PIN or Password to choose a code.'])
+    if kind == 'password':
         return PasswordScreen('set')
     return PinScreen('set')
 
@@ -2622,13 +2685,30 @@ def _lock_status():
             == 'password' else 'PIN')
 
 
+def _apply_lock_kind(nv):
+    """Clear the stored code when Lock type is turned to 'none'.
+
+    'None' is the third lock type rather than a separate button, so switching to
+    it has to do what the old 'Clear lock' row did — otherwise the code would sit
+    in the registry unused and come back the moment the type was switched again.
+    Both codes go, not just the one matching the previous type: leaving the other
+    behind would mean flipping the type re-locked a device the user had just
+    unlocked."""
+    if str(nv).lower() != 'none':
+        return
+    for key in ('Apps.NovaD1_PIN', 'Apps.NovaD1_Pass'):
+        try:
+            _save_reg(key, '')
+        except Exception:
+            pass
+
+
 def _rows_security():
     return [
         ('info', 'Lock', _lock_status),
-        ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'], 'pin',
-         None),
+        ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password', 'none'],
+         'pin', _apply_lock_kind),
         ('push', 'Change code', _lock_editor),
-        ('action', 'Clear lock', 'novad1 pin clear'),
         ('cycle', 'Auto-Lock', 'Apps.NovaD1_LockSec', ['0', '5', '15', '30', '60'],
          '5', None),
         ('push', 'Privacy', _mk_group('Privacy', _rows_privacy)),
@@ -2646,11 +2726,64 @@ def _rows_privacy():
     ]
 
 
+def _apply_clock(nv):
+    """Set the CPU clock the moment the row is turned, and keep it after a reboot.
+
+    novapower.set_clock does both halves; this only exists to swallow anything it
+    raises, because a settings row must never take the UI down with it."""
+    try:
+        import novapower
+        novapower.set_clock(nv)
+    except Exception:
+        pass
+
+
+def _live_clock():
+    try:
+        import novapower
+        return novapower.clock_mhz() or '?'
+    except Exception:
+        return '?'
+
+
+def _clock_row():
+    """The CPU speed row, built from the platform's own range.
+
+    A COMPUTED cycle row (regkey None): the value shown is read from
+    machine.freq() every time it is drawn, never from a stored preference. That
+    matters because three things move this number — this row, `pulse set` in the
+    shell, and Dyn Clock dropping to the idle floor — and only one of them would
+    ever have written the key. A row claiming 200 MHz on a board sitting at 60
+    would be worse than no row.
+
+    The steps come from hwinfo via novapower, the only place that knows an RP2
+    below 80 MHz breaks flash timing rather than merely running slow."""
+    try:
+        import novapower
+        steps = [str(s) for s in novapower.clock_steps()]
+    except Exception:
+        steps = ['80', '125', '150', '200']
+    return ('cycle', 'CPU MHz', None, steps, _live_clock, _apply_clock)
+
+
+def _rows_clock():
+    """Speed, on its own screen.
+
+    The fixed clock and the dynamic one are one decision made twice — Dyn Clock
+    overrides the fixed figure whenever the shell is idle — so they belong on the
+    same screen. It also keeps the System group at six rows, which is the point of
+    the grouped layout: nothing at the top level scrolls."""
+    return [
+        _clock_row(),
+        ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false',
+         None),
+    ]
+
+
 def _rows_system():
     return [
         ('push', 'Set Time', TimeScreen),
-        ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false',
-         None),
+        ('push', 'Clock', _mk_group('Clock', _rows_clock)),
         ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
         ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
         ('push', 'Updates', UpdatesScreen),
@@ -2705,6 +2838,17 @@ class SettingsScreen(Screen):
         if row[0] == 'info':
             try:
                 return str(row[2]())
+            except Exception:
+                return '?'
+        if row[2] is None:
+            # A COMPUTED cycle row: no registry key, the value is read live from
+            # whatever it controls. The CPU clock needs this — storing the chosen
+            # speed in a key would leave the row asserting 200 while Dyn Clock had
+            # dropped the board to its idle floor, or while `pulse set` had changed
+            # it from the shell. Same reasoning as the 'info' lock row: report the
+            # truth, not the preference.
+            try:
+                return str(row[4]())
             except Exception:
                 return '?'
         return _reg(row[2], row[4])
@@ -2782,7 +2926,8 @@ class SettingsScreen(Screen):
             except ValueError:
                 i = 0
             nv = vals[(i + 1) % len(vals)]
-            _save_reg(r[2], nv)
+            if r[2] is not None:
+                _save_reg(r[2], nv)
             if r[2] == 'Apps.NovaD1_HomeStyle':
                 _mark_home_dirty()         # gallery<->menu applies live
             if r[5]:

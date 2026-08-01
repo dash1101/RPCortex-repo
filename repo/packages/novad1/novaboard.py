@@ -99,8 +99,12 @@ _PROFILES = {
             'ir_tx': 6, 'ir_rx': 7,
             'gps_tx': 0, 'gps_rx': 1,
             'buzzer': 27, 'vibe': 28,
-            'led': 2,                                  # external RGB — the onboard
-                                                       # LED sits on the radio chip
+            # No 'led' default on purpose. On Pico W-class boards the onboard LED
+            # hangs off the CYW43 wireless module and is addressed as Pin('LED'),
+            # not by GPIO number, so novanotify falls through to that when nothing
+            # is configured. Giving this a GPIO default meant every alert blinked a
+            # pin with nothing wired to it while the real LED stayed dark. Wiring an
+            # external LED is still supported: `d1 pins set led <gpio>`.
             'dht': 3,
             'killsw': 8,                               # stealth kill-switch button
         },

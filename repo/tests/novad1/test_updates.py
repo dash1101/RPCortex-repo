@@ -204,4 +204,61 @@ import inspect as _i
 t.ok('_cache_bust()' in _i.getsource(novagui.UpdatesScreen._check_steps),
      'the index fetch is cache-busted')
 
+# ---------------------------------------------------------------------------
+# Channel selection and the build-id comparison.
+#
+# A beta device running v1.0.0 was being offered stable's v0.9.1 as an "update".
+# Two independent faults: the default channel ignored the running build's stage,
+# and a build id that merely DIFFERED counted as newer.
+# ---------------------------------------------------------------------------
+_saved_reg = dict(_shims.REG) if hasattr(_shims, 'REG') else None
+
+
+def _chan(stage=None, choice=None):
+    """The manifest filename picked for a given stage / explicit channel."""
+    import novacore
+    vals = {}
+    if stage is not None:
+        vals['System.Stage'] = stage
+    if choice is not None:
+        vals['Settings.Update_Channel'] = choice
+    real = novacore.reg
+    novacore.reg = lambda k, d=None: vals.get(k, d)
+    try:
+        return novagui._os_manifest_url().rsplit('/', 1)[-1]
+    finally:
+        novacore.reg = real
+
+
+t.eq(_chan(stage='Pre-release'), 'latest-dev.json',
+     'a pre-release build checks the beta manifest by default')
+t.eq(_chan(stage='Release'), 'latest.json', 'a release build checks stable')
+t.eq(_chan(stage='Stable'), 'latest.json', 'so does a stable build')
+t.eq(_chan(stage=''), 'latest.json', 'an unset stage stays on stable')
+t.eq(_chan(stage='dev'), 'latest.json',
+     "the 'dev' placeholder used when buildinfo is missing must NOT move a device "
+     'onto beta -- an unreadable build is not a pre-release build')
+t.eq(_chan(stage='wat'), 'latest.json', 'an unrecognised stage stays on stable')
+# an explicit choice always wins over the stage
+t.eq(_chan(stage='Pre-release', choice='stable'), 'latest.json',
+     'an explicit stable channel overrides the build stage')
+t.eq(_chan(stage='Release', choice='beta'), 'latest-dev.json',
+     'an explicit beta channel overrides the build stage')
+
+# the two implementations must agree on what counts as pre-release
+t.eq(tuple(novagui.PRE_STAGES),
+     ('pre-release', 'prerelease', 'beta', 'alpha', 'rc'),
+     'PRE_STAGES matches the OS-side list in Core/Launchpad/sys_sys.py')
+
+# build counters: only the trailing number is comparable, and only upward
+t.eq(novagui._build_n('0.91.114'), 114, 'the build counter is the last component')
+t.eq(novagui._build_n('1.00.48'), 48, 'and again for a v1.0 build id')
+t.eq(novagui._build_n(''), -1, 'a missing build id is never newer than what is installed')
+t.eq(novagui._build_n(None), -1, 'nor is a None build id')
+t.ok(novagui._build_n('1.00.49') > novagui._build_n('1.00.48'),
+     'a higher counter is newer')
+t.ok(not (novagui._build_n('1.00.44') > novagui._build_n('1.00.48')),
+     'a LOWER counter is not an update -- a device ahead of the published build '
+     'must not be offered its own past')
+
 sys.exit(t.done())

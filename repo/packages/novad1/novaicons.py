@@ -322,6 +322,43 @@ def _terminal(c, cx, cy, r):          # Commands — terminal window, prompt sca
     c.hline(px + k + 2, py + k, max(2, r - k), 1)               # cursor
 
 
+def _bars(c, cx, cy, r):              # Resources — a bar chart, live readings
+    # Bars rather than a dial: a needle needs an arc, and every arc-based icon on
+    # this panel (WiFi, LoRa, Radar) already competes for the same silhouette. Three
+    # rising bars read as "measurements" at neighbour size and stay legible when the
+    # gallery halves them, because the shape survives losing a pixel.
+    base = cy + r - 1
+    c.hline(cx - r, base, 2 * r, 1)                     # the axis they stand on
+    w = max(1, (2 * r) // 5)                            # bar width, from the size
+    gap = max(1, w // 2)
+    x = cx - r + 1
+    for i in range(3):
+        h = max(2, (r * 2 * (i + 2)) // 8)              # each bar taller than the last
+        c.fill_rect(x, base - h, w, h, 1)
+        x += w + gap
+
+
+def _cmdlist(c, cx, cy, r):           # Commands — a chosen line in a list
+    # Distinct from the Shell terminal on purpose. Commands is a curated LIST you
+    # pick from; the shell is a place you type. Drawing both as a terminal window
+    # made them the same icon, which is the complaint that started the icon pass.
+    # A bullet marks the chosen row rather than a '>' chevron: at gallery-small
+    # (r=6) a chevron is three pixels of diagonal and merges into the rows beside
+    # it, while a filled square stays a square all the way down.
+    _rbox(c, cx - r, cy - r + 1, 2 * r, 2 * r - 2)
+    step = max(2, (2 * r - 6) // 3)
+    y = cy - r + 3
+    b = max(1, r // 3)                                  # bullet size
+    x0 = cx - r + 3
+    for i in range(3):
+        if i == 1:
+            c.fill_rect(x0, y - b // 2, b, b, 1)
+            c.hline(x0 + b + 2, y, max(2, 2 * r - 8 - b), 1)
+        else:
+            c.hline(x0, y, max(3, 2 * r - 6), 1)
+        y += step
+
+
 def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle
     # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
     bx, by = cx - r + 2, cy - r + 5
@@ -473,10 +510,13 @@ _MAP = {
     'battery': _battery, 'buzzer': _speaker, 'vibration': _vibe, 'led': _led,
     'wifi': _wifi, 'scripts': _scroll, 'settings': _gear, 'logs': _doc,
     'tools': _wrench, 'check': _check, 'msg': _chat, 'power': _power,
-    'notes': _notes, 'clock': _clock, 'fix': _medkit, 'cmds': _terminal,
+    'notes': _notes, 'clock': _clock, 'fix': _medkit, 'cmds': _cmdlist,
     'kbd': _kbd, 'store': _store, 'diag': _stethoscope,
     'wardrive': _wardrive, 'radar': _radar,
     'presence': _person,
+    # Shell gets the terminal window because that is literally what it is;
+    # Commands moved to a list icon so the two stopped being identical.
+    'res': _bars, 'shell': _terminal,
 }
 
 

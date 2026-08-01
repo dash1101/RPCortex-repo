@@ -106,8 +106,17 @@ is a pragmatic trade-off, and each is a candidate for a later, careful fix.
    MODS manifest each time), never in one move.
    - **Done:** `novaui.py` (the leaf), `novagui_sensors.py` (LED/Battery/Environment/
      Clock), `novagui_radios.py` (Messages/GPS/NFC/IR/Sub-GHz/BLE/LoRa/ButtonGrid —
-     11 classes), `novagui_system.py` (WiFi/Set Time/System Check/Notifications/PIN).
+     11 classes), `novagui_system.py` (WiFi/Set Time/System Check/Notifications/PIN),
+     `novagui_watch.py` (Radar/Presence), `novagui_res.py` (Resources — the live
+     link/RAM/disk/clock readout), `novagui_shell.py` (the shell on the panel).
      `novagui.py` is down to ~1,700 lines.
+
+     `novagui_res.py` and `novagui_shell.py` were written as siblings from the
+     start rather than added to the monolith and split out later. Neither imports
+     `novagui`: `novagui_shell` re-implements the ~15-line shell capture rather
+     than borrowing `_run_capture` from the orchestration layer. That is the
+     dependency rule in miniature — a sibling reaching back up is how the monolith
+     grew in the first place.
    - **Deliberately still in `novagui.py`:** the settings/management screens that reach
      the NovaUI runner — **Display, ManageApps, Settings, AppStore, Command** — plus the
      runner chrome (IconGallery, boot/splash/error screens, ModuleTestScreen). They use
