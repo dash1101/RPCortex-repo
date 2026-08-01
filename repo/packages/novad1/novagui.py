@@ -27,7 +27,7 @@ from novagui_radios import (MessagesScreen, GPSScreen, NFCScreen, NfcSaveScreen,
 # System app screens (leaf-safe subset) live in novagui_system (the monolith
 # split); novagui re-exports them so novagui.PinScreen etc. still resolve.
 from novagui_system import (WiFiScreen, TimeScreen, SystemCheckScreen,
-                            NotificationsScreen, PinScreen)
+                            NotificationsScreen, PinScreen, KeyboardScreen)
 
 
 from novacore import reg as _reg
@@ -1328,6 +1328,53 @@ def _blink_display():
     return None
 
 
+def _keyboard_demo():
+    """Try the on-screen keyboard standalone — the same widget WiFi uses for
+    passwords. Typing OK shows what was entered."""
+    def done(txt):
+        return TextScreen('Typed', [txt or '(nothing)'])
+    return KeyboardScreen('Keyboard', on_done=done)
+
+
+def _update_status():
+    """What's installed right now — OS build and the Nova D1 package version."""
+    lines = []
+    try:
+        import RPCortex as _R
+        lines.append('OS  ' + str(getattr(_R, 'OS_VERSION', '?')))
+    except Exception:
+        lines.append('OS  ?')
+    try:
+        import buildinfo
+        lines.append('    build ' + str(getattr(buildinfo, 'BUILD', '?')))
+        lines.append('    ' + str(getattr(buildinfo, 'STAGE', '')))
+    except Exception:
+        pass
+    try:
+        with open('/Packages/NovaD1/package.cfg') as f:
+            for ln in f.read().split('\n'):
+                if ln.startswith('pkg.ver'):
+                    lines.append('Nova D1  ' + ln.split(':', 1)[1].strip())
+                    break
+    except Exception:
+        lines.append('Nova D1  ?')
+    return TextScreen('Installed', lines)
+
+
+def _updates_menu():
+    """Updates, split by what is actually being updated — the OS and the Nova D1
+    app suite are separate things on separate channels. Both run through safeboot
+    so the download gets a full heap, and -y so nothing waits on a keyboard that
+    the panel doesn't have."""
+    return Menu('Updates', [
+        ('Installed', _update_status),
+        ('Check for updates', lambda: CommandScreen('Check', 'update check')),
+        ('Update RPCortex OS', lambda: CommandScreen('OS', 'safeboot update online -y')),
+        ('Update Nova D1 app', lambda: CommandScreen('Nova D1', 'safeboot pkg upgrade -y')),
+        ('Update channel', lambda: CommandScreen('Channel', 'update channel')),
+    ])
+
+
 def _troubleshoot_menu():
     """Recovery actions one tap away — the things you'd otherwise drop to the shell
     for when something's misbehaving."""
@@ -1393,7 +1440,7 @@ _APP_CAT = {
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'led': 'Tools',
     'store': 'Tools', 'clock': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
-    'fix': 'System', 'cmds': 'System',
+    'fix': 'System', 'cmds': 'System', 'kbd': 'Tools',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
 _CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'scripts', 'System': 'settings'}
@@ -1639,6 +1686,7 @@ def _all_apps():
         else:
             apps.append((k, l, _mk_test(k, l)))
     apps.append(('diag', 'Diagnostics', _diag_app))
+    apps.append(('kbd', 'Keyboard', _keyboard_demo))           # rotary text entry
     apps.append(('fix', 'Troubleshoot', _troubleshoot_menu))   # recovery actions
     apps.append(('cmds', 'Commands', _commands_menu))          # curated shell commands
     apps.append(('store', 'App Store', AppStoreScreen))   # browse + install apps
@@ -1880,13 +1928,7 @@ class SettingsScreen(Screen):
             ('action', 'Clear PIN', 'novad1 pin clear'),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             ('head', 'ACTIONS'),
-            ('action', 'Updates', 'update check'),
-            # Updates run via safeboot: the device reboots to a serviceless
-            # maintenance shell (full RAM), runs the update there, then reboots
-            # back. Running them inline froze the UI and OOM'd the TLS download
-            # while the GUI service held the heap.
-            ('action', 'Update OS', 'safeboot update online -y'),
-            ('action', 'Update Apps', 'safeboot pkg upgrade'),
+            ('push', 'Updates', _updates_menu),
             ('action', 'NTP Sync', 'ntp sync'),
             ('action', 'Web Info', 'novad1 web'),
             ('action', 'System Info', 'sysinfo'),

@@ -9,7 +9,8 @@
 # ManageApps, Settings, AppStore, Command) stay in novagui by design. See
 # ARCHITECTURE.md. MicroPython-safe: no f-strings, .format() only.
 
-from novaui import Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, fit as _fit  # noqa
+from novaui import (Screen, ev, _TOP, _ROWH, _ADV, _FH, _wrap, fit as _fit,
+                    rounded_rect)  # noqa
 from novacore import reg as _reg, save_reg as _save_reg  # noqa
 
 
@@ -21,7 +22,8 @@ class WiFiScreen(Screen):
         self.sel = 0
         self.top = 0
         self.msg = 'OK = scan'
-        self._pending = None    # 'scan' | ('connect', ssid)
+        self._pending = None    # 'scan' | ('connect', ssid) | ('connectpw', ssid, pw)
+        self._ask_pw = None     # ssid awaiting a typed password
 
     def _status_line(self):
         try:
@@ -68,6 +70,12 @@ class WiFiScreen(Screen):
             self._pending = None
             self._do_connect(ssid)
             return True
+        if isinstance(self._pending, tuple) and self._pending[0] == 'connectpw':
+            _, ssid, pw = self._pending
+            self._pending = None
+            self.msg = 'Connecting...'
+            self._do_connect(ssid, pw)
+            return True
         return False
 
     def _do_scan(self):
@@ -106,22 +114,52 @@ class WiFiScreen(Screen):
         finally:
             novawifi.resume()
 
-    def _do_connect(self, ssid):
+    def _do_connect(self, ssid, password=None):
         try:
             import net
             ok = False
-            try:
-                ok = net.connect_saved(ssid)
-            except TypeError:
-                ok = net.connect_saved()
-            self.msg = ('Connected ' if ok else 'No saved pw: ') + ssid[:10]
+            if password is not None:
+                # Explicit password from the on-screen keyboard: save it so the
+                # network joins now AND reconnects on its own next time.
+                try:
+                    net.add_network(ssid, password)
+                except Exception:
+                    pass
+                try:
+                    ok = net.connect(ssid, password)
+                except TypeError:
+                    ok = net.connect_saved(ssid)
+            else:
+                try:
+                    ok = net.connect_saved(ssid)
+                except TypeError:
+                    ok = net.connect_saved()
+            if ok:
+                self.msg = 'Connected ' + ssid[:10]
+            elif password is None:
+                self.msg = 'Need password'
+                self._ask_pw = ssid          # offer the keyboard on the next SELECT
+                return
+            else:
+                self.msg = 'Wrong password?'
         except Exception as e:
             self.msg = 'conn err: ' + str(e)[:12]
         self.nets = []          # back to the status view
 
+    def _password_screen(self, ssid):
+        """The on-screen keyboard, wired to join `ssid` with what gets typed."""
+        def done(pw):
+            self._pending = ('connectpw', ssid, pw)
+            return 'back'
+        return KeyboardScreen('Password', on_done=done, secret=True)
+
     def on_event(self, e):
         if not self.nets:
             if e == ev.SELECT:
+                if self._ask_pw:                 # a join asked for a password
+                    ssid = self._ask_pw
+                    self._ask_pw = None
+                    return self._password_screen(ssid)
                 self.msg = 'Scanning...'
                 self._pending = 'scan'
                 return None
@@ -406,4 +444,106 @@ class PinScreen(Screen):
                 self.pos -= 1
             elif self.mode == 'set':
                 return 'back'                   # cancel a set (verify can't escape)
+        return None
+
+
+class KeyboardScreen(Screen):
+    """On-screen keyboard driven entirely by the rotary encoder.
+
+    Turn = move through the key grid, SELECT = type the highlighted key, BACK =
+    delete (held on the last character it leaves the screen). The bottom row holds
+    the actions — SHIFT / SPACE / DEL / DONE — so every function is reachable with
+    just the encoder and one button, which is all the hardware there is.
+
+    on_done(text) is called with the finished string; on_cancel() if abandoned.
+    """
+    ROWS = (
+        'abcdefghij',
+        'klmnopqrst',
+        'uvwxyz0123',
+        '456789.-_@',
+    )
+    ACTIONS = ('SHFT', 'SPC', 'DEL', 'OK')
+
+    def __init__(self, title='Enter text', on_done=None, on_cancel=None,
+                 secret=False, initial=''):
+        self.title = title
+        self.text = initial
+        self.sel = 0
+        self.shift = False
+        self.secret = secret            # mask the buffer (passwords)
+        self._done = on_done
+        self._cancel = on_cancel
+        self._keys = self._build()
+
+    def _build(self):
+        keys = []
+        for r, row in enumerate(self.ROWS):
+            for col, ch in enumerate(row):
+                keys.append((r, col, ch))
+        for col, a in enumerate(self.ACTIONS):
+            keys.append((len(self.ROWS), col, a))
+        return keys
+
+    def _cell(self, c):
+        """(cell_w, cell_h, x0, y0) for the key grid."""
+        cols = max(len(r) for r in self.ROWS)
+        gw = c.w // cols
+        gh = max(7, (c.h - _TOP - _FH - 2) // (len(self.ROWS) + 1))
+        return gw, gh, 0, _TOP + _FH + 1
+
+    def draw(self, c):
+        # buffer line (masked for secrets), with a caret
+        shown = ('*' * len(self.text)) if self.secret else self.text
+        _fit(c, 2, _TOP - 1, (shown + '_')[-20:])
+        gw, gh, x0, y0 = self._cell(c)
+        nact = len(self.ACTIONS)
+        aw = c.w // nact                      # the action row gets wider cells so
+        for i, (r, col, ch) in enumerate(self._keys):   # SHIFT/SPACE/DEL/OK fit
+            label = ch
+            if len(ch) == 1 and self.shift:
+                label = ch.upper()
+            action_row = (r == len(self.ROWS))
+            cw = aw if action_row else gw
+            x = x0 + col * cw
+            y = y0 + r * gh
+            if i == self.sel:
+                rounded_rect(c, x, y - 1, cw - 1, gh, 1)
+                c.text(x + 1, y, label, 0, 1, True)
+            else:
+                c.text(x + 1, y, label, 1, 1, True)
+
+    def _type(self, ch):
+        if len(self.text) < 63:
+            self.text += ch.upper() if self.shift else ch
+
+    def on_event(self, e):
+        n = len(self._keys)
+        if e == ev.ROT_CW:
+            self.sel = (self.sel + 1) % n
+        elif e == ev.ROT_CCW:
+            self.sel = (self.sel - 1) % n
+        elif e == ev.SELECT:
+            ch = self._keys[self.sel][2]
+            if ch == 'SH':
+                self.shift = not self.shift
+            elif ch == 'SP':
+                self._type(' ')
+            elif ch == 'DEL':
+                self.text = self.text[:-1]
+            elif ch == 'OK':
+                if self._done:
+                    return self._done(self.text) or 'back'
+                return 'back'
+            else:
+                self._type(ch)
+        elif e == ev.BACK:
+            if self.text:
+                self.text = self.text[:-1]      # BACK deletes while there's text
+                return None
+            if self._cancel:
+                self._cancel()
+            return 'back'
+        elif e == ev.HOME:
+            return 'home'
         return None
