@@ -106,6 +106,21 @@ def scrollbar(c, x, y, h, top, visible, total):
     c.fill_rect(x, ty, _SB_W, th, 1)                       # thumb
 
 
+def spinner(c, x, y, phase):
+    """A small rotating mark for 'busy, please wait'. Four frames (| / - \\) drawn
+    as lines so it costs almost nothing — shown whenever the UI is blocked on work
+    that can't be interrupted, so the device never looks frozen."""
+    p = phase % 4
+    if p == 0:
+        c.vline(x + 2, y, 5, 1)
+    elif p == 1:
+        c.line(x, y + 4, x + 4, y, 1)
+    elif p == 2:
+        c.hline(x, y + 2, 5, 1)
+    else:
+        c.line(x, y, x + 4, y + 4, 1)
+
+
 def _scroll_tri(c, x, y, up):
     """A tiny 5px up/down triangle — a 'more above/below' scroll hint for lists."""
     if up:

@@ -21,6 +21,7 @@ BACK    = 'back'
 HOME    = 'home'
 ACTION  = SELECT            # alias — there's no 4th button; SELECT doubles as it
 SELECT_HOLD = 'selecthold'  # SELECT held past HOLD_MS (a shortcut, e.g. keyboard OK)
+HOME_HOLD   = 'homehold'    # HOME held past HOLD_MS -> the power screen, always
 
 HOLD_MS = 600               # press longer than this counts as a hold
 
@@ -73,7 +74,7 @@ class GpioSource:
         self._bt = {k: 0 for k in self.btns}
         self._btn_order = (SELECT, BACK, HOME)   # stable scan order
         self._pending = []                        # button presses awaiting delivery
-        self._held = False                        # SELECT hold already fired
+        self._holds = {}                          # evt -> hold already fired
         self._irq = False
         try:
             trig = P.IRQ_RISING | P.IRQ_FALLING
@@ -152,17 +153,20 @@ class GpioSource:
                 if self._last[evt] == 1 and (now - self._bt[evt]) > 30:
                     self._last[evt] = 0
                     self._bt[evt] = now
-                    if evt != SELECT:
-                        self._pending.append(evt)       # instant for BACK/HOME
-                elif evt == SELECT and self._last[evt] == 0 \
-                        and not self._held and (now - self._bt[evt]) >= HOLD_MS:
-                    self._held = True                   # fire the hold once
-                    self._pending.append(SELECT_HOLD)
+                    if evt == BACK:
+                        self._pending.append(evt)       # instant: BACK stays snappy
+                elif self._last[evt] == 0 and not self._holds.get(evt) \
+                        and (now - self._bt[evt]) >= HOLD_MS:
+                    self._holds[evt] = True             # fire each hold once
+                    if evt == SELECT:
+                        self._pending.append(SELECT_HOLD)
+                    elif evt == HOME:
+                        self._pending.append(HOME_HOLD)
             else:                                       # released
-                if evt == SELECT and self._last[evt] == 0 and not self._held:
-                    self._pending.append(SELECT)        # a tap -> on release
-                if evt == SELECT:
-                    self._held = False
+                if self._last[evt] == 0 and evt in (SELECT, HOME) \
+                        and not self._holds.get(evt):
+                    self._pending.append(evt)           # a tap -> reported on release
+                self._holds[evt] = False
                 self._last[evt] = 1
 
     def poll(self):

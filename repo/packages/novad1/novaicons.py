@@ -131,19 +131,28 @@ def _doc(c, cx, cy, r):               # scripts — document
         c.hline(cx - r // 2 + 2, cy - r // 2 + i * 3, r - 4, 1)
 
 
-def _gear(c, cx, cy, r):              # settings
-    c.circle(cx, cy, r - 2, 1)
-    c.fill_circle(cx, cy, max(1, r // 3), 0)
-    c.circle(cx, cy, max(1, r // 3), 1)
-    for a in ((0, -r), (0, r), (-r, 0), (r, 0)):
-        c.line(cx + (a[0] * 2) // 3, cy + (a[1] * 2) // 3, cx + a[0], cy + a[1], 1)
-
-
+def _gear(c, cx, cy, r):              # Settings — a toothed gear
+    body = max(2, r - 2)
+    c.circle(cx, cy, body, 1)
+    c.circle(cx, cy, max(1, body // 3), 1)          # hub
+    # Short, blocky teeth sitting ON the rim. Long thin spokes read as a star or a
+    # target; stubby blocks read as a gear.
+    tw = max(1, r // 4)
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        c.fill_rect(cx + dx * body - tw // 2 - (tw - 1) * (dx > 0),
+                    cy + dy * body - tw // 2 - (tw - 1) * (dy > 0),
+                    tw if dx == 0 else tw, tw if dy == 0 else tw, 1)
+    d = int(body * 0.72)
+    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+        c.fill_rect(cx + dx * d - tw // 2, cy + dy * d - tw // 2, tw, tw, 1)
 def _check(c, cx, cy, r):             # System Check — clipboard + tick
-    c.rect(cx - r + 1, cy - r, 2 * r - 2, 2 * r, 1)
-    c.fill_rect(cx - 3, cy - r - 2, 6, 3, 1)         # clip
-    c.line(cx - r + 3, cy + 1, cx - 1, cy + r - 3, 1)  # check mark
-    c.line(cx - 1, cy + r - 3, cx + r - 3, cy - r + 4, 1)
+    w = 2 * r - 2
+    c.rect(cx - r + 1, cy - r + 2, w, 2 * r - 3, 1)
+    clip = max(2, r // 2)                       # clip scales with the board
+    c.fill_rect(cx - clip // 2, cy - r, clip, max(2, r // 3), 1)
+    t = max(2, r // 3)
+    c.line(cx - t, cy + 1, cx - 1, cy + t, 1)   # tick
+    c.line(cx - 1, cy + t, cx + t + 1, cy - t, 1)
 
 
 def _chat(c, cx, cy, r):              # Messages — speech bubble
@@ -175,20 +184,25 @@ def _clock(c, cx, cy, r):             # Clock — dial + hands
     c.pixel(cx, cy, 1)
 
 
-def _wrench(c, cx, cy, r):            # Troubleshoot — wrench
-    # open jaws top-left, shaft running to bottom-right
-    c.line(cx - r + 2, cy - r + 3, cx + r - 3, cy + r - 2, 1)
-    c.line(cx - r + 3, cy - r + 2, cx + r - 2, cy + r - 3, 1)
-    c.circle(cx - r + 4, cy - r + 4, 3, 1)
-    c.fill_rect(cx - r + 2, cy - r + 1, 3, 2, 0)  # knock the jaw opening out
+def _wrench(c, cx, cy, r):            # Troubleshoot — wrench, all parts scale
+    head = max(2, r // 2)
+    # shaft from the head down to the opposite corner
+    hx, hy = cx - r + head, cy - r + head
+    tx, ty = cx + r - 2, cy + r - 2
+    c.line(hx, hy, tx, ty, 1)
+    c.line(hx + 1, hy, tx, ty - 1, 1)
+    c.circle(hx, hy, head, 1)                  # open jaws
+    c.fill_rect(hx - head, hy - head, head, head, 0)   # knock the opening out
 
 
-def _terminal(c, cx, cy, r):          # Commands — a terminal window with a prompt
+def _terminal(c, cx, cy, r):          # Commands — terminal window, prompt scales
     c.rect(cx - r, cy - r + 1, 2 * r, 2 * r - 2, 1)
-    c.hline(cx - r, cy - r + 4, 2 * r, 1)         # title bar
-    c.line(cx - r + 3, cy - 1, cx - r + 6, cy + 2, 1)   # '>' chevron
-    c.line(cx - r + 6, cy + 2, cx - r + 3, cy + 5, 1)
-    c.hline(cx - r + 8, cy + 5, max(2, r - 2), 1)       # cursor line
+    c.hline(cx - r, cy - r + 1 + max(2, r // 3), 2 * r, 1)      # title bar
+    k = max(2, r // 3)                                          # chevron size
+    px, py = cx - r + max(2, r // 3), cy
+    c.line(px, py - k, px + k, py, 1)                           # '>' as lines so it
+    c.line(px + k, py, px, py + k, 1)                           # scales with r
+    c.hline(px + k + 2, py + k, max(2, r - k), 1)               # cursor
 
 
 def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle

@@ -50,7 +50,12 @@ def parse(text):
 
 
 def pack(rows):
-    """ASCII-art rows -> W column bytes, bit (1<<row) set for a lit pixel."""
+    """ASCII-art rows -> W column bytes, bit (1<<row) set for a lit pixel.
+
+    The glyph is CENTRED in its cell first. The source draws narrow characters
+    (i . ! : l) hard against the left edge, which in a monospaced cell makes them
+    look shoved left of everything else — centring here bakes the fix into the data
+    so there's no per-draw cost and the mock matches the device exactly."""
     cols = []
     for x in range(W):
         b = 0
@@ -58,6 +63,14 @@ def pack(rows):
             if rows[y][x] not in (' ', '\t', '.'):   # '.' = clear in EXTRA art
                 b |= (1 << y)
         cols.append(b)
+    lit = [i for i, b in enumerate(cols) if b]
+    if lit:
+        lo, hi = lit[0], lit[-1] + 1
+        shift = (W - (hi - lo)) // 2 - lo
+        if shift > 0:
+            cols = [0] * shift + cols[:W - shift]
+        elif shift < 0:
+            cols = cols[-shift:] + [0] * (-shift)
     return cols
 
 

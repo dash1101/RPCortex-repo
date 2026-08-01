@@ -15,7 +15,7 @@ import novaicons
 import novacanvas  # noqa  (kept for symmetry; canvas is passed in)
 # The UI leaf: Screen base, layout tokens, shared helpers, the input `ev` re-export.
 # Screens (here + the split-out novagui_* modules) + installed apps bind to novaui.
-from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH, _SB_W,
+from novaui import (ev, _ADV, _FH, _BARH, _TOP, _ROWH, _SB_W, spinner,
                     Screen, Menu, _wrap, _scroll_tri, rounded_rect, scrollbar,
                     fit as _fit)
 # RF / wireless app screens live in novagui_radios (the monolith split); the
@@ -27,7 +27,8 @@ from novagui_radios import (MessagesScreen, GPSScreen, NFCScreen, NfcSaveScreen,
 # System app screens (leaf-safe subset) live in novagui_system (the monolith
 # split); novagui re-exports them so novagui.PinScreen etc. still resolve.
 from novagui_system import (WiFiScreen, TimeScreen, SystemCheckScreen,
-                            NotificationsScreen, PinScreen, KeyboardScreen)
+                            NotificationsScreen, PinScreen, KeyboardScreen,
+                            PasswordScreen, lock_screen, lock_is_set)
 
 
 from novacore import reg as _reg
@@ -992,6 +993,13 @@ class NovaUI:
     def handle(self, e):
         if e is None:
             return False
+        # HOLD HOME is a global escape: it opens the power screen from ANY screen,
+        # no matter what is on top or what state it's in — so lock / shutdown /
+        # reboot are always one gesture away in an emergency.
+        if e == ev.HOME_HOLD:
+            if not isinstance(self.stack[-1], Menu) or self.stack[-1].title != 'Power':
+                self.stack.append(_power_menu())
+            return True
         self._apply(self.stack[-1].on_event(e))
         return True
 
@@ -1140,9 +1148,9 @@ class NovaUI:
                 dirty = True
         # Auto-lock a short while after the screen goes off (needs a set PIN).
         if (target == 2 and not self._locked and off_s > 0 and lock_s >= 0
-                and _reg('Apps.NovaD1_PIN', '')
+                and lock_is_set()
                 and idle >= (off_s + lock_s) * 1000):
-            self._lock_scr = PinScreen('verify')
+            self._lock_scr = lock_screen('verify')
             self.stack.append(self._lock_scr)
             self._locked = True
         # The user entered the PIN -> the lock screen popped itself off the stack.
@@ -1219,7 +1227,7 @@ def _mk_test(key, label):
 
 
 def _power_lock():
-    return PinScreen('verify') if _reg('Apps.NovaD1_PIN', '') else None
+    return lock_screen('verify') if lock_is_set() else None
 
 
 def _power_sleep():
@@ -1905,30 +1913,53 @@ def _silent_result(cmd):
 
 
 class CommandScreen(Screen):
-    """Runs an OS command on first tick, shows scrollable output."""
+    """Runs an OS command, then shows its scrollable output.
+
+    The command is deliberately NOT run on the first tick: tick() happens before
+    the first render, so a slow command blocked the loop while the PREVIOUS screen
+    was still on the panel — the device looked frozen. Now the first tick paints a
+    'Working' frame (with the busy spinner) and the second tick actually runs it,
+    so there is always visible feedback before anything blocks.
+    """
     def __init__(self, title, cmd):
         self.title = title
         self.cmd = cmd
-        self.lines = ['Running...']
+        self.lines = None            # None = still working
         self.top = 0
-        self._ran = False
+        self._frames = 0
+        self._spin = 0
+
+    def animating(self):
+        return self.lines is None    # keep the spinner turning until it finishes
 
     def draw(self, c):
-        rows = (c.h - _TOP - _FH) // _ROWH
-        if self.top > max(0, len(self.lines) - rows):
-            self.top = max(0, len(self.lines) - rows)
+        if self.lines is None:
+            _fit(c, 2, _TOP + _ROWH, 'Working...')
+            spinner(c, c.w - 8, c.h - 8, self._spin)
+            return
+        rows = (c.h - _TOP) // _ROWH
+        n = len(self.lines)
+        if self.top > max(0, n - rows):
+            self.top = max(0, n - rows)
+        scrolls = n > rows
+        right = c.w - (_SB_W + 1) if scrolls else c.w
         for i in range(rows):
             idx = self.top + i
-            if idx >= len(self.lines):
+            if idx >= n:
                 break
-            c.text(2, _TOP + i * _ROWH, self.lines[idx], 1)
-        
+            _fit(c, 2, _TOP + i * _ROWH, self.lines[idx])
+        if scrolls:
+            scrollbar(c, right + 1, _TOP, c.h - _TOP, self.top, rows, n)
+
     def tick(self, dt_ms=0):
-        if not self._ran:
-            self._ran = True
-            self.lines = _run_capture(self.cmd)
-            return True
-        return False
+        if self.lines is not None:
+            return False
+        self._frames += 1
+        self._spin += 1
+        if self._frames < 2:
+            return True              # paint 'Working' BEFORE blocking
+        self.lines = _run_capture(self.cmd) or ['(no output)']
+        return True
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -1975,8 +2006,11 @@ class SettingsScreen(Screen):
             ('cycle', 'LoRa MHz', 'Apps.NovaD1_LoRa_Freq', ['433', '868', '915'], '915', None),
             ('cycle', 'NTP Boot', 'Apps.NTP_On_Boot', ['false', 'true'], 'false', None),
             ('head', 'SECURITY'),
+            ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'],
+             'pin', None),
             ('push', 'Set PIN', lambda: PinScreen('set')),
-            ('action', 'Clear PIN', 'novad1 pin clear'),
+            ('push', 'Set password', lambda: PasswordScreen('set')),
+            ('action', 'Clear lock', 'novad1 pin clear'),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
             ('cycle', 'Incognito', 'Apps.NovaD1_Stealth', ['off', 'on'], 'off',
              _apply_stealth),

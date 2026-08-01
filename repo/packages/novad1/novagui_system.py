@@ -138,7 +138,7 @@ class WiFiScreen(Screen):
                 self.msg = 'Connected ' + ssid[:10]
             elif password is None:
                 self.msg = 'Need password'
-                self._ask_pw = ssid          # offer the keyboard on the next SELECT
+                self._ask_pw = ssid          # SELECT opens the keyboard
                 return
             else:
                 self.msg = 'Wrong password?'
@@ -175,10 +175,11 @@ class WiFiScreen(Screen):
             if saved:
                 self.msg = 'Connecting...'
                 self._pending = ('connect', ssid)
-            else:
-                self.msg = 'Not saved (use shell)'
-                self.nets = []
-            return None
+                return None
+            # Not saved: go STRAIGHT to the keyboard. This used to say
+            # 'Not saved (use shell)', which made a locked network unjoinable from
+            # the device even though the keyboard existed.
+            return self._password_screen(ssid)
         elif e == ev.BACK:
             self.nets = []       # back to status, not out of the app
             return None
@@ -582,3 +583,80 @@ class KeyboardScreen(Screen):
         elif e == ev.HOME:
             return 'home'
         return None
+
+
+def lock_screen(mode='verify'):
+    """The lock the device is configured for: a typed PASSWORD when one is set
+    (Apps.NovaD1_Pass), else the 6-digit PIN. Both are clearable from the serial
+    shell, so neither can strand the device."""
+    from novacore import reg as _r
+    if str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+        return PasswordScreen(mode)
+    return PinScreen(mode)
+
+
+def lock_is_set():
+    """True if either lock is configured."""
+    from novacore import reg as _r
+    if str(_r('Apps.NovaD1_Lock_Kind', 'pin')).lower() == 'password':
+        return bool(_r('Apps.NovaD1_Pass', ''))
+    return bool(_r('Apps.NovaD1_PIN', ''))
+
+
+class PasswordScreen(Screen):
+    """Password lock — the alternative to the 6-digit PIN, so security isn't capped
+    at 6 digits. Reuses the on-screen keyboard for entry (masked). mode='set'
+    stores a new password; mode='verify' gates the UI until it matches.
+    RECOVERY: `reg set Apps.NovaD1_Pass ""` from the serial shell always clears it."""
+    fullscreen = True
+
+    def __init__(self, mode='verify'):
+        self.title = 'Password'
+        self.mode = mode
+        self.msg = ''
+        self.next = None
+        self._kb = None
+
+    def _keyboard(self):
+        if self._kb is None:
+            self._kb = KeyboardScreen(
+                'Set password' if self.mode == 'set' else 'Password',
+                on_done=self._submit, secret=True)
+        return self._kb
+
+    def _submit(self, text):
+        from novacore import reg as _r, save_reg as _sr
+        if self.mode == 'set':
+            _sr('Apps.NovaD1_Pass', text)
+            _sr('Apps.NovaD1_Lock_Kind', 'password' if text else 'pin')
+            self.msg = 'Password set' if text else 'Password cleared'
+            self.next = 'back'
+            return 'back'
+        if text == str(_r('Apps.NovaD1_Pass', '')):
+            self.next = 'back'
+            return 'back'
+        self.msg = 'Wrong password'
+        self._kb = None                 # start a fresh entry
+        return None
+
+    def draw(self, c):
+        self._keyboard().draw(c)
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
+
+    def tick(self, dt_ms=0):
+        return self._keyboard().tick(dt_ms)
+
+    def animating(self):
+        return True
+
+    def on_event(self, e):
+        if self.mode == 'verify' and e in (ev.BACK, ev.HOME):
+            return None                 # a verify lock can't be escaped
+        r = self._keyboard().on_event(e)
+        if r == 'back' and self.mode == 'verify':
+            from novacore import reg as _r
+            if not _r('Apps.NovaD1_Pass', ''):
+                return 'back'           # cleared from the shell -> release
+            return None
+        return r

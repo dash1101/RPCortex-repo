@@ -502,14 +502,28 @@ def _pin(info, ok, warn, error, multi, rest=''):
     if sub in ('clear', 'off', 'remove', 'reset'):
         try:
             import regedit
-            regedit.save('Apps.NovaD1_PIN', '')
-            ok("UI PIN cleared — the lock screen is off.", p="NovaD1")
+            regedit.save('Apps.NovaD1_PIN', '')       # clear BOTH lock kinds, so
+            regedit.save('Apps.NovaD1_Pass', '')      # this always unlocks the UI
+            regedit.save('Apps.NovaD1_Lock_Kind', 'pin')
+            ok("UI lock cleared (PIN and password).", p="NovaD1")
         except Exception as e:
-            error("Could not clear the PIN: {}".format(e))
+            error("Could not clear the lock: {}".format(e))
+        return
+    if sub in ('pass', 'password'):
+        if len(parts) < 2:
+            error("Usage: d1 pin password <text>   (or: d1 pin clear)")
+            return
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Pass', parts[1])
+            regedit.save('Apps.NovaD1_Lock_Kind', 'password')
+            ok("UI password set.", p="NovaD1")
+        except Exception as e:
+            error("Could not set the password: {}".format(e))
         return
     if sub == 'set':
         if len(parts) < 2 or not parts[1].isdigit() or len(parts[1]) != 6:
-            error("Usage: d1 pin set <6 digits>   (or: d1 pin clear)")
+            error("Usage: d1 pin set <6 digits>   (or: d1 pin password <text>)")
             return
         try:
             import regedit
@@ -519,8 +533,12 @@ def _pin(info, ok, warn, error, multi, rest=''):
             error("Could not set the PIN: {}".format(e))
         return
     info("Nova D1 — UI lock PIN", p="NovaD1")
-    multi("  PIN: {}".format('set' if cur else 'not set'))
-    multi("  d1 pin set <6 digits> | clear")
+    kind = _reg('Apps.NovaD1_Lock_Kind', 'pin')
+    pw = _reg('Apps.NovaD1_Pass', '')
+    multi("  Lock type: {}".format(kind))
+    multi("  PIN      : {}".format('set' if cur else 'not set'))
+    multi("  Password : {}".format('set' if pw else 'not set'))
+    multi("  d1 pin set <6 digits> | password <text> | clear")
 
 
 def _wardrive(info, ok, warn, error, multi, rest=''):
