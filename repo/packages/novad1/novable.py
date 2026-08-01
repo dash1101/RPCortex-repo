@@ -168,13 +168,18 @@ def scan_steps(ms=4000):
         # are built once per scan, below, for the handful of devices we keep.
         if event == _IRQ_SCAN_RESULT:
             _at, addr, _t, rssi, adv = data
-            prev = found.get(addr)
+            # `addr` is a MEMORYVIEW, which is unhashable — looking the device up
+            # with it raised TypeError inside the interrupt on every single
+            # advertisement. Convert once, then use that for both the lookup and
+            # the store.
+            key = bytes(addr)
+            prev = found.get(key)
             if prev is not None:
                 if rssi <= prev[0]:
                     return
             elif len(found) >= cap:
                 return                      # bounded: a crowded room cannot
-            found[bytes(addr)] = (rssi, bytes(adv))
+            found[key] = (rssi, bytes(adv))
 
     try:
         ble = _radio()
