@@ -54,6 +54,13 @@ def _out():
 
 from novacore import reg as _reg
 import novaboard
+# The GUI runner lives in novaservice so the autostarted GUI does not pull this
+# whole command module into RAM. Imported here only so `d1 gui` / `d1 service` /
+# `d1 web` keep behaving exactly as before.
+from novaservice import (_nlog, _save_err, _clear_err, _open_i2c, _scan_i2c,
+                         _detect_modules, _input_pins, _build_ui,
+                         _boot_or_recover, _seed_scripts, set_web,
+                         _gui_service, _i2c_pins)  # noqa
 
 
 def _ensure_dir(p):
@@ -84,64 +91,14 @@ def scripts_dir():
     return d
 
 
-def _i2c_pins():
-    return novaboard.pin('sda', 8), novaboard.pin('scl', 9)
 
 
-def _input_pins():
-    pins = {}
-    for k in _INPUT_NAMES:
-        pins[k] = novaboard.pin(k)
-    return pins
 
 
-def _open_i2c():
-    import machine
-    sda, scl = _i2c_pins()
-    for ctor in ('I2C', 'SoftI2C'):
-        cls = getattr(machine, ctor, None)
-        if cls is None:
-            continue
-        try:
-            # 1 MHz: the SH1106 handles it, and the framebuffer push (~1 KB/frame)
-            # at 1 MHz is ~10ms vs ~100ms at the 100 kHz default — this is what
-            # actually makes the UI animate smoothly. SoftI2C is the slow fallback.
-            if ctor == 'I2C':
-                return cls(0, scl=machine.Pin(scl), sda=machine.Pin(sda), freq=1000000)
-            return cls(scl=machine.Pin(scl), sda=machine.Pin(sda), freq=1000000)
-        except Exception:
-            pass
-    return None
 
 
-def _scan_i2c():
-    try:
-        import machine  # noqa
-    except ImportError:
-        return None, 'not on-device'
-    bus = _open_i2c()
-    if bus is None:
-        return None, 'could not open I2C'
-    try:
-        return bus.scan(), None
-    except Exception as e:
-        return None, 'scan failed: {}'.format(e)
 
 
-def _detect_modules():
-    """Presence dict for the home menu. I2C modules are confirmed live; SPI/UART
-    ones (subghz/lora/gps) come from config flags until Stage-3 probes land."""
-    mods = {'display': False, 'rtc': False, 'nfc': False}
-    addrs, err = _scan_i2c()
-    if addrs:
-        for a in addrs:
-            ent = _I2C_KNOWN.get(a)
-            if ent:
-                mods[ent[0]] = True
-    # config-declared modules (default on, so the menu shows them)
-    for name in ('subghz', 'ir', 'lora', 'gps'):
-        mods[name] = (_reg('Apps.NovaD1_MOD_' + name, 'on') != 'off')
-    return mods
 
 
 def _state_provider():
@@ -188,30 +145,6 @@ def _state_provider():
     return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt, 'saving': sv}
 
 
-def _build_ui(kind=None):
-    """Construct the NovaUI for on-device use. Returns (ui, err)."""
-    try:
-        import machine  # noqa
-    except ImportError:
-        return None, 'needs the device (machine module)'
-    bus = _open_i2c()
-    if bus is None:
-        return None, 'could not open I2C for the display'
-    import novacanvas, display, novagui, novainput
-    cv = novacanvas.Canvas(128, 64)
-    dk = kind or _reg('Apps.NovaD1_Display', 'sh1106')
-    disp = display.open_display(bus, kind=dk)
-    try:
-        disp.contrast(int(_reg('Apps.NovaD1_Contrast', 255)))   # saved brightness
-    except Exception:
-        pass
-    try:
-        src = novainput.GpioSource(_input_pins())
-    except Exception as e:
-        return None, 'input pins: {}'.format(e)
-    home = novagui.build_home(_detect_modules())
-    hf = lambda: novagui.build_home(_detect_modules())   # for live rebuild
-    return novagui.NovaUI(disp, cv, src, _state_provider, home, home_factory=hf), None
 
 
 # --- subcommands ------------------------------------------------------------
@@ -446,7 +379,7 @@ def _radar_cmd(info, ok, warn, error, multi, rest):
     devs = novawatch.devices()
     if not devs:
         info('Nothing heard yet. The observer runs with the GUI '
-             '(novad1 gui --bg) and needs a few seconds.')
+             '(novagui --bg) and needs a few seconds.')
         return
     known = novawatch.known()
     multi('  {:<18} {:>5}  {:<14} {}'.format('MAC', 'dBm', 'VENDOR', 'WHAT'))
@@ -513,13 +446,25 @@ def _setup(info, ok, warn, error, multi):
     # Register the GUI as a BACKGROUND service so the shell stays free.
     try:
         path = '/Vela/Registry/services.cfg'
-        line = 'novad1 gui --bg'
+        # 'novagui --bg', NOT 'novad1 gui --bg'. Autostarting through the novad1
+        # command loads this whole 44 KB module on every boot just to reach the
+        # GUI runner; novagui is a thin entry point in novaservice that does not.
+        line = 'novagui --bg'
         existing = ''
         try:
             with open(path) as f:
                 existing = f.read()
         except OSError:
             pass
+        if 'novad1 gui --bg' in existing:      # migrate an older install
+            try:
+                with open(path, 'w') as f:
+                    f.write(existing.replace('novad1 gui --bg', line))
+                existing = line
+                ok("Switched the GUI autostart to the light entry point.",
+                   p="NovaD1")
+            except Exception:
+                pass
         if line not in existing:
             with open(path, 'a') as f:
                 if existing and not existing.endswith('\n'):
@@ -556,7 +501,7 @@ def _setup(info, ok, warn, error, multi):
     multi("  Different wiring?       d1 pins  (then: d1 pins set <name> <gpio>)")
     multi("")
     multi("  Reboot to start. The UI runs in the background; the shell stays free.")
-    multi("  Undo with: autonomy off   (and: service remove novad1 gui --bg)")
+    multi("  Undo with: autonomy off   (and: service remove novagui --bg)")
 
 
 _PIN_HELP = {
@@ -1063,206 +1008,18 @@ def _apps(info, ok, warn, error, multi, rest=''):
     multi("  novad1 apps show <key> | hide <key> | cat <key> <folder> | reset")
 
 
-def _save_err(msg):
-    try:
-        import regedit
-        regedit.save('Apps.NovaD1_LastError', str(msg)[:80])
-    except Exception:
-        pass
 
 
-def _clear_err():
-    try:
-        import regedit
-        regedit.save('Apps.NovaD1_LastError', '')
-    except Exception:
-        pass
 
 
-def _nlog(msg):
-    try:
-        import novalog
-        novalog.log(msg)
-    except Exception:
-        pass
 
 
-def set_web(on):
-    """Start/stop the web control panel as a background service (async shell)."""
-    try:
-        lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
-        if lp is None:
-            return
-        if on and hasattr(lp, 'register_service'):
-            import novaweb
-            lp.register_service('novaweb', novaweb.serve)
-            _nlog('web panel enabled')
-        elif not on and hasattr(lp, 'unregister_service'):
-            lp.unregister_service('novaweb')
-            _nlog('web panel disabled')
-    except Exception:
-        pass
 
 
-def _seed_scripts():
-    """Write a couple of example button-grid scripts on first run so the Scripts
-    app has working content + shows the format. Only if no scripts exist yet."""
-    try:
-        import novastore
-        if novastore.list_codes('scripts'):
-            return
-        demo = ("# Nova D1 demo remote — these work out of the box.\n"
-                "title: Demo\n"
-                "Sysinfo = run sysinfo\n"
-                "Free RAM = run meminfo\n"
-                "Notify = notify hello from Nova\n"
-                "LoRa Ping = lora ping\n")
-        novastore.save_code('scripts', 'demo.txt', demo)
-        tv = ("# IR remote template — record buttons into tv.ir first (IR app),\n"
-              "# then each line fires a saved signal by name.\n"
-              "title: TV\n"
-              "category: Testing\n"
-              "Power = ir tv.ir Power\n"
-              "Vol+ = ir tv.ir Vol_up\n"
-              "Vol- = ir tv.ir Vol_dn\n"
-              "Input = ir tv.ir Input\n")
-        novastore.save_code('scripts', 'tv_remote.txt', tv)
-        _nlog('seeded example scripts')
-    except Exception:
-        pass
 
 
-def _boot_or_recover(ui, novagui, fresh=True):
-    """Initial screen stack. On a FRESH GUI start the splash ALWAYS plays (100% of
-    the time) — even after a stored error, which now shows AFTER the splash. A
-    crash-respawn (fresh=False) just flashes the error, no re-splash."""
-    global _booted
-    last = _reg('Apps.NovaD1_LastError')
-    if last:
-        _clear_err()
-    if fresh:
-        _booted = True
-        try:
-            import novasound
-            novasound.chime()          # boot chime (gated + try-excepted inside)
-        except Exception:
-            pass
-        ui.stack = novagui.make_boot_stack(ui.stack[0])     # [home, Splash]
-        if last:
-            ui.stack.insert(1, novagui.ErrorScreen(last))   # seen after the splash
-        if _reg('Apps.NovaD1_PIN'):            # gate the UI behind the PIN if set
-            ui.stack.insert(1, novagui.PinScreen('verify'))
-        _nlog('Nova D1 GUI started')
-    elif last:
-        ui.stack.append(novagui.ErrorScreen(last))
 
 
-async def _gui_service():
-    """Self-healing background GUI: rebuilds + relaunches on crash (with backoff),
-    stores the error and flashes it on the next start. Catches everything itself
-    so it's the SINGLE respawn source (the OS service guard never sees a crash).
-
-    Runs as a BACKGROUND service sharing the event loop with the serial shell, so
-    it must NEVER write to stdout/serial (that would flood the shell) — all
-    diagnostics go to the Nova flash log. It also waits a short, configurable
-    settle delay on first start so the shell + USB-CDC come up first."""
-    import asyncio
-    import novagui
-    first = True
-    crashes = 0
-    while True:
-        ui, err = _build_ui()
-        if err:
-            _save_err('start: ' + err)        # unrecoverable (no display) -> stop
-            _nlog('GUI start failed: ' + err)
-            return
-        try:                                  # background WiFi manager (once)
-            import novawifi
-            if not novawifi._started:
-                asyncio.create_task(novawifi.manager())
-        except Exception:
-            pass
-        # Background services are imported only if they are actually going to
-        # RUN. Importing them to ask whether they should run costs the same RAM
-        # as running them: novamsg pulls in the LoRa stack and novawatch the BLE
-        # scanner, together ~12 KB, on a device where the package already uses
-        # most of the heap. Both are checked from config first.
-        # LoRa messaging is opt-in for the same reason. A board profile defines
-        # sx_cs whether or not an SX1276 is actually soldered on, so the pin says
-        # nothing about whether the radio exists — and importing novamsg to ask
-        # costs the whole LoRa stack. Most devices do not have the module fitted.
-        try:
-            if str(_reg('Apps.NovaD1_LoRa', 'off')).lower() in ('on', 'true', '1'):
-                import novamsg
-                if not novamsg._started:
-                    asyncio.create_task(novamsg.manager())
-        except Exception:
-            pass
-        try:                                  # radio observer — opt-in, off by default
-            if str(_reg('Apps.NovaD1_Watch', 'off')).lower() in ('on', 'true', '1'):
-                import novawatch
-                if not novawatch.started():
-                    asyncio.create_task(novawatch.observer())
-        except Exception:
-            pass
-        try:                                  # background code -> SD backup mover (once)
-            import novastore
-            if not getattr(novastore, '_mover_on', False):
-                novastore._mover_on = True
-                asyncio.create_task(novastore.backup_mover())
-        except Exception:
-            pass
-        fresh = first                         # True only on the first launch (not respawns)
-        if first and _reg('Apps.NovaD1_Web', 'off') == 'on':
-            set_web(True)                     # auto-host the control panel
-        if first:
-            first = False
-            try:
-                import novartc
-                novartc.boot_sync()           # DS3231 -> RTC if present (offline time)
-            except Exception:
-                pass
-            _seed_scripts()                   # example button-grid scripts (once)
-            # Screen ON immediately with the splash — ALWAYS on a fresh start, so it
-            # shows 100% of the time (a stored error now shows after it, not instead).
-            try:
-                # The FIRST frame, not a middle one. Painting t=0.5 here put a
-                # half-finished "Nova" on screen, and then SplashScreen started
-                # its animation from t=0 — so it looked like the boot began,
-                # stalled, and began again. t=0 is where the animation starts, so
-                # the handover is invisible.
-                import novasplash
-                novasplash.draw(ui.canvas, 0.0)
-                ui.display.show(ui.canvas)
-            except Exception:
-                pass
-            # Optional extra settle hold (default 0 — the splash already gives ~1.5s
-            # of light loop activity, covering the boot work, before any heavy probe).
-            try:
-                d = int(_reg('Apps.NovaD1_Boot_Delay', 0))
-            except (TypeError, ValueError):
-                d = 0
-            if d > 0:
-                try:
-                    await asyncio.sleep_ms(d)
-                except Exception:
-                    pass
-        _boot_or_recover(ui, novagui, fresh)
-        try:
-            await ui.run_async()
-            if getattr(ui, '_stop', False):
-                return                        # intentional stop -> done, no respawn
-        except Exception as e:
-            crashes += 1
-            _save_err('{}: {}'.format(type(e).__name__, e))
-            _nlog('GUI crash #{}: {}'.format(crashes, e))   # log only — never serial
-            if crashes >= 5:
-                _nlog('GUI gave up after 5 crashes')
-                return                        # stop respawning -> can't flood/spin
-            try:
-                await asyncio.sleep_ms(2000)  # backoff, then rebuild + relaunch
-            except Exception:
-                pass
 
 
 def _web(info, ok, warn, error, multi, rest=''):
