@@ -99,11 +99,13 @@ def build():
     import novaboard as nb
     out = []
     out.append('')
-    out.append('*Tables below are generated from the board profiles in '
-               '`novaboard.py` — the code is the source of truth, so these cannot '
-               'drift. Regenerate with `repo/tools/novad1/gen_wiring.py`.*')
+    out.append('*Generated from the board profiles in `novaboard.py` — the code is the '
+               'source of truth, so these cannot drift. Regenerate with '
+               '`repo/tools/novad1/gen_wiring.py`.*')
     out.append('')
-    for bid in nb.boards():
+    # V1 targets the Pico 2 W, so its table leads; the other supported boards follow.
+    order = ['pico2w'] + [b for b in nb.boards() if b != 'pico2w']
+    for bid in order:
         out.extend(_table(bid, nb))
     return '\n'.join(out)
 
