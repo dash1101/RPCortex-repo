@@ -1847,7 +1847,7 @@ class SettingsScreen(Screen):
             # maintenance shell (full RAM), runs the update there, then reboots
             # back. Running them inline froze the UI and OOM'd the TLS download
             # while the GUI service held the heap.
-            ('action', 'Update OS', 'safeboot update online'),
+            ('action', 'Update OS', 'safeboot update online -y'),
             ('action', 'Update Apps', 'safeboot pkg upgrade'),
             ('action', 'NTP Sync', 'ntp sync'),
             ('action', 'Web Info', 'novad1 web'),
