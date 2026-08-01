@@ -19,6 +19,53 @@ import sys
 from novacore import reg as _reg
 import novaboard
 
+
+_booted = False
+
+
+def _state_provider():
+    """Live status for the bar: wifi / battery / time."""
+    wifi = 'off'
+    try:
+        import novawifi
+        wifi = novawifi.state()
+    except Exception:
+        pass
+    if wifi != 'connected':                 # reflect OS autoconnect (existing installs)
+        try:
+            import net
+            if net.status().get('connected'):
+                wifi = 'connected'
+        except Exception:
+            pass
+    tstr = '--:--'
+    try:
+        import utime
+        off = int(_reg('System.TZ_Offset', 0))
+        t = utime.localtime(utime.time() + off * 3600)
+        tstr = '{:02d}:{:02d}'.format(t[3], t[4])
+    except Exception:
+        pass
+    pwr = None
+    try:
+        import novapower
+        pwr = novapower.read()
+    except Exception:
+        pass
+    nt = 0
+    try:
+        import novanotify
+        nt = novanotify.count()
+    except Exception:
+        pass
+    sv = False
+    try:
+        import novastore
+        sv = novastore.saving()
+    except Exception:
+        pass
+    return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt, 'saving': sv}
+
 _I2C_KNOWN = {
     0x3c: ('display', 'OLED (SH1106/SSD1306)'),
     0x3d: ('display', 'OLED (alt address)'),

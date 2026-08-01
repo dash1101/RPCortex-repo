@@ -36,7 +36,6 @@ _INPUT_NAMES = ('enc_a', 'enc_b', 'enc_sw', 'btn1', 'btn2')
 
 # Splash + boot-check play ONCE per boot (module globals persist across service
 # respawns in the same session, reset on a real reboot — exactly what we want).
-_booted = False
 
 
 def _w(s):
@@ -60,7 +59,7 @@ import novaboard
 from novaservice import (_nlog, _save_err, _clear_err, _open_i2c, _scan_i2c,
                          _detect_modules, _input_pins, _build_ui,
                          _boot_or_recover, _seed_scripts, set_web,
-                         _gui_service, _i2c_pins)  # noqa
+                         _gui_service, _i2c_pins, _state_provider)  # noqa
 
 
 def _ensure_dir(p):
@@ -101,48 +100,6 @@ def scripts_dir():
 
 
 
-def _state_provider():
-    """Live status for the bar: wifi / battery / time."""
-    wifi = 'off'
-    try:
-        import novawifi
-        wifi = novawifi.state()
-    except Exception:
-        pass
-    if wifi != 'connected':                 # reflect OS autoconnect (existing installs)
-        try:
-            import net
-            if net.status().get('connected'):
-                wifi = 'connected'
-        except Exception:
-            pass
-    tstr = '--:--'
-    try:
-        import utime
-        off = int(_reg('System.TZ_Offset', 0))
-        t = utime.localtime(utime.time() + off * 3600)
-        tstr = '{:02d}:{:02d}'.format(t[3], t[4])
-    except Exception:
-        pass
-    pwr = None
-    try:
-        import novapower
-        pwr = novapower.read()
-    except Exception:
-        pass
-    nt = 0
-    try:
-        import novanotify
-        nt = novanotify.count()
-    except Exception:
-        pass
-    sv = False
-    try:
-        import novastore
-        sv = novastore.saving()
-    except Exception:
-        pass
-    return {'wifi': wifi, 'time': tstr, 'power': pwr, 'notify': nt, 'saving': sv}
 
 
 
