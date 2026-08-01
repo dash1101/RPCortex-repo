@@ -68,6 +68,9 @@ def observe(entries, kind='ble', now=None):
         if not mac:
             continue
         mac = mac.lower()
+        # rssi may legitimately be None: an AP association table carries no
+        # signal strength, and inventing a plausible number would be making data
+        # up. None flows through and the UI renders it as 'joined'.
         rssi = e.get('rssi', -100)
         rec = _SEEN.get(mac)
         if rec is None:
@@ -83,14 +86,15 @@ def observe(entries, kind='ble', now=None):
             new.append(mac)
             _emit('new', mac, rec)
         else:
-            rec['trend'] = rssi - rec['rssi']
+            if rssi is not None and rec.get('rssi') is not None:
+                rec['trend'] = rssi - rec['rssi']
             if not rec['name']:
                 rec['name'] = e.get('name') or e.get('ssid') or ''
         rec['rssi'] = rssi
         rec['last'] = now
         rec['count'] += 1
         rec['misses'] = 0
-        if rssi > rec['best']:
+        if rssi is not None and (rec['best'] is None or rssi > rec['best']):
             rec['best'] = rssi
     _sweep(now)
     _prune()
@@ -153,7 +157,10 @@ def devices(sort='rssi', kind=None):
     """Everything currently known, strongest first by default."""
     out = [r for r in _SEEN.values() if kind is None or r.get('kind') == kind]
     if sort == 'rssi':
-        out.sort(key=lambda r: r.get('rssi', -120), reverse=True)
+        # A None signal (a joined AP client) sorts to the bottom rather than
+        # raising — Python will not order None against an int.
+        out.sort(key=lambda r: (r.get('rssi') if r.get('rssi') is not None
+                                else -121), reverse=True)
     elif sort == 'first':
         out.sort(key=lambda r: r.get('first', 0))
     elif sort == 'name':
@@ -379,10 +386,49 @@ async def observer():
             except Exception:
                 pass
 
+            try:                              # clients joined to our own AP
+                sta = ap_stations()
+                if sta:
+                    observe(sta, 'client')
+            except Exception:
+                pass
+
             _notify_events()
             await asyncio.sleep_ms(int(_reg('Apps.NovaD1_Watch_Period', 8000)))
         except Exception:
             await asyncio.sleep_ms(8000)
+
+
+def ap_stations():
+    """MACs of devices joined to OUR OWN access point, if one is running.
+
+    This is the one way WiFi shows client devices without monitor mode: the CYW43
+    driver exposes the association table of an AP we are hosting
+    (WLAN(AP_IF).status('stations'), up to 32 entries). It is not passive — a
+    device has to actually join — but for "is my phone home", having the phone
+    auto-join the Nova D1's network is a perfectly good way to be told.
+
+    Everything else about client devices really does need monitor mode, which
+    this radio does not have under MicroPython.
+    """
+    out = []
+    try:
+        import network
+        ap = network.WLAN(network.AP_IF)
+        if not ap.active():
+            return out
+        for st in ap.status('stations') or ():
+            mac = st[0] if isinstance(st, (tuple, list)) else st
+            out.append({
+                'mac': ':'.join('{:02x}'.format(b) for b in mac),
+                # An association table has no signal strength in it. Reporting a
+                # plausible-looking number would be inventing data, so joined
+                # clients carry a sentinel the UI shows as 'joined'.
+                'rssi': None,
+            })
+    except Exception:
+        pass
+    return out
 
 
 def _notify_events():

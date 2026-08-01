@@ -61,6 +61,24 @@ def install():
             remove=os.remove)
         sys.modules['regedit'] = types.SimpleNamespace(
             read=lambda k: _REG.get(k), save=lambda k, v: _REG.__setitem__(k, v) or True)
+
+        # A minimal RPCortex. The OS-level radio lock lives there, and without a
+        # stub every `import RPCortex` in package code fails into its except
+        # branch — so a test would silently pass while the lock never engaged.
+        def _radio_locked():
+            return str(_REG.get('Settings.Radio_Lock') or 'off').lower() in (
+                'on', 'true', '1')
+
+        def _lock_radios(on=True):
+            _REG['Settings.Radio_Lock'] = 'on' if on else 'off'
+            return True
+
+        sys.modules['RPCortex'] = types.SimpleNamespace(
+            radio_locked=_radio_locked, lock_radios=_lock_radios,
+            _radios_down=lambda: None,
+            OS_VERSION='v1.0.0', OS_CODENAME='RPCortex Vela',
+            storage_state=lambda p='/': (10, 'ok'),
+            reserve_state=lambda: (False, 0))
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         '..', '..', 'packages', 'novad1'))
 

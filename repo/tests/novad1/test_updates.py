@@ -152,4 +152,43 @@ t.ok('memory' in scr6.err.lower(),
          scr6.err))
 t.ok('reboot' in scr6.err.lower(), 'with something the user can actually do')
 
+# ------------------------------------------- "up to date" must mean CHECKED
+# Reported: on 0.71.0 with 0.72.0 available, the screen said everything was up to
+# date. Both the "current" and the "could not check" cases rendered as 'up to
+# date', and the reason was appended as the LAST row -- below the six that fit --
+# so a failed check was indistinguishable from a successful one.
+net.status = lambda: {'connected': True}
+
+
+def _boom2(url, dest=None, verbose=False, **kw):
+    raise OSError('connection reset')
+
+
+net.wget = _boom2
+scr7 = novagui.UpdatesScreen()
+for _ in range(8):
+    scr7.tick(40)
+labels = [r[1] for r in scr7.rows]
+t.ok(not any('up to date' in l for l in labels),
+     'a failed check never claims up to date (got {})'.format(labels))
+t.ok(any('not checked' in l for l in labels), 'it says it could not check')
+t.ok('!' in labels[0], 'and the reason is the FIRST row, where it is visible')
+
+# versions are compared numerically, not as strings
+t.ok(novagui._newer('0.72.0', '0.71.0'), '0.72.0 is newer than 0.71.0')
+t.ok(not novagui._newer('0.71.0', '0.71.0'), 'the same version is not an update')
+t.ok(not novagui._newer('0.70.0', '0.71.0'),
+     'an OLDER index is not offered as an update')
+t.ok(not novagui._newer('0.9.0', '0.72.0'),
+     '0.9.0 is not newer than 0.72.0 -- string compare gets this backwards')
+t.ok(novagui._newer('v1.0.0', 'v0.9.1'), 'a leading v is handled')
+t.ok(not novagui._newer('?', '0.71.0'), 'an unknown available version is not an update')
+
+# the index fetch carries a cache-buster: raw.githubusercontent serves /main/ from
+# a CDN that can hold a stale copy for minutes after a push, which looks exactly
+# like "no update available"
+import inspect as _i
+t.ok('_cache_bust()' in _i.getsource(novagui.UpdatesScreen._check_steps),
+     'the index fetch is cache-busted')
+
 sys.exit(t.done())

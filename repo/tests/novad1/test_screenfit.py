@@ -53,6 +53,8 @@ SCREENS = (
     ('settings_network', novagui._mk_group('Network', novagui._rows_network)),
     ('settings_radar', novagui._mk_group('Radar', novagui._rows_radar)),
     ('settings_security', novagui._mk_group('Security', novagui._rows_security)),
+    ('settings_privacy', novagui._mk_group('Privacy', novagui._rows_privacy)),
+    ('privacy_leaks', novagui.PrivacyScreen),
     ('settings_system', novagui._mk_group('System', novagui._rows_system)),
     ('stealth', novagui.StealthSplashScreen),
     ('shutdown', novagui.ShutdownScreen),
@@ -128,6 +130,7 @@ for name, fn in (('index', novagui._settings_index),
                  ('Network', novagui._rows_network),
                  ('Radar', novagui._rows_radar),
                  ('Security', novagui._rows_security),
+                 ('Privacy', novagui._rows_privacy),
                  ('System', novagui._rows_system)):
     n = len(fn())
     t.ok(n <= _ROWS_VISIBLE,

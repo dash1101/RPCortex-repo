@@ -36,9 +36,16 @@ class WiFiScreen(Screen):
         except Exception:
             return 'net n/a'
 
+    def _rows(self):
+        """The scan results with a synthetic 'add manually' row on the front, so a
+        hidden network — or one that is simply out of range right now — can still
+        be set up without dropping to the shell."""
+        return [(None, 0, False)] + list(self.nets)
+
     def draw(self, c):
         c.text(2, _TOP, self._status_line()[:16], 1)
         if self.nets:
+            entries = self._rows()
             rows = (c.h - _TOP - _ROWH) // _ROWH
             if self.sel < self.top:
                 self.top = self.sel
@@ -46,20 +53,24 @@ class WiFiScreen(Screen):
                 self.top = self.sel - rows + 1
             for i in range(rows):
                 idx = self.top + i
-                if idx >= len(self.nets):
+                if idx >= len(entries):
                     break
-                ssid, rssi, saved = self.nets[idx]
+                ssid, _rssi, saved = entries[idx]
                 y = _TOP + _ROWH + i * _ROWH
-                mark = '*' if saved else ' '
-                row = '{}{}'.format(mark, ssid[:16])
+                row = '+ Add network' if ssid is None else '{}{}'.format(
+                    '*' if saved else ' ', ssid[:16])
                 if idx == self.sel:
-                    c.fill_rect(0, y - 1, c.w, _ROWH, 1)
-                    c.text(2, y, row, 0)
+                    rounded_rect(c, 0, y - 1, c.w, _ROWH, 1)
+                    _fit(c, 2, y, row, 0)
                 else:
-                    c.text(2, y, row, 1)
+                    _fit(c, 2, y, row, 1)
+            cur = entries[self.sel] if self.sel < len(entries) else (None, 0, False)
+            _fit(c, 2, c.h - _FH,
+                 'Sel=add' if cur[0] is None
+                 else ('Sel=join  hold=forget' if cur[2] else 'Sel=join'))
         else:
-            c.text(2, _TOP + _ROWH, self.msg[:16], 1)
-            c.text(2, c.h - _FH, 'OK=scan', 1)
+            _fit(c, 2, _TOP + _ROWH, self.msg)
+            _fit(c, 2, c.h - _FH, 'OK=scan   hold=add')
 
     def tick(self, dt_ms=0):
         if self._pending == 'scan':
@@ -161,6 +172,28 @@ class WiFiScreen(Screen):
             self.msg = 'conn err: ' + str(e)[:12]
         self.nets = []          # back to the status view
 
+    def _add_screen(self):
+        """Type an SSID, then a password — for a hidden network, or one that is
+        simply not in range at the moment."""
+        def got_ssid(name):
+            name = (name or '').strip()
+            if name:
+                self._ask_pw = name
+                self.msg = 'Password for ' + name[:9]
+            return 'back'
+        return KeyboardScreen('Network', on_done=got_ssid)
+
+    def _forget(self, ssid):
+        """Remove a saved network. Deliberately does not touch the radio — this is
+        a file edit, so it works while the radios are locked."""
+        try:
+            import net
+            net.forget_saved(ssid)
+            self.msg = 'Forgot ' + ssid[:9]
+        except Exception:
+            self.msg = 'Could not forget'
+        self._pending = 'scan'
+
     def _password_screen(self, ssid):
         """The on-screen keyboard, wired to join `ssid` with what gets typed."""
         def done(pw):
@@ -178,15 +211,25 @@ class WiFiScreen(Screen):
                 self.msg = 'Scanning...'
                 self._pending = 'scan'
                 return None
+            if e == ev.SELECT_HOLD:
+                return self._add_screen()        # works with nothing in range
             if e in (ev.BACK, ev.HOME):
                 return e
             return None
+        entries = self._rows()
         if e == ev.ROT_CW:
-            self.sel = min(self.sel + 1, len(self.nets) - 1)
+            self.sel = min(self.sel + 1, len(entries) - 1)
         elif e == ev.ROT_CCW:
             self.sel = max(self.sel - 1, 0)
+        elif e == ev.SELECT_HOLD:
+            ssid, _r, saved = entries[self.sel]
+            if ssid is not None and saved:
+                self._forget(ssid)
+            return None
         elif e == ev.SELECT:
-            ssid, _r, saved = self.nets[self.sel]
+            ssid, _r, saved = entries[self.sel]
+            if ssid is None:
+                return self._add_screen()
             if saved:
                 self.msg = 'Connecting...'
                 self._pending = ('connect', ssid)

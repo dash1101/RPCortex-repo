@@ -115,7 +115,8 @@ class RadarScreen(Screen):
                 '!' if r.get('class') == 'tracker' else ' ')
             c.text(2, y, mark, tc)
             _fit(c, 2 + _ADV, y, _line(r), tc)
-            db = '{}'.format(r.get('rssi', 0))
+            rs = r.get('rssi')
+            db = 'join' if rs is None else '{}'.format(rs)
             c.text(right - len(db) * _ADV - 2, y, db, tc)
         if scrolls:
             scrollbar(c, right + 1, _TOP, c.h - _TOP - _FH, self.top, avail, len(rows))
@@ -173,7 +174,9 @@ class DeviceScreen(Screen):
         now = novawatch._now()
         seen = _age(novawatch._elapsed(now, r.get('last', now)))
         held = _age(novawatch._elapsed(now, r.get('first', now)))
-        _fit(c, 2, y, '{} dBm  seen {}'.format(r.get('rssi', '?'), seen))
+        rs = r.get('rssi')
+        _fit(c, 2, y, ('joined  seen {}'.format(seen) if rs is None
+                       else '{} dBm  seen {}'.format(rs, seen)))
         y += _ROWH
         _fit(c, 2, y, 'here {}  x{}'.format(held, r.get('count', 0)))
         y += _ROWH

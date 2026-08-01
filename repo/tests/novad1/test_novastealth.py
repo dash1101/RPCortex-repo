@@ -88,14 +88,19 @@ t.ok(mac[0] & 0x02, 'first byte is locally-administered (bit 1 set)')
 t.ok(not (mac[0] & 0x01), 'first byte is unicast (bit 0 clear)')
 t.ok(st._random_mac() != st._random_mac(), 'two random MACs differ')
 
+# Randomisation is ON by default. The MAC is the one identifier that cannot be
+# changed by behaving differently — it goes out in the clear on every association
+# — so the device should not be trackable unless you deliberately ask for it.
 _shims.set_reg({})
-t.ok(st.maybe_randomize_mac() is None, 'MAC randomisation is off by default')
-t.ok(calls['mac_set'] is None, 'and nothing was written to the interface')
-_shims.set_reg({'Apps.NovaD1_RandomMAC': 'on'})
 res = st.maybe_randomize_mac()
-t.ok(res is not None and ':' in res, 'when enabled, a MAC string is returned')
+t.ok(res is not None and ':' in res, 'MAC randomisation is ON by default')
 t.ok(calls['mac_set'] is not None and len(calls['mac_set']) == 6,
      'and a 6-byte MAC was written to the WiFi interface')
+
+calls['mac_set'] = None
+_shims.set_reg({'Apps.NovaD1_RandomMAC': 'off'})
+t.ok(st.maybe_randomize_mac() is None, 'and can be switched off explicitly')
+t.ok(calls['mac_set'] is None, 'after which nothing is written to the interface')
 
 # --------------------------------------------------------- physical switch
 _shims.set_reg({})
@@ -138,5 +143,74 @@ t.ok(_ble.start_ping('apple') is False, 'BLE advertising refuses while incognito
 
 st.restore()
 t.ok(not st.blocked(), 'latch clears when stealth is left')
+
+
+
+
+# ============================================================ the HARD stop
+# Reported: "incognito still isn't a hard stop — I can still scan for wifi and
+# connect." The cause was structural. The latch lived only in this package, so
+# anything that did not consult it — the OS shell's `wifi scan`, above all — went
+# straight past and brought the radio back up. The enforcement now sits in net.py,
+# underneath every caller, and this package engages it.
+import RPCortex as _R
+
+_shims.set_reg({})
+t.ok(not st.blocked(), 'nothing is blocked to start with')
+t.ok(not _R.radio_locked(), 'and the OS-level lock is off')
+
+st.kill_all()
+t.ok(_R.radio_locked(),
+     'engaging incognito engages the OS-WIDE radio lock, not just a local flag')
+t.ok(st.blocked(), 'and this package agrees it is blocked')
+
+st.restore()
+t.ok(not _R.radio_locked(), 'leaving incognito releases the OS lock')
+
+# The lock must also be honoured when set from the OS side (`radio off`), so the
+# two switches are one switch.
+_shims.set_reg({})
+_R.lock_radios(True)
+t.ok(st.blocked(), "`radio off` blocks Nova D1 radios too, without touching incognito")
+t.ok(not st.active(), 'and does so without pretending incognito is engaged')
+_R.lock_radios(False)
+
+# ------------------------------------------------------- identity randomisation
+# A randomised MAC with a fixed hostname is not anonymity: the DHCP hostname goes
+# out in the clear and re-links the sessions on its own. Both or neither.
+_shims.set_reg({})
+names = set(st.random_hostname() for _ in range(20))
+t.ok(len(names) > 10, 'hostnames are actually random ({} of 20 unique)'.format(len(names)))
+for n in names:
+    t.ok(n and len(n) <= 20 and ' ' not in n,
+         'hostname {!r} is a usable DHCP name'.format(n))
+    break
+t.ok(all(not c.isupper() for c in list(names)[0]),
+     'and is lower case, like an ordinary host')
+
+import inspect
+src = inspect.getsource(st.maybe_randomize_mac)
+t.ok('set_hostname' in src,
+     'randomising the MAC also randomises the hostname — one without the other '
+     'leaves the device just as recognisable')
+
+# ------------------------------------------------------------------ ghost mode
+_shims.set_reg({'Apps.NovaD1_Web': 'on', 'Apps.NovaD1_Mesh_Beacon': 'on'})
+rows = st.ghost()
+closed = dict((n, c) for n, c, _note in rows)
+t.ok(closed.get('Radios'), 'ghost silences the radios')
+t.ok(closed.get('Web panel'), 'ghost stops serving the web panel')
+t.ok(closed.get('LoRa beacon'), 'ghost stops the mesh beacon')
+t.ok(closed.get('MAC') and closed.get('Hostname'),
+     'ghost leaves a fresh identity armed for when the radios come back')
+t.ok('Observer' not in closed,
+     'the observer is not listed as a leak — a receiver emits nothing')
+
+# The inventory has to be honest about what is still open.
+_shims.set_reg({'Apps.NovaD1_Web': 'on'})
+rows = st.leaks()
+web = [r for r in rows if r[0] == 'Web panel'][0]
+t.ok(not web[1], 'a running web panel is reported as an OPEN channel')
+t.ok('network' in web[2].lower(), 'and says why (got {!r})'.format(web[2]))
 
 sys.exit(t.done())

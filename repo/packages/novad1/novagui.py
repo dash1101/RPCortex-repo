@@ -1508,6 +1508,46 @@ def _fetch_json(url, tmp=None):
             pass
 
 
+_PKG_UPDATE_CMD = 'novad1 selfupdate -y'
+
+
+def _cache_bust():
+    try:
+        import utime
+        return utime.ticks_ms()
+    except Exception:
+        return 0
+
+
+def _vtuple(v):
+    """'v1.2.3' / '0.72.0' -> (1, 2, 3). Unparseable parts sort as 0."""
+    out = []
+    for part in str(v or '').lstrip('vV').split('.'):
+        n = ''
+        for ch in part:
+            if ch.isdigit():
+                n += ch
+            else:
+                break
+        out.append(int(n) if n else 0)
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out[:3])
+
+
+def _newer(available, installed):
+    """True when `available` is a LATER version than `installed`.
+
+    Compared numerically, not as strings. A plain `!=` also fires when the index
+    is OLDER than what is installed, which offers a downgrade as if it were an
+    update; and '0.9.0' > '0.72.0' lexically, which is simply wrong."""
+    if not available or available == '?':
+        return False
+    if not installed or installed == '?':
+        return True
+    return _vtuple(available) > _vtuple(installed)
+
+
 class UpdatesScreen(Screen):
     """A real update view instead of a shell dump: it fetches the manifests itself
     and renders what's installed vs what's available, with one action per component.
@@ -1562,7 +1602,7 @@ class UpdatesScreen(Screen):
             m = _fetch_json(_os_manifest_url())
             cv, cb = self._cur_os()
             lv, lb = m.get('version', '?'), str(m.get('build', ''))
-            if lv != cv or (lb and lb != str(cb)):
+            if _newer(lv, cv) or (lb and lb != str(cb)):
                 self.os_new = (lv, lb, m.get('notes', ''))
         except Exception as e:
             self.err = _novacore.oom_message() if _novacore.is_oom(e) \
@@ -1570,12 +1610,15 @@ class UpdatesScreen(Screen):
 
         yield 'Checking app...'
         try:
+            # A cache-buster on the URL: raw.githubusercontent serves the
+            # /main/ path from a CDN that can hold a stale copy for minutes
+            # after a push, which looks exactly like "no update available".
             idx = _fetch_json(
                 'https://raw.githubusercontent.com/dash1101/RPCortex-repo'
-                '/main/repo/index.json')
+                '/main/repo/index.json?t=' + str(_cache_bust()))
             for p in idx.get('packages', ()):
                 if p.get('name') == 'NovaD1':
-                    if p.get('ver') != _pkg_version():
+                    if _newer(p.get('ver'), _pkg_version()):
                         self.pkg_new = p.get('ver')
                     break
         except Exception as e:
@@ -1584,21 +1627,31 @@ class UpdatesScreen(Screen):
                     else 'App check failed'
 
     def _build_rows(self):
+        """Build the display rows.
+
+        The important distinction here is "checked, and you are current" versus
+        "could not check". Both used to render as 'up to date', with the reason
+        appended as the LAST row — below the six that fit — so a failed check
+        looked exactly like a successful one and the explanation was off-screen.
+        That is why an available update could be reported as up to date."""
         cv, cb = self._cur_os()
-        rows = [('t', 'OS   ' + str(cv)), ('t', '     build ' + str(cb))]
+        failed = bool(self.err)
+        rows = []
+        if failed:
+            rows.append(('t', '! ' + self.err))      # first, not last
+        rows.append(('t', 'OS   ' + str(cv)))
+        rows.append(('t', '     build ' + str(cb)))
         if self.os_new:
             rows.append(('a', '-> ' + self.os_new[0] + ' b' + self.os_new[1],
                          'safeboot update online -y'))
         else:
-            rows.append(('t', '     up to date'))
+            rows.append(('t', '     ' + ('not checked' if failed else 'up to date')))
         rows.append(('t', 'App  ' + _pkg_version()))
         if self.pkg_new:
-            rows.append(('a', '-> ' + str(self.pkg_new), 'safeboot pkg upgrade -y'))
+            rows.append(('a', '-> ' + str(self.pkg_new), _PKG_UPDATE_CMD))
         else:
-            rows.append(('t', '     up to date'))
+            rows.append(('t', '     ' + ('not checked' if failed else 'up to date')))
         rows.append(('a', 'Check again', None))
-        if self.err:
-            rows.append(('t', '! ' + self.err))
         self.rows = rows
         self.sel = next((i for i, r in enumerate(rows) if r[0] == 'a'), 0)
 
@@ -2308,6 +2361,45 @@ def _rows_network():
     ]
 
 
+class PrivacyScreen(Screen):
+    """An inventory of what could identify this device, and whether it is closed.
+
+    A list rather than a single "you are anonymous" indicator, because that claim
+    would be false. Anonymity is a set of channels and closing four of five is not
+    anonymity — showing which one is still open is the useful thing."""
+    def __init__(self):
+        self.title = 'Privacy'
+        self.sel = 0
+
+    def tick(self, dt_ms=0):
+        return True
+
+    def draw(self, c):
+        import novastealth
+        rows = novastealth.leaks()
+        for i, (name, closed, note) in enumerate(rows):
+            y = _TOP + i * _ROWH
+            if y > c.h - 2 * _FH:
+                break
+            c.text(2, y, ('+' if closed else '!'), 1)
+            _fit(c, 2 + _ADV, y, name, 1)
+            st = 'ok' if closed else 'OPEN'
+            c.text(c.w - c.text_width(st, 1, True) - 2, y, st, 1, 1, True)
+        open_n = sum(1 for _n, closed, _t in rows if not closed)
+        _fit(c, 2, c.h - _FH,
+             'All closed. Sel=Ghost' if not open_n
+             else '{} open. Sel=Ghost'.format(open_n))
+
+    def on_event(self, e):
+        if e in (ev.SELECT, ev.SELECT_HOLD):
+            import novastealth
+            novastealth.ghost()
+            return None
+        if e in (ev.BACK, ev.HOME):
+            return e
+        return None
+
+
 def _rows_security():
     return [
         ('cycle', 'Lock type', 'Apps.NovaD1_Lock_Kind', ['pin', 'password'], 'pin',
@@ -2316,9 +2408,18 @@ def _rows_security():
         ('action', 'Clear lock', 'novad1 pin clear'),
         ('cycle', 'Auto-Lock', 'Apps.NovaD1_LockSec', ['0', '5', '15', '30', '60'],
          '5', None),
+        ('push', 'Privacy', _mk_group('Privacy', _rows_privacy)),
+    ]
+
+
+def _rows_privacy():
+    """Radio identity, kept apart from the device lock. They are different
+    questions: one is who can pick this up, the other is who can recognise it."""
+    return [
         ('cycle', 'Incognito', 'Apps.NovaD1_Stealth', ['off', 'on'], 'off',
          _apply_stealth),
-        ('cycle', 'Random MAC', 'Apps.NovaD1_RandomMAC', ['off', 'on'], 'off', None),
+        ('cycle', 'Random ID', 'Apps.NovaD1_RandomMAC', ['on', 'off'], 'on', None),
+        ('push', 'What leaks', PrivacyScreen),
     ]
 
 

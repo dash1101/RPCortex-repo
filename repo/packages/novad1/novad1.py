@@ -215,6 +215,204 @@ def _build_ui(kind=None):
 
 
 # --- subcommands ------------------------------------------------------------
+_PKG_TMP = '/Vela/nova/update.pkg'
+_INDEX_URL = ('https://raw.githubusercontent.com/dash1101/RPCortex-repo'
+              '/main/repo/index.json')
+
+
+def _selfupdate(info, ok, warn, error, multi, rest=''):
+    """Update the Nova D1 package in place, without a maintenance reboot.
+
+    The old path was `safeboot pkg upgrade`, which reboots into a serviceless
+    shell purely to have enough RAM. That is slow and it loses whatever you were
+    doing. It is also solving the wrong problem: the memory pressure comes from
+    doing the DOWNLOAD and the EXTRACTION at the same time. A TLS handshake needs
+    one unbroken ~16.7 KB block, and extraction wants room too.
+
+    So this splits them. The archive streams to flash first, 512 bytes at a time,
+    while everything is still running — then the socket closes and every byte of
+    TLS buffer is returned before a single file is extracted. The install itself
+    touches no network at all.
+
+    -y skips the confirmation. --force reinstalls the same version.
+    """
+    import gc
+    flags = (rest or '').split()
+    assume_yes = '-y' in flags or '--yes' in flags
+    force = '--force' in flags or '-f' in flags
+
+    cur = _installed_ver()
+    info('Installed: {}'.format(cur))
+
+    # --- 1. what is available -------------------------------------------------
+    try:
+        import net
+        import json
+        import utime
+        _mkdirs(_PKG_TMP)
+        tmp = _PKG_TMP + '.json'
+        net.wget(_INDEX_URL + '?t=' + str(utime.ticks_ms()), dest=tmp, verbose=False)
+        gc.collect()
+        with open(tmp, 'r') as f:
+            idx = json.load(f)
+        _rm(tmp)
+    except Exception as e:
+        error('Could not reach the package index: {}'.format(_short(e)))
+        return False
+
+    entry = None
+    for p in idx.get('packages', ()):
+        if str(p.get('name', '')).lower() == 'novad1':
+            entry = p
+            break
+    if entry is None:
+        error('NovaD1 is not in the package index.')
+        return False
+
+    avail = entry.get('ver', '?')
+    if not force and not _ver_newer(avail, cur):
+        ok('Already up to date ({}).'.format(cur), p='NovaD1')
+        return True
+    info('Available : {}'.format(avail))
+    if not assume_yes:
+        try:
+            from RPCortex import inpt
+            if str(inpt('Update now? [y/N] ')).strip().lower() not in ('y', 'yes'):
+                info('Cancelled.')
+                return False
+        except Exception:
+            pass
+
+    # --- 2. download to flash, while everything is still running -------------
+    url = entry.get('url')
+    if not url:
+        error('The index entry has no download URL.')
+        return False
+    info('Downloading...')
+    try:
+        gc.collect()
+        _status, written = net.wget(url, dest=_PKG_TMP, verbose=False)
+    except Exception as e:
+        _rm(_PKG_TMP)
+        error('Download failed: {}'.format(_short(e)))
+        return False
+    if not written:
+        _rm(_PKG_TMP)
+        error('Download produced an empty file.')
+        return False
+    info('Downloaded {} KB.'.format(written // 1024))
+
+    # --- 3. hand the RAM back BEFORE extracting ------------------------------
+    # The socket is closed, so the TLS buffers are garbage. Collecting here is
+    # what makes the extraction step cheap; it is the whole point of the split.
+    gc.collect()
+    gc.collect()
+    try:
+        import sys as _s
+        lp = _s.modules.get('Core.launchpad') or _s.modules.get('launchpad')
+        if lp is not None and hasattr(lp, 'free_heap'):
+            lp.free_heap()
+    except Exception:
+        pass
+
+    # --- 4. install from the local file (no network involved) ----------------
+    info('Installing...')
+    try:
+        import pkgmgr
+        good = pkgmgr.install(_PKG_TMP, force=True)
+    except Exception as e:
+        error('Install failed: {}'.format(_short(e)))
+        _rm(_PKG_TMP)
+        return False
+    _rm(_PKG_TMP)
+    if not good:
+        error('Install failed — the previous version is still in place.')
+        return False
+
+    ok('Updated to {}.'.format(avail), p='NovaD1')
+    info('Rebooting to load it...')
+    _reboot_soon()
+    return True
+
+
+def _installed_ver(name='NovaD1'):
+    try:
+        with open('/Packages/{}/package.cfg'.format(name)) as f:
+            for ln in f.read().split('\n'):
+                if ln.startswith('pkg.ver'):
+                    return ln.split(':', 1)[1].strip()
+    except Exception:
+        pass
+    return '?'
+
+
+def _vparts(v):
+    out = []
+    for part in str(v or '').lstrip('vV').split('.'):
+        n = ''
+        for ch in part:
+            if ch.isdigit():
+                n += ch
+            else:
+                break
+        out.append(int(n) if n else 0)
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out[:3])
+
+
+def _ver_newer(available, installed):
+    """Numeric comparison. A plain != also fires for an OLDER index, offering a
+    downgrade as though it were an update."""
+    if not available or available == '?':
+        return False
+    if not installed or installed == '?':
+        return True
+    return _vparts(available) > _vparts(installed)
+
+
+def _mkdirs(path):
+    import uos
+    cur = ''
+    for seg in path.strip('/').split('/')[:-1]:
+        cur = cur + '/' + seg
+        try:
+            uos.mkdir(cur)
+        except Exception:
+            pass
+
+
+def _rm(path):
+    try:
+        import uos
+        uos.remove(path)
+    except Exception:
+        pass
+
+
+def _short(e):
+    t = str(e)
+    return (t[:44] + '...') if len(t) > 44 else (t or e.__class__.__name__)
+
+
+def _reboot_soon():
+    """Reset through the shell so it happens from sync context — machine.reset()
+    called from inside asyncio.run drops to the bare REPL instead of rebooting."""
+    try:
+        import sys as _s
+        lp = _s.modules.get('Core.launchpad') or _s.modules.get('launchpad')
+        if lp is not None and hasattr(lp, 'reboot_now'):
+            lp.reboot_now()
+            return
+    except Exception:
+        pass
+    try:
+        import machine
+        machine.reset()
+    except Exception:
+        pass
+
+
 def _radar_cmd(info, ok, warn, error, multi, rest):
     """The observer's table from the shell — same data the Radar app shows."""
     import novawatch
@@ -1354,6 +1552,7 @@ def novad1(args=None):
         multi("  novad1 ble scan|ping [apple|android]  Scan / ping your phone")
         multi("  novad1 store       Browse + install apps (store install <name>)")
         multi("  novad1 web on|off  Phone control panel over WiFi")
+        multi("  novad1 selfupdate  Update the app in place (download, then install)")
         multi("  novad1 radar       What the background observer has heard")
         multi("     radar name <mac> <label>   watch for it; radar forget <mac>")
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
@@ -1366,6 +1565,8 @@ def novad1(args=None):
         _scan(info, ok, warn, error, multi)
     elif cmd in ('radar', 'watch'):
         _radar_cmd(info, ok, warn, error, multi, rest)
+    elif cmd in ('selfupdate', 'upgrade'):
+        _selfupdate(info, ok, warn, error, multi, rest)
     elif cmd == 'setup':
         _setup(info, ok, warn, error, multi)
     elif cmd == 'status':

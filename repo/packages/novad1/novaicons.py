@@ -12,6 +12,20 @@ def _box(c, cx, cy, r, col=1):
     c.rect(cx - r, cy - r, 2 * r, 2 * r, col)
 
 
+def _rbox(c, x, y, w, h, col=1):
+    """A rectangle with its corners knocked off. Everything on this panel is
+    drawn from straight lines, so a screen full of hard-cornered boxes reads as
+    unfinished; a single pixel off each corner is enough to soften it without
+    costing legibility at neighbour size."""
+    if w < 4 or h < 4:
+        c.rect(x, y, w, h, col)
+        return
+    c.hline(x + 1, y, w - 2, col)
+    c.hline(x + 1, y + h - 1, w - 2, col)
+    c.vline(x, y + 1, h - 2, col)
+    c.vline(x + w - 1, y + 1, h - 2, col)
+
+
 
 def _thermo(c, cx, cy, r):            # DHT11 — thermometer
     bulb = max(2, r // 2)
@@ -41,7 +55,7 @@ def _pin(c, cx, cy, r):               # GPS — map pin
 
 def _nfc(c, cx, cy, r):               # NFC — a card with contactless waves
     w = r                                    # card occupies the left half
-    c.rect(cx - r, cy - r // 2, w, r, 1)
+    _rbox(c, cx - r, cy - r // 2, w, r)
     c.hline(cx - r + 2, cy - r // 4, max(2, w // 2), 1)     # chip
     for i in range(1, 4):                                   # waves off the right
         rr = (r * i) // 3
@@ -142,7 +156,7 @@ def _speaker(c, cx, cy, r):           # buzzer
 
 
 def _vibe(c, cx, cy, r):              # vibration — phone + waves
-    c.rect(cx - r // 2, cy - r, r, 2 * r, 1)
+    _rbox(c, cx - r // 2, cy - r, r, 2 * r)
     for i in range(2):
         c.vline(cx - r + i * 2, cy - r // 2, r, 1)
         c.vline(cx + r // 2 + 1 + i * 2, cy - r // 2, r, 1)
@@ -181,25 +195,31 @@ def _doc(c, cx, cy, r):               # Logs — a page of lines with a folded c
             c.hline(x + 2, yy, w - 5, 1)
 
 
-def _gear(c, cx, cy, r):              # Settings — a toothed gear
-    body = max(2, r - 2)
-    c.circle(cx, cy, body, 1)
-    c.circle(cx, cy, max(1, body // 3), 1)          # hub
-    # Short, blocky teeth sitting ON the rim. Long thin spokes read as a star or a
-    # target; stubby blocks read as a gear.
-    tw = max(1, r // 4)
-    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-        c.fill_rect(cx + dx * body - tw // 2 - (tw - 1) * (dx > 0),
-                    cy + dy * body - tw // 2 - (tw - 1) * (dy > 0),
-                    tw if dx == 0 else tw, tw if dy == 0 else tw, 1)
-    d = int(body * 0.72)
-    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-        c.fill_rect(cx + dx * d - tw // 2, cy + dy * d - tw // 2, tw, tw, 1)
+def _gear(c, cx, cy, r):              # Settings — a gear
+    # Built by CUTTING teeth out of a solid disc rather than sticking blocks on
+    # a ring. The ring-plus-blocks version, with a circle in the middle, read as
+    # a revolver cylinder — the teeth have to interrupt the rim silhouette to
+    # look like a gear at all.
+    body = max(3, r - 1)
+    c.fill_circle(cx, cy, body, 1)
+    notch = max(1, body // 3)
+    d = body                                     # cut notches ON the rim
+    for i in range(8):
+        a = i * 0.7854                           # 45 degrees
+        # cos/sin of multiples of 45 degrees, without importing math
+        cs = (1, 0.7071, 0, -0.7071, -1, -0.7071, 0, 0.7071)[i]
+        sn = (0, 0.7071, 1, 0.7071, 0, -0.7071, -1, -0.7071)[i]
+        nx = int(cx + cs * d)
+        ny = int(cy + sn * d)
+        c.fill_rect(nx - notch // 2, ny - notch // 2, notch, notch, 0)
+    hole = max(1, body // 3)
+    c.fill_circle(cx, cy, hole, 0)               # the bore
+    c.circle(cx, cy, hole, 1)
 
 
 def _check(c, cx, cy, r):             # System Check — clipboard + tick
     w = 2 * r - 2
-    c.rect(cx - r + 1, cy - r + 2, w, 2 * r - 3, 1)
+    _rbox(c, cx - r + 1, cy - r + 2, w, 2 * r - 3)
     clip = max(2, r // 2)                       # clip scales with the board
     c.fill_rect(cx - clip // 2, cy - r, clip, max(2, r // 3), 1)
     t = max(2, r // 3)
@@ -270,7 +290,7 @@ def _wrench(c, cx, cy, r):            # Tools — an open-ended wrench
 
 
 def _terminal(c, cx, cy, r):          # Commands — terminal window, prompt scales
-    c.rect(cx - r, cy - r + 1, 2 * r, 2 * r - 2, 1)
+    _rbox(c, cx - r, cy - r + 1, 2 * r, 2 * r - 2)
     c.hline(cx - r, cy - r + 1 + max(2, r // 3), 2 * r, 1)      # title bar
     k = max(2, r // 3)                                          # chevron size
     px, py = cx - r + max(2, r // 3), cy
@@ -283,7 +303,7 @@ def _store(c, cx, cy, r):             # App Store — a shopping bag with a hand
     # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
     bx, by = cx - r + 2, cy - r + 5
     bw, bh = 2 * r - 4, 2 * r - 7
-    c.rect(bx, by, bw, bh, 1)
+    _rbox(c, bx, by, bw, bh)
     c.hline(bx + 1, by + 2, bw - 2, 1)          # seam under the opening
     # Handle: a proper arch above the bag, sized from the bag width.
     hw = max(2, bw // 4)
@@ -293,15 +313,26 @@ def _store(c, cx, cy, r):             # App Store — a shopping bag with a hand
     c.hline(cx - hw + 1, hy, 2 * hw - 1, 1)
 
 
-def _stethoscope(c, cx, cy, r):       # Diagnostics — pulse/heartbeat trace
-    c.rect(cx - r, cy - r + 2, 2 * r, 2 * r - 4, 1)
-    y = cy
-    c.hline(cx - r + 2, y, 3, 1)
-    c.line(cx - r + 5, y, cx - r + 7, y - 4, 1)   # spike up
-    c.line(cx - r + 7, y - 4, cx - r + 9, y + 4, 1)
-    c.line(cx - r + 9, y + 4, cx - r + 11, y, 1)
-    c.hline(cx - r + 11, y, max(2, r - 4), 1)
-
+def _stethoscope(c, cx, cy, r):       # Hardware — a monitor showing a pulse
+    # Every coordinate derives from r. The old version used fixed offsets (+5,
+    # +7, +11 ...) that did not shrink with the icon, so at neighbour size the
+    # trace ran straight out through the side of the box.
+    x, y = cx - r, cy - r + 2
+    w, h = 2 * r, 2 * r - 4
+    _rbox(c, x, y, w, h)
+    mid = cy
+    step = max(1, w // 8)                       # one eighth of the width per leg
+    amp = max(2, h // 3)
+    px = x + 2
+    c.hline(px, mid, step, 1)                   # flat lead-in
+    px += step
+    c.line(px, mid, px + step, mid - amp, 1)    # up
+    px += step
+    c.line(px, mid - amp, px + step, mid + amp, 1)   # down through the baseline
+    px += step
+    c.line(px, mid + amp, px + step, mid, 1)    # back up
+    px += step
+    c.hline(px, mid, max(1, x + w - 2 - px), 1)      # flat run to the edge
 
 
 def _wardrive(c, cx, cy, r):          # Wardrive — a car under a broadcast arc
@@ -312,10 +343,10 @@ def _wardrive(c, cx, cy, r):          # Wardrive — a car under a broadcast arc
     wheel = max(1, r // 4)
     base = cy + r - wheel                        # axle line
     bh = max(2, r // 3)
-    c.rect(bx, base - bh, bw, bh, 1)             # lower body
+    _rbox(c, bx, base - bh, bw, bh)              # lower body
     ch = max(2, r // 3)                          # cabin, inset both sides
     inset = max(1, bw // 5)
-    c.rect(bx + inset, base - bh - ch + 1, bw - 2 * inset, ch, 1)
+    _rbox(c, bx + inset, base - bh - ch + 1, bw - 2 * inset, ch)
     c.fill_rect(bx + inset + 1, base - bh, bw - 2 * inset - 2, 1, 0)
     c.circle(bx + inset, base, wheel, 1)         # wheels
     c.circle(bx + bw - inset, base, wheel, 1)
@@ -330,8 +361,8 @@ def _scroll(c, cx, cy, r):            # Scripts — a scroll with rolled ends
     w = 2 * r - 3
     x = cx - w // 2
     top, bot = cy - r + 1, cy + r - 3
-    c.rect(x, top, w, 3, 1)                      # top roll
-    c.rect(x, bot, w, 3, 1)                      # bottom roll
+    _rbox(c, x, top, w, 3)                       # top roll
+    _rbox(c, x, bot, w, 3)                       # bottom roll
     c.vline(x + 1, top + 3, bot - top - 3, 1)    # the sheet
     c.vline(x + w - 2, top + 3, bot - top - 3, 1)
     inner = bot - top - 4
@@ -348,7 +379,7 @@ def _medkit(c, cx, cy, r):            # Repair — a med kit (cross on a case)
     # cross stays centred and square when the icon shrinks.
     w, h = 2 * r, 2 * r - 2
     x, y = cx - r, cy - r + 1
-    c.rect(x, y, w, h, 1)
+    _rbox(c, x, y, w, h)
     hw = max(2, r // 2)                                  # handle on the lid
     c.hline(cx - hw // 2, y - 1, hw, 1)
     t = max(1, r // 3)                                   # cross bar thickness
@@ -376,7 +407,7 @@ def _uarc(c, cx, cy, rr):
 def _kbd(c, cx, cy, r):               # Keyboard — a case with keys and a space bar
     w, h = 2 * r, max(6, int(1.3 * r))
     x, y = cx - r, cy - h // 2
-    c.rect(x, y, w, h, 1)
+    _rbox(c, x, y, w, h)
     step = max(2, (w - 4) // 4)
     rows = 2 if h < 12 else 3
     for row in range(rows):
@@ -403,7 +434,7 @@ def _radar(c, cx, cy, r):             # Radar — a scope with a sweep and a bli
 
 
 def _person(c, cx, cy, r):            # Presence — a figure in a doorway
-    c.rect(cx - r, cy - r, 2 * r, 2 * r, 1)                     # the doorway
+    _rbox(c, cx - r, cy - r, 2 * r, 2 * r)                      # the doorway
     head = max(1, r // 4)
     c.circle(cx, cy - r // 2, head, 1)
     c.vline(cx, cy - r // 2 + head, r // 2 + 2, 1)               # body
