@@ -55,7 +55,7 @@ def pack(rows):
     for x in range(W):
         b = 0
         for y in range(H):
-            if rows[y][x] not in (' ', '\t'):
+            if rows[y][x] not in (' ', '\t', '.'):   # '.' = clear in EXTRA art
                 b |= (1 << y)
         cols.append(b)
     return cols

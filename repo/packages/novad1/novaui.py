@@ -16,8 +16,8 @@ import novafont5x7 as _f
 # Layout tokens — derived from the font so a font swap reflows every screen.
 _ADV = _f.ADVANCE               # px per character cell (incl. spacing)
 _FH = _f.HEIGHT                 # glyph height
-_BARH = _FH + 1                 # status-bar height
-_TOP = _BARH + 1                # body starts below the status bar + rule
+_BARH = _FH + 2                 # status-bar height (+1px so text clears the rule)
+_TOP = _BARH + 1                # body starts 1px below the rule
 # Row pitch: glyph height + 2px of breathing room. With the compact 5x7 face that's
 # a 9px pitch, which still gives 6 rows on a 64px panel (the old 8x8 face only fit
 # 5) while leaving the rows visually separated — at +1 they crowded each other.
@@ -73,19 +73,9 @@ def fit(c, x, y, s, col=1):
         return
     s = str(s)
     avail = c.w - x
-    w = c.text_width(s, 1, True)
-    if w > avail:
-        # Trim by SUBTRACTING each dropped glyph's width instead of re-measuring
-        # the whole string every step. The old loop was O(n^2) per string and ran
-        # for every row of every frame, which stole enough loop time to make
-        # button presses feel laggy.
-        gw = c.glyph_w
-        i = len(s)
-        while i > 0 and w > avail:
-            i -= 1
-            w -= gw(ord(s[i])) + 1
-        s = s[:i]
-    c.text(x, y, s, col, 1, True)
+    if c.text_width(s) > avail:
+        s = s[:max(0, avail // _ADV)]      # uniform cells -> exact, no re-measuring
+    c.text(x, y, s, col)
 
 
 _SB_W = 3           # scrollbar lane width
@@ -155,22 +145,16 @@ class Menu(Screen):
                 break
             label, fac = self.items[idx]
             avail = right - 12
-            lw = c.text_width(label, 1, True)
-            if lw > avail:                      # incremental trim (see fit())
-                gw = c.glyph_w
-                j = len(label)
-                while j > 0 and lw > avail:
-                    j -= 1
-                    lw -= gw(ord(label[j])) + 1
-                label = label[:j]
+            if c.text_width(label) > avail:
+                label = label[:max(0, avail // _ADV)]
             y = _TOP + i * _ROWH
             if idx == self.sel:
                 rounded_rect(c, 0, y - 1, right, _ROWH, 1)   # soft highlight
-                c.text(4, y, label, 0, 1, True)
+                c.text(4, y, label, 0)
                 if fac is not None:
                     c.text(right - _ADV - 2, y, '>', 0)
             else:
-                c.text(4, y, label, 1, 1, True)
+                c.text(4, y, label, 1)
                 if fac is None:
                     c.text(right - _ADV - 2, y, 'x', 1)
         if scrolls:

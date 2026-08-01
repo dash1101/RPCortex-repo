@@ -88,7 +88,14 @@ async def manager():
         return
     _started = True
     import asyncio
-    import novamesh
+    try:
+        import novamesh
+    except ImportError:
+        # The package was removed while this service was still running (pkg remove
+        # cancels nothing), so its siblings are gone. Exit quietly instead of
+        # letting an ImportError escape as an unretrieved task exception.
+        _started = False
+        return
     seen = novamesh.Seen()
     me = novamesh.node_id()
     while True:
@@ -162,6 +169,9 @@ async def manager():
                     _INBOX.pop(0)
                 _lora.start_rx()
             await asyncio.sleep_ms(250)          # easier on the shared event loop
+        except ImportError:
+            _started = False                     # package removed — stop the service
+            return
         except Exception:
             _lora = None                         # SPI likely torn down — re-init next loop
             await asyncio.sleep_ms(500)

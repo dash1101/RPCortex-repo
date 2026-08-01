@@ -20,6 +20,9 @@ SELECT  = 'select'
 BACK    = 'back'
 HOME    = 'home'
 ACTION  = SELECT            # alias — there's no 4th button; SELECT doubles as it
+SELECT_HOLD = 'selecthold'  # SELECT held past HOLD_MS (a shortcut, e.g. keyboard OK)
+
+HOLD_MS = 600               # press longer than this counts as a hold
 
 # Buxton full-step table. Index = state*4 + ((A<<1)|B). Low 3 bits = next state;
 # 0x10 = a CW step, 0x20 = a CCW step. (If your encoder reads reversed, swap the
@@ -70,6 +73,7 @@ class GpioSource:
         self._bt = {k: 0 for k in self.btns}
         self._btn_order = (SELECT, BACK, HOME)   # stable scan order
         self._pending = []                        # button presses awaiting delivery
+        self._held = False                        # SELECT hold already fired
         self._irq = False
         try:
             trig = P.IRQ_RISING | P.IRQ_FALLING
@@ -131,7 +135,11 @@ class GpioSource:
         Scanning all of them on every poll matters: the old code returned on the
         first press, so the other buttons' release state went stale, and while the
         encoder had queued detents the buttons were never scanned at all — a press
-        during a fast spin was dropped entirely."""
+        during a fast spin was dropped entirely.
+
+        SELECT is special: it reports on RELEASE, so a long press can be told apart
+        from a tap and emit SELECT_HOLD instead. BACK/HOME still fire on the press
+        edge, so navigation stays instant."""
         try:
             import utime
             now = utime.ticks_ms()
@@ -140,12 +148,21 @@ class GpioSource:
         for evt in self._btn_order:
             pin = self.btns[evt]
             v = pin.value()
-            if v == 0:
+            if v == 0:                                  # held down
                 if self._last[evt] == 1 and (now - self._bt[evt]) > 30:
                     self._last[evt] = 0
                     self._bt[evt] = now
-                    self._pending.append(evt)
-            else:
+                    if evt != SELECT:
+                        self._pending.append(evt)       # instant for BACK/HOME
+                elif evt == SELECT and self._last[evt] == 0 \
+                        and not self._held and (now - self._bt[evt]) >= HOLD_MS:
+                    self._held = True                   # fire the hold once
+                    self._pending.append(SELECT_HOLD)
+            else:                                       # released
+                if evt == SELECT and self._last[evt] == 0 and not self._held:
+                    self._pending.append(SELECT)        # a tap -> on release
+                if evt == SELECT:
+                    self._held = False
                 self._last[evt] = 1
 
     def poll(self):

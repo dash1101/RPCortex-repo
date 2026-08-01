@@ -450,20 +450,23 @@ class PinScreen(Screen):
 class KeyboardScreen(Screen):
     """On-screen keyboard driven entirely by the rotary encoder.
 
-    Turn = move through the key grid, SELECT = type the highlighted key, BACK =
-    delete (held on the last character it leaves the screen). The bottom row holds
-    the actions — SHIFT / SPACE / DEL / DONE — so every function is reachable with
-    just the encoder and one button, which is all the hardware there is.
+    Turn = move through the key grid, SELECT = type the highlighted key, HOLD
+    SELECT = accept (the OK shortcut), BACK = delete (and leaves when the buffer is
+    empty). The bottom row carries SHIFT / SPACE / DEL / OK, so every function is
+    reachable with the encoder and one button — all the hardware there is.
 
-    on_done(text) is called with the finished string; on_cancel() if abandoned.
+    on_done(text) receives the finished string; on_cancel() if abandoned.
     """
+    # 10 columns wide to match the panel: letters, then punctuation, then the digits
+    # on their own row (there are exactly 10, so they line up one-per-column).
     ROWS = (
         'abcdefghij',
         'klmnopqrst',
-        'uvwxyz0123',
-        '456789.-_@',
+        'uvwxyz.-_@',
+        '0123456789',
     )
-    ACTIONS = ('SHFT', 'SPC', 'DEL', 'OK')
+    ACTIONS = ('SHF', 'SPACE', 'DEL', 'OK')
+    HOLD_MS = 600                 # SELECT held this long = OK
 
     def __init__(self, title='Enter text', on_done=None, on_cancel=None,
                  secret=False, initial=''):
@@ -475,6 +478,8 @@ class KeyboardScreen(Screen):
         self._done = on_done
         self._cancel = on_cancel
         self._keys = self._build()
+        self._blink = 0                 # caret phase
+        self._caret = True
 
     def _build(self):
         keys = []
@@ -490,28 +495,53 @@ class KeyboardScreen(Screen):
         cols = max(len(r) for r in self.ROWS)
         gw = c.w // cols
         gh = max(7, (c.h - _TOP - _FH - 2) // (len(self.ROWS) + 1))
-        return gw, gh, 0, _TOP + _FH + 1
+        return gw, gh, 0, _TOP + _FH + 2
+
+    def animating(self):
+        return True                     # keep ticking so the caret blinks
+
+    def tick(self, dt_ms=0):
+        self._blink += dt_ms or 40
+        if self._blink >= 450:
+            self._blink = 0
+            self._caret = not self._caret
+            return True
+        return False
+
+    def _space_key(self, c, x, y, w, h, inv):
+        """The space bar drawn as the standard 'open box' mark rather than the word
+        SPACE, which is what a real keyboard shows."""
+        col = 0 if inv else 1
+        mid = y + h // 2
+        x0, x1 = x + 3, x + w - 4
+        c.vline(x0, mid - 1, 3, col)
+        c.vline(x1, mid - 1, 3, col)
+        c.hline(x0, mid + 2, x1 - x0 + 1, col)
 
     def draw(self, c):
-        # buffer line (masked for secrets), with a caret
+        # buffer line, masked for secrets, with a blinking caret
         shown = ('*' * len(self.text)) if self.secret else self.text
-        _fit(c, 2, _TOP - 1, (shown + '_')[-20:])
+        shown = shown[-19:]
+        _fit(c, 2, _TOP, shown)
+        if self._caret:
+            cx = 2 + c.text_width(shown)
+            c.vline(cx, _TOP, _FH, 1)
         gw, gh, x0, y0 = self._cell(c)
         nact = len(self.ACTIONS)
-        aw = c.w // nact                      # the action row gets wider cells so
-        for i, (r, col, ch) in enumerate(self._keys):   # SHIFT/SPACE/DEL/OK fit
-            label = ch
-            if len(ch) == 1 and self.shift:
-                label = ch.upper()
+        aw = c.w // nact                      # wider cells for the action row
+        for i, (r, col, ch) in enumerate(self._keys):
             action_row = (r == len(self.ROWS))
             cw = aw if action_row else gw
             x = x0 + col * cw
             y = y0 + r * gh
-            if i == self.sel:
+            inv = (i == self.sel)
+            if inv:
                 rounded_rect(c, x, y - 1, cw - 1, gh, 1)
-                c.text(x + 1, y, label, 0, 1, True)
-            else:
-                c.text(x + 1, y, label, 1, 1, True)
+            if ch == 'SPACE':
+                self._space_key(c, x, y, cw, gh, inv)
+                continue
+            label = ch.upper() if (len(ch) == 1 and self.shift) else ch
+            c.text(x + 1, y, label, 0 if inv else 1)
 
     def _type(self, ch):
         if len(self.text) < 63:
@@ -523,11 +553,16 @@ class KeyboardScreen(Screen):
             self.sel = (self.sel + 1) % n
         elif e == ev.ROT_CCW:
             self.sel = (self.sel - 1) % n
+        elif e == ev.SELECT_HOLD:
+            # Holding SELECT accepts, wherever the cursor is — the shortcut for OK.
+            if self._done:
+                return self._done(self.text) or 'back'
+            return 'back'
         elif e == ev.SELECT:
             ch = self._keys[self.sel][2]
-            if ch == 'SH':
+            if ch == 'SHF':
                 self.shift = not self.shift
-            elif ch == 'SP':
+            elif ch == 'SPACE':
                 self._type(' ')
             elif ch == 'DEL':
                 self.text = self.text[:-1]

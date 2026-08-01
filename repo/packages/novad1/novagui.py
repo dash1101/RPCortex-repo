@@ -88,6 +88,19 @@ def _apply_invert(val):
             pass
 
 
+def _apply_stealth(val):
+    """Toggling Incognito from settings must DO it, not just store a flag — kill
+    every radio when switched on, release the latch when switched off."""
+    try:
+        import novastealth
+        if str(val).lower() == 'on':
+            novastealth.kill_all()
+        else:
+            novastealth.restore()
+    except Exception:
+        pass
+
+
 def _apply_web(val):
     try:
         import novad1
@@ -114,7 +127,12 @@ def _wifi(c, x, y, st):
 
 
 def _battery(c, x, y, pct, low=False):
-    c.rect(x, y, 11, 6, 1)
+    # Rounded shell: the corner pixels are dropped so it reads as a battery with
+    # soft corners instead of a hard rectangle.
+    c.hline(x + 1, y, 9, 1)
+    c.hline(x + 1, y + 5, 9, 1)
+    c.vline(x, y + 1, 4, 1)
+    c.vline(x + 10, y + 1, 4, 1)
     c.fill_rect(x + 11, y + 2, 1, 2, 1)         # nub
     if low:
         c.pixel(x + 5, y + 2, 1)                # '!' when low (rest empty)
@@ -124,6 +142,17 @@ def _battery(c, x, y, pct, low=False):
     if fillw > 0:
         c.fill_rect(x + 1, y + 1, fillw, 4, 1)
 
+
+def _stealth_mark(c, phase):
+    """Incognito indicator — the extreme bottom-left corner, pulsing between a dot
+    and a small plus so it reads as active suppression. Kept to 3px and hard against
+    the corner so it sits in the margin rather than over content."""
+    x, y = 1, c.h - 2
+    c.pixel(x, y, 1)
+    if phase >= 1:
+        c.hline(x - 1, y, 3, 1)
+    if phase >= 2:
+        c.vline(x, y - 1, 2, 1)
 
 def _usb(c, x, y):
     # small USB plug glyph (~7 wide)
@@ -158,9 +187,9 @@ def draw_status_bar(c, state):
     # glyphs, ~25% less width) to leave room for the title and icons.
     w = c.w
     tstr = state.get('time', '--:--')
-    tw = c.text_width(tstr, 1, True)
+    tw = c.text_width(tstr)
     tx = w - tw
-    c.text(tx, 1, tstr, 1, 1, True)
+    c.text(tx, 1, tstr, 1)
     x = tx - 3
     pwr = state.get('power') or {}
     if pwr.get('usb'):
@@ -193,9 +222,9 @@ def draw_status_bar(c, state):
         _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
     avail = max(0, x - 4)
-    while title and c.text_width(title, 1, True) > avail:
+    while title and c.text_width(title) > avail:
         title = title[:-1]
-    c.text(2, 1, title, 1, 1, True)
+    c.text(2, 1, title, 1)
     c.hline(0, _BARH, w, 1)
 
 
@@ -907,6 +936,8 @@ class NovaUI:
         self._level = 0              # idle power tier: 0 active, 1 dimmed, 2 off
         self._dimmed = False         # = level >= 1 (kept for existing call sites)
         self._locked = False         # a PIN lock screen is currently pushed
+        self._stealth_on = False     # incognito -> pulse the corner mark
+        self._stealth_ph = -1        # last drawn pulse phase
         self._lock_scr = None
         self._low_warned = False
         self._last_sig = None
@@ -941,6 +972,11 @@ class NovaUI:
             st['title'] = scr.title
             draw_status_bar(c, st)
         scr.draw(c)
+        # Incognito indicator: drawn LAST so it sits above whatever the screen
+        # painted, in the bottom-left where content is thinnest. Pulses so it reads
+        # as live suppression rather than a static badge.
+        if self._stealth_on:
+            _stealth_mark(c, (now // 400) % 3)
         self.display.show(c)
         self._last_render = now
 
@@ -1057,6 +1093,21 @@ class NovaUI:
         if sig != self._last_sig:
             self._last_sig = sig
             dirty = True
+        # Track incognito for the corner mark; while it's on, keep repainting so the
+        # pulse actually animates.
+        try:
+            import novastealth
+            on = novastealth.active()
+        except Exception:
+            on = False
+        if on != self._stealth_on:
+            self._stealth_on = on
+            dirty = True
+        elif on:
+            ph = (now // 400) % 3
+            if ph != self._stealth_ph:
+                self._stealth_ph = ph
+                dirty = True
         # Low-battery popup (once per low->ok transition; needs a configured battery).
         if pwr.get('low'):
             if not self._low_warned and not self._dimmed:
@@ -1199,7 +1250,7 @@ class RebootScreen(Screen):
     def draw(self, c):
         c.clear(0)
         a = 'Rebooting'
-        c.text((c.w - c.text_width(a, 2, True)) // 2, c.h // 2 - _FH, a, 1, 2, True)
+        c.text((c.w - c.text_width(a, 2)) // 2, c.h // 2 - _FH, a, 1, 2, True)
 
     def tick(self, dt_ms=0):
         self._n += 1
@@ -1927,6 +1978,9 @@ class SettingsScreen(Screen):
             ('push', 'Set PIN', lambda: PinScreen('set')),
             ('action', 'Clear PIN', 'novad1 pin clear'),
             ('cycle', 'Web Panel', 'Apps.NovaD1_Web', ['off', 'on'], 'off', _apply_web),
+            ('cycle', 'Incognito', 'Apps.NovaD1_Stealth', ['off', 'on'], 'off',
+             _apply_stealth),
+            ('cycle', 'Random MAC', 'Apps.NovaD1_RandomMAC', ['off', 'on'], 'off', None),
             ('head', 'ACTIONS'),
             ('push', 'Updates', _updates_menu),
             ('action', 'NTP Sync', 'ntp sync'),
@@ -1978,8 +2032,8 @@ class SettingsScreen(Screen):
             y = _TOP + i * _ROWH
             if r[0] == 'head':
                 lbl = r[1][:14]
-                c.text(2, y, lbl, 1, 1, True)
-                lw = c.text_width(lbl, 1, True)
+                c.text(2, y, lbl, 1)
+                lw = c.text_width(lbl)
                 c.hline(2 + lw + 2, y + _FH // 2, max(0, right - (lw + 8)), 1)
                 continue
             inv = (idx == self.sel)
@@ -1987,17 +2041,17 @@ class SettingsScreen(Screen):
                 rounded_rect(c, 0, y - 1, right, _ROWH, 1)
             tc = 0 if inv else 1
             if r[0] in ('push', 'action'):
-                c.text(7, y, r[1], tc, 1, True)
+                c.text(7, y, r[1], tc)
                 c.text(right - _ADV - 2, y, '>', tc)
             else:
                 v = self._val(r)
-                vw = c.text_width(v, 1, True)
+                vw = c.text_width(v)
                 lbl = r[1]
                 avail = right - vw - 12
-                while lbl and c.text_width(lbl, 1, True) > avail:
+                while lbl and c.text_width(lbl) > avail:
                     lbl = lbl[:-1]
-                c.text(7, y, lbl, tc, 1, True)
-                c.text(right - vw - 2, y, v, tc, 1, True)
+                c.text(7, y, lbl, tc)
+                c.text(right - vw - 2, y, v, tc)
         if scrolls:
             scrollbar(c, right + 1, _TOP, c.h - _TOP, self.top, rows, n)
 
