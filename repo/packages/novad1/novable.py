@@ -129,6 +129,67 @@ def scan(ms=5000, cancel=None):
     return out
 
 
+def scan_steps(ms=4000):
+    """Scan for BLE devices as a GENERATOR, yielding between polls.
+
+    novable.scan() sleeps for its whole duration. That is fine for a foreground
+    screen that has nothing else to do, but a BACKGROUND observer using it would
+    freeze the UI for seconds at a time — the same way the NTP sync did before it
+    was stepped. Here every wait is a yield, so the caller keeps running.
+
+    Yields None while scanning; the final value is the result list, so a driver can
+    read the outcome off the last yield. Each result is
+    {'mac', 'rssi', 'name', 'adv'} — `adv` is the raw advertising payload, which is
+    what novableid needs to say what the device actually is (scan() throws it away).
+    """
+    try:
+        import novastealth
+        if novastealth.blocked():
+            yield []
+            return
+    except Exception:
+        pass
+    import utime
+    found = {}
+
+    def _irq(event, data):
+        if event == _IRQ_SCAN_RESULT:
+            addr_type, addr, adv_type, rssi, adv = data
+            mac = bytes(addr)
+            prev = found.get(mac)
+            if prev is None or rssi > prev['rssi']:
+                payload = bytes(adv)
+                nm = _adv_name(payload)
+                found[mac] = {
+                    'mac': ':'.join('{:02x}'.format(b) for b in mac),
+                    'rssi': rssi,
+                    'name': nm or (prev['name'] if prev else ''),
+                    'adv': payload,
+                }
+
+    try:
+        ble = _radio()
+    except Exception:
+        yield []
+        return
+    try:
+        ble.irq(_irq)
+        ble.gap_scan(ms, 30000, 30000, True)     # active scan -> get names
+        t0 = utime.ticks_ms()
+        while utime.ticks_diff(utime.ticks_ms(), t0) < ms:
+            yield None
+    except Exception:
+        pass
+    finally:
+        try:
+            ble.gap_scan(None)
+        except Exception:
+            pass
+    out = list(found.values())
+    out.sort(key=lambda d: d['rssi'], reverse=True)
+    yield out
+
+
 def _rand(n):
     try:
         import uos

@@ -390,6 +390,29 @@ def _kbd(c, cx, cy, r):               # Keyboard — a case with keys and a spac
     c.hline(x + 3, y + h - 3, w - 6, 1)                      # space bar
 
 
+def _radar(c, cx, cy, r):             # Radar — a scope with a sweep and a blip
+    # A round scope, not more arcs: at neighbour size the arc version was
+    # indistinguishable from the WiFi and LoRa icons, which sit next to it.
+    c.circle(cx, cy, r - 1, 1)
+    c.circle(cx, cy, max(2, (r - 1) // 2), 1)
+    c.pixel(cx, cy, 1)
+    e = r - 2
+    c.line(cx, cy, cx + e, cy - e, 1)                    # the sweep arm
+    c.line(cx, cy, cx + e - 1, cy - e, 1)
+    c.fill_circle(cx - max(2, r // 3), cy + max(2, r // 3), max(1, r // 4), 1)
+
+
+def _person(c, cx, cy, r):            # Presence — a figure in a doorway
+    c.rect(cx - r, cy - r, 2 * r, 2 * r, 1)                     # the doorway
+    head = max(1, r // 4)
+    c.circle(cx, cy - r // 2, head, 1)
+    c.vline(cx, cy - r // 2 + head, r // 2 + 2, 1)               # body
+    c.line(cx, cy, cx - head - 1, cy + r // 3, 1)                # arms
+    c.line(cx, cy, cx + head + 1, cy + r // 3, 1)
+    c.line(cx, cy + r // 2, cx - head - 1, cy + r - 2, 1)        # legs
+    c.line(cx, cy + r // 2, cx + head + 1, cy + r - 2, 1)
+
+
 _MAP = {
     'dht11': _thermo, 'gps': _pin, 'pn532': _nfc, 'cc1101': _radio,
     'sx1276': _antenna, 'bt': _bt, 'ibutton': _key, 'sdcard': _sd,
@@ -398,7 +421,8 @@ _MAP = {
     'tools': _wrench, 'check': _check, 'msg': _chat, 'power': _power,
     'notes': _notes, 'clock': _clock, 'fix': _medkit, 'cmds': _terminal,
     'kbd': _kbd, 'store': _store, 'diag': _stethoscope,
-    'wardrive': _wardrive,
+    'wardrive': _wardrive, 'radar': _radar,
+    'presence': _person,
 }
 
 

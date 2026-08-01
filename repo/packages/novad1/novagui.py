@@ -1760,6 +1760,7 @@ _APP_CAT = {
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
     'fix': 'System',
     'kbd': 'Testing',
+    'radar': 'Wireless', 'presence': 'Wireless',
 }
 # A representative icon per category (reuses an app icon so folders look distinct).
 _CAT_ICON = {'Wireless': 'bt', 'Sensors': 'gps', 'Tools': 'tools',
@@ -1864,6 +1865,16 @@ def _script_apps():
     except Exception:
         pass
     return out
+
+
+def _radar_app():
+    from novagui_watch import RadarScreen
+    return RadarScreen()
+
+
+def _presence_app():
+    from novagui_watch import PresenceScreen
+    return PresenceScreen()
 
 
 def _diag_app():
@@ -2013,6 +2024,8 @@ def _all_apps():
     apps.append(('store', 'App Store', AppStoreScreen))   # browse + install apps
     apps.append(('wifi', 'WiFi', WiFiScreen))
     apps.append(('wardrive', 'Wardrive', WardriveScreen))
+    apps.append(('radar', 'Radar', _radar_app))          # what the observer heard
+    apps.append(('presence', 'Presence', _presence_app))  # named devices, here or not
     apps.append(('msg', 'Messages', MessagesScreen))
     apps.append(('notes', 'Alerts', NotificationsScreen))
     apps.append(('check', 'Sys Check', SystemCheckScreen))
@@ -2272,6 +2285,17 @@ def _rows_home():
     ]
 
 
+def _rows_radar():
+    return [
+        ('cycle', 'Observer', 'Apps.NovaD1_Watch', ['on', 'off'], 'on', None),
+        ('cycle', 'Scan every', 'Apps.NovaD1_Watch_Period',
+         ['4000', '8000', '20000', '60000'], '8000', None),
+        ('cycle', 'Tell me', 'Apps.NovaD1_Watch_Notify', ['on', 'off'], 'on', None),
+        ('cycle', 'New devices', 'Apps.NovaD1_Watch_New', ['off', 'on'], 'off', None),
+        ('push', 'Presence', _presence_app),
+    ]
+
+
 def _rows_network():
     return [
         ('push', 'WiFi', WiFiScreen),
@@ -2305,7 +2329,7 @@ def _rows_system():
          None),
         ('cycle', 'Verbose', 'Settings.Verbose_Boot', ['false', 'true'], 'false', None),
         ('cycle', 'SD Card', 'Features.SD_Support', ['false', 'true'], 'false', None),
-        ('action', 'System Info', 'sysinfo'),
+        ('push', 'Updates', UpdatesScreen),
         ('push', 'Reboot', RebootScreen),
     ]
 
@@ -2316,9 +2340,9 @@ def _settings_index():
         ('push', 'Display', _mk_group('Display', _rows_display)),
         ('push', 'Home', _mk_group('Home', _rows_home)),
         ('push', 'Network', _mk_group('Network', _rows_network)),
+        ('push', 'Radar', _mk_group('Radar', _rows_radar)),
         ('push', 'Security', _mk_group('Security', _rows_security)),
         ('push', 'System', _mk_group('System', _rows_system)),
-        ('push', 'Updates', UpdatesScreen),
     ]
 
 

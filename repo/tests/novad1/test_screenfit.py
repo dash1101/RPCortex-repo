@@ -12,6 +12,7 @@ import novagui
 import novagui_radios
 import novagui_system
 import novagui_sensors
+import novagui_watch
 
 t = T('test_screenfit')
 
@@ -50,6 +51,7 @@ SCREENS = (
     ('settings_display', novagui._mk_group('Display', novagui._rows_display)),
     ('settings_home', novagui._mk_group('Home', novagui._rows_home)),
     ('settings_network', novagui._mk_group('Network', novagui._rows_network)),
+    ('settings_radar', novagui._mk_group('Radar', novagui._rows_radar)),
     ('settings_security', novagui._mk_group('Security', novagui._rows_security)),
     ('settings_system', novagui._mk_group('System', novagui._rows_system)),
     ('stealth', novagui.StealthSplashScreen),
@@ -58,6 +60,10 @@ SCREENS = (
     ('text_long', lambda: novagui.TextScreen('T', [
         'a line long enough to need wrapping on a tiny panel for sure', 'b'])),
     ('wardrive', novagui_radios.WardriveScreen),
+    ('radar', novagui_watch.RadarScreen),
+    ('device', lambda: novagui_watch.DeviceScreen('44:19:b6:00:11:22')),
+    ('locate', lambda: novagui_watch.LocateScreen('44:19:b6:00:11:22')),
+    ('presence', novagui_watch.PresenceScreen),
     ('gps', novagui_radios.GPSScreen),
     ('messages', novagui_radios.MessagesScreen),
     ('ircapture', novagui_radios.IRCaptureScreen),
@@ -120,6 +126,7 @@ _ROWS_VISIBLE = (64 - novagui._TOP) // novagui._ROWH
 for name, fn in (('index', novagui._settings_index),
                  ('Display', novagui._rows_display), ('Home', novagui._rows_home),
                  ('Network', novagui._rows_network),
+                 ('Radar', novagui._rows_radar),
                  ('Security', novagui._rows_security),
                  ('System', novagui._rows_system)):
     n = len(fn())

@@ -215,6 +215,56 @@ def _build_ui(kind=None):
 
 
 # --- subcommands ------------------------------------------------------------
+def _radar_cmd(info, ok, warn, error, multi, rest):
+    """The observer's table from the shell — same data the Radar app shows."""
+    import novawatch
+    parts = (rest or '').strip().split(None, 2)
+    sub = parts[0].lower() if parts else 'list'
+
+    if sub in ('name', 'tag') and len(parts) >= 2:
+        label = parts[2] if len(parts) > 2 else parts[1]
+        ok('Watching {} as "{}"'.format(parts[1], label)
+           if novawatch.tag(parts[1], label) else 'Could not save.')
+        return
+    if sub in ('forget', 'untag') and len(parts) >= 2:
+        novawatch.untag(parts[1])
+        ok('No longer watching {}.'.format(parts[1]))
+        return
+    if sub == 'clear':
+        novawatch.clear()
+        ok('Observer table cleared.')
+        return
+    if sub == 'who':
+        rows = novawatch.presence()
+        if not rows:
+            info('Nothing named yet. Use: novad1 radar name <mac> <label>')
+            return
+        for label, mac, here, rssi in rows:
+            multi('  {:<14} {:<18} {}'.format(
+                label, mac, ('here, {} dBm'.format(rssi) if here and rssi is not None
+                             else ('here' if here else 'away'))))
+        return
+
+    devs = novawatch.devices()
+    if not devs:
+        info('Nothing heard yet. The observer runs with the GUI '
+             '(novad1 gui --bg) and needs a few seconds.')
+        return
+    known = novawatch.known()
+    multi('  {:<18} {:>5}  {:<14} {}'.format('MAC', 'dBm', 'VENDOR', 'WHAT'))
+    for d in devs:
+        what = d.get('name') or ''
+        if d.get('random') and not what:
+            what = '(randomised)'
+        multi('  {}{:<17} {:>5}  {:<14} {}'.format(
+            '*' if d['mac'] in known else ' ',
+            d['mac'], d.get('rssi', 0),
+            (d.get('vendor') or '-')[:14],
+            '{} {}'.format(d.get('class') or '', what).strip()))
+    info('{} device(s); * = watched. BLE sees everything advertising; '
+         'WiFi sees access points only.'.format(len(devs)))
+
+
 def _scan(info, ok, warn, error, multi):
     info("=== Nova D1 — hardware scan ===", p="NovaD1")
     sda, scl = _i2c_pins()
@@ -940,6 +990,12 @@ async def _gui_service():
                 asyncio.create_task(novamsg.manager())
         except Exception:
             pass
+        try:                                  # background radio observer (once) — keeps
+            import novawatch                  # building the picture while you use the
+            if not novawatch.started():       # device for something else
+                asyncio.create_task(novawatch.observer())
+        except Exception:
+            pass
         try:                                  # background code -> SD backup mover (once)
             import novastore
             if not getattr(novastore, '_mover_on', False):
@@ -1298,6 +1354,8 @@ def novad1(args=None):
         multi("  novad1 ble scan|ping [apple|android]  Scan / ping your phone")
         multi("  novad1 store       Browse + install apps (store install <name>)")
         multi("  novad1 web on|off  Phone control panel over WiFi")
+        multi("  novad1 radar       What the background observer has heard")
+        multi("     radar name <mac> <label>   watch for it; radar forget <mac>")
         multi("  novad1 wifiprobe   Check if this firmware can capture 802.11 (pcap)")
         multi("  novad1 gui [--bg]  Launch the Nova GUI (--bg = background service)")
         multi("")
@@ -1306,6 +1364,8 @@ def novad1(args=None):
         return
     if cmd == 'scan':
         _scan(info, ok, warn, error, multi)
+    elif cmd in ('radar', 'watch'):
+        _radar_cmd(info, ok, warn, error, multi, rest)
     elif cmd == 'setup':
         _setup(info, ok, warn, error, multi)
     elif cmd == 'status':
