@@ -492,6 +492,57 @@ def _display_cmd(info, ok, warn, error, multi, rest=''):
         error("Could not save: {}".format(e))
 
 
+def _fav(info, ok, warn, error, multi, rest=''):
+    """Manage the home favorites bar — pinned apps launch from the top of the home."""
+    parts = (rest or '').split()
+    sub = parts[0].lower() if parts else 'list'
+    favs = [k.strip() for k in _reg('Apps.NovaD1_Favorites', '').split(',') if k.strip()]
+
+    def _save():
+        try:
+            import regedit
+            regedit.save('Apps.NovaD1_Favorites', ','.join(favs))
+        except Exception:
+            pass
+        try:
+            import novagui                     # rebuild the home live, no reboot
+            if hasattr(novagui, '_mark_home_dirty'):
+                novagui._mark_home_dirty()
+        except Exception:
+            pass
+
+    if sub in ('list', ''):
+        info("Home favorites", p="NovaD1")
+        multi("  Pinned: {}".format(', '.join(favs) if favs else '(none)'))
+        multi("  d1 fav add <appkey> | remove <appkey>   (see keys: d1 apps)")
+        return
+    if sub == 'add':
+        if len(parts) < 2:
+            error("Usage: d1 fav add <appkey>")
+            return
+        k = parts[1]
+        if k in favs:
+            multi("  '{}' is already pinned.".format(k))
+            return
+        favs.append(k)
+        _save()
+        ok("Pinned '{}' to the home.".format(k), p="NovaD1")
+        return
+    if sub in ('remove', 'rm', 'del', 'unpin'):
+        if len(parts) < 2:
+            error("Usage: d1 fav remove <appkey>")
+            return
+        k = parts[1]
+        if k not in favs:
+            multi("  '{}' isn't pinned.".format(k))
+            return
+        favs.remove(k)
+        _save()
+        ok("Unpinned '{}'.".format(k), p="NovaD1")
+        return
+    warn("Usage: d1 fav list | add <appkey> | remove <appkey>")
+
+
 def _stealth(info, ok, warn, error, multi, rest=''):
     """Incognito / kill switch: take every radio down instantly, or restore."""
     import novastealth
@@ -1116,6 +1167,7 @@ def novad1(args=None):
         multi("  novad1 pins        Show/edit the pinmap (pins set <name> <gpio>)")
         multi("  novad1 display <k> Panel: sh1106 | ssd1306 | ssd1309")
         multi("  incognito on|off   Kill ALL radios instantly (stealth mode)")
+        multi("  novad1 fav ...      Pin apps to the home favorites bar")
         multi("  novad1 service ... GUI service: start|stop|restart|status")
         multi("  novad1 refresh     Reload pins (restart the GUI service)")
         multi("  novad1 apps ...    Choose which apps show on the home")
@@ -1147,6 +1199,9 @@ def novad1(args=None):
         _stealth(info, ok, warn, error, multi, rest)
     elif cmd in ('service', 'svc'):
         _svc(info, ok, warn, error, multi, rest)
+    elif cmd in ('fav', 'favorite', 'favorites'):
+        rest_cs = (args or '').strip().split(None, 1)
+        _fav(info, ok, warn, error, multi, rest_cs[1] if len(rest_cs) > 1 else '')
     elif cmd in ('refresh', 'reload'):
         _svc(info, ok, warn, error, multi, 'refresh')
     elif cmd == 'apps':

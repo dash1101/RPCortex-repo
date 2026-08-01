@@ -1816,15 +1816,29 @@ def build_home(modules=None, style=None):
     return IconGallery('Nova D1', triples)
 
 
+def _favorite_keys():
+    """App keys the user pinned to the home's favorites bar (Apps.NovaD1_Favorites,
+    comma-separated), in order. Empty by default."""
+    raw = _reg('Apps.NovaD1_Favorites', '')
+    return [k.strip() for k in raw.split(',') if k.strip()]
+
+
 def _build_folder_home(triples):
-    """Group apps by category into folders — the top level shows a folder per
-    category (Wireless / Sensors / Tools / System); opening one shows just that
-    category's apps. Friendlier than one long ring of 18+ icons. Uncategorised or
-    empty -> the flat gallery."""
+    """Group apps by category into folders — the top level shows any FAVORITES first
+    (direct launchers for the most-used apps), then a folder per category (Wireless /
+    Sensors / Tools / System); opening one shows just that category's apps. Friendlier
+    than one long ring of 18+ icons. Uncategorised or empty -> the flat gallery."""
     by_cat = {}
+    tmap = {}
     for key, label, fac in triples:
         by_cat.setdefault(_app_category(key), []).append((key, label, fac))
+        tmap[key] = (key, label, fac)
     items = []
+    # Favorites bar: pinned apps launch directly from the top of the home, and still
+    # appear inside their category folder.
+    for k in _favorite_keys():
+        if k in tmap:
+            items.append(tmap[k])
     for cat in _CATEGORIES:
         apps = by_cat.get(cat)
         if apps:
