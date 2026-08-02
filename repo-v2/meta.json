@@ -1,0 +1,6 @@
+{
+  "greet": {
+    "desc": "Worked example package - registers a 'greet' shell command",
+    "author": "dash1101"
+  }
+}
