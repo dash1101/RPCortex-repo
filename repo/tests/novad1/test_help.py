@@ -120,4 +120,47 @@ t.ok('turn = do a thing' in scr.lines,
      'showing the controls for the screen you came FROM, not the power menu')
 t.eq(scr.name, 'Documented', 'and names that screen')
 
+# ------------------------------------------------ the alert shares the net slot
+# 128px against five icons leaves about 52px of title. A permanent sixth icon for
+# an alert would have come straight out of that, so the bell alternates with the
+# network glyph instead of claiming its own space.
+import novacanvas as _nc
+
+
+def _bar(**st):
+    base = {'time': '19:42', 'wifi': True, 'title': 'Nova D1',
+            'power': {'have': True, 'pct': 70, 'usb': False, 'low': False}}
+    base.update(st)
+    cv = _nc.Canvas(128, 64)
+    novagui.draw_status_bar(cv, base)
+    return bytes(cv.buf)
+
+
+plain = _bar(notify=False)
+ph0 = _bar(notify=True, alert_phase=0)
+ph1 = _bar(notify=True, alert_phase=1)
+t.eq(ph0, plain, 'on one half of the cycle the bar looks exactly as it always did')
+t.ok(ph1 != plain, 'and on the other the alert has replaced the network glyph')
+
+# The title must not shrink when an alert arrives -- that was the whole point.
+wide = _bar(notify=True, alert_phase=1, title='Resources')
+narrow = _bar(notify=False, title='Resources')
+t.ok(wide != narrow, 'the two phases differ')
+src = inspect.getsource(novagui.draw_status_bar)
+t.ok(src.count('x -= 9') <= 1,
+     'the alert claims no extra horizontal slot -- only the SD-save icon does')
+
+# With the radio off there is nothing to alternate with, so the bell just sits.
+off0 = _bar(notify=True, wifi=False, alert_phase=0)
+off1 = _bar(notify=True, wifi=False, alert_phase=1)
+t.eq(off0, off1,
+     'with the radio off the bell is steady rather than blinking against a blank')
+
+# The phase has to be part of the repaint signature or the swap would only happen
+# when something else made the frame dirty.
+t.ok("phase" in inspect.getsource(novagui.NovaUI._loop_once),
+     'the alert phase drives a repaint, so the alternation actually animates')
+t.ok(novagui._ALERT_CYCLE_MS >= 500,
+     'the cycle is slow enough to read as a swap, not a flicker')
+
 sys.exit(t.done())

@@ -238,6 +238,11 @@ def _centre(c, s, scale=1):
     return (c.w - w) // 2
 
 
+# How long each half of the alert/network alternation is shown. A second reads as
+# a deliberate swap; faster looks like a glitch, slower gets missed.
+_ALERT_CYCLE_MS = 1000
+
+
 def draw_status_bar(c, state):
     # Right-aligned clock, then (battery)(usb)(wifi) leftward, then the title fills
     # what's left — all measured from the font so a font swap can't clip anything.
@@ -277,14 +282,24 @@ def draw_status_bar(c, state):
         x -= 12
         _battery(c, x, 2, 0, False)
         x -= 2
+    # The alert bell SHARES the network slot rather than taking one of its own,
+    # alternating with it about once a second until the alert is read. 128px
+    # against five icons leaves ~52px of title; a permanent sixth icon would have
+    # come straight out of that. An alert is temporary, so it borrows space
+    # instead of claiming it — and the movement catches the eye better than a
+    # static bell wedged into an already-full bar.
+    #
+    # It only alternates while there is something to alternate WITH: with the
+    # radio off there is no meaningful wifi glyph, so the bell simply sits there
+    # rather than blinking against a blank.
     x -= 8
-    _wifi(c, x, 2, state.get('wifi', False))
+    if state.get('notify') and (state.get('wifi') is False or state.get('alert_phase')):
+        _bell(c, x, 1)
+    else:
+        _wifi(c, x, 2, state.get('wifi', False))
     if state.get('saving'):                 # SD backup in progress -> save icon
         x -= 9
         _disk(c, x, 1)
-    if state.get('notify'):                 # unread notifications -> bell
-        x -= 9
-        _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
     # A '?' after the title marks a screen whose controls are documented, so the
     # hints can come off the body without becoming undiscoverable. One glyph, in
@@ -1066,6 +1081,10 @@ class NovaUI:
             st = self._get_state(now)
             st['title'] = scr.title
             st['help'] = bool(getattr(scr, 'help', ()))
+            # Which half of the alert cycle we are in. Derived from the clock
+            # rather than a counter so it stays in step no matter how often the
+            # screen happens to repaint.
+            st['alert_phase'] = bool((now // _ALERT_CYCLE_MS) % 2)
             draw_status_bar(c, st)
             self._draw_home_hold(c)
         scr.draw(c)
@@ -1288,7 +1307,12 @@ class NovaUI:
 
         st = self._get_state(now)
         pwr = st.get('power') or {}
+        # The alert phase is part of the signature: without it the bar would only
+        # swap icons when something ELSE made the frame dirty, so the alternation
+        # would stutter or stop entirely on a quiet screen.
+        phase = (now // _ALERT_CYCLE_MS) % 2 if st.get('notify') else 0
         sig = (st.get('time'), st.get('wifi'), st.get('notify'), st.get('saving'),
+               phase,
                pwr.get('pct') if pwr else None, pwr.get('usb') if pwr else None,
                pwr.get('low') if pwr else None)
         if sig != self._last_sig:
@@ -2372,6 +2396,8 @@ _APP_CAT = {
     'store': 'Tools', 'cmds': 'Tools', 'res': 'Tools', 'shell': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
     'fix': 'System',
+    'set_display': 'System', 'set_home': 'System', 'set_network': 'System',
+    'set_security': 'System', 'set_system': 'System',
     'kbd': 'Testing',
     'radar': 'Wireless', 'presence': 'Wireless',
 }
@@ -2648,6 +2674,15 @@ def _all_apps():
     apps.append(('res', 'Resources', ResourcesScreen))    # live link/RAM/disk/clock
     apps.append(('shell', 'Shell', _shell_app))           # the OS shell, on screen
     apps.append(('power', 'Power', _power_menu))
+    # The settings GROUPS are apps. The System folder used to sit beside a separate
+    # Settings icon, which read as "the button you press to get to settings" and
+    # then wasn't — so the folder IS the settings app now, and each group has its
+    # own icon in it rather than being a row inside one more menu.
+    apps.append(('set_display', 'Display', _mk_group('Display', _rows_display)))
+    apps.append(('set_home', 'Home', _mk_group('Home', _rows_home)))
+    apps.append(('set_network', 'Network', _mk_group('Network', _rows_network)))
+    apps.append(('set_security', 'Security', _mk_group('Security', _rows_security)))
+    apps.append(('set_system', 'System', _mk_group('System', _rows_system)))
     apps.extend(_script_apps())              # installed button-grid script-apps -> home
     apps.extend(_py_apps())                  # installed kind:py apps -> home
     return apps
@@ -3293,7 +3328,9 @@ def build_home(modules=None, style=None):
     for key, label, fac in apps:
         present = modules.get(key, True)
         triples.append((key, label, fac if present else None))
-    triples.append(('settings', 'Settings', _settings_menu))
+    # No separate Settings icon: its groups are apps in the System folder now. The
+    # grouped SettingsScreen still exists and is still what each group opens — this
+    # only removes the extra menu level that sat in front of them.
     if style is None:
         style = _reg('Apps.NovaD1_HomeStyle', 'folders')
     if style == 'menu':

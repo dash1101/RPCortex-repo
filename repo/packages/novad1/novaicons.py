@@ -359,6 +359,57 @@ def _cmdlist(c, cx, cy, r):           # Commands — a chosen line in a list
         y += step
 
 
+def _monitor(c, cx, cy, r):           # Display settings — a panel on a stand
+    w, h = 2 * r, int(r * 1.4)
+    x, y = cx - r, cy - r + 1
+    _rbox(c, x, y, w, h)
+    c.hline(x + 2, y + h - 3, w - 4, 1)          # the bezel's lower edge
+    st = max(2, r // 3)
+    c.vline(cx, y + h, st, 1)                    # stand
+    c.hline(cx - st, y + h + st, 2 * st + 1, 1)  # foot
+
+
+def _house(c, cx, cy, r):             # Home settings — a house, roof drawn as lines
+    b = cy + r - 2                                # baseline
+    w = 2 * r - 2
+    x = cx - r + 1
+    bh = max(3, r)
+    c.rect(x, b - bh, w, bh, 1)                   # body
+    peak = b - bh - max(2, r // 2)
+    c.line(x - 1, b - bh, cx, peak, 1)            # roof, left
+    c.line(cx, peak, x + w, b - bh, 1)            # roof, right
+    d = max(2, r // 3)                            # door
+    c.fill_rect(cx - d // 2, b - d, max(1, d), d, 1)
+
+
+def _globe(c, cx, cy, r):             # Network settings — deliberately NOT the wifi
+    # bars: those belong to the WiFi APP, and two identical icons a folder apart
+    # was the complaint that started the icon work.
+    rr = r - 1
+    c.circle(cx, cy, rr, 1)
+    c.hline(cx - rr, cy, 2 * rr + 1, 1)           # equator
+    c.vline(cx, cy - rr, 2 * rr + 1, 1)           # meridian
+    q = max(1, rr // 2)                           # the curved meridians, as chords
+    c.line(cx - q, cy - rr + 1, cx - q, cy + rr - 1, 1)
+    c.line(cx + q, cy - rr + 1, cx + q, cy + rr - 1, 1)
+
+
+def _padlock(c, cx, cy, r):           # Security settings — a padlock
+    bw, bh = 2 * r - 2, max(4, r + 1)
+    x, y = cx - r + 1, cy - r + max(3, r // 2)
+    _rbox(c, x, y, bw, bh)
+    # The shackle has to be clearly NARROWER than the body. Drawn at the body's
+    # full width it reads as two stacked boxes rather than a lock — which is
+    # exactly how the first attempt rendered.
+    inset = max(2, bw // 4)
+    sx0, sx1 = x + inset, x + bw - 1 - inset
+    sh = max(2, r // 2 + 1)
+    c.vline(sx0, y - sh, sh, 1)
+    c.vline(sx1, y - sh, sh, 1)
+    c.hline(sx0, y - sh, sx1 - sx0 + 1, 1)        # joined, or it reads as a bracket
+    c.fill_rect(cx - 1, y + 2, 2, max(2, bh - 4), 1)   # keyhole
+
+
 def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle
     # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
     bx, by = cx - r + 2, cy - r + 5
@@ -517,6 +568,11 @@ _MAP = {
     # Shell gets the terminal window because that is literally what it is;
     # Commands moved to a list icon so the two stopped being identical.
     'res': _bars, 'shell': _terminal,
+    # The settings groups are apps in their own right now — the System
+    # folder IS the settings app — so each needs an icon that is not the
+    # gear, and not a duplicate of the app it sits beside.
+    'set_display': _monitor, 'set_home': _house, 'set_network': _globe,
+    'set_security': _padlock, 'set_system': _gear,
 }
 
 
