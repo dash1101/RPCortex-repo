@@ -655,8 +655,12 @@ class TZScreen(Screen):
     so this is a dedicated screen: turn to adjust, SELECT to save. It writes
     System.TZ_Offset, the same key the OS shell's `settings` uses and the one the
     status-bar clock, the notification timestamps and the Clock app all read — so
-    setting it here moves every clock on the device at once."""
-    title = 'UTC Offset'
+    setting it here moves every clock on the device at once.
+
+    Titled 'Timezone' rather than 'UTC Offset' because the longer string does not
+    fit the status bar once the clock and status icons have taken their share, and
+    a title that has to be truncated to fit is one that should have been shorter."""
+    title = 'Timezone'
 
     # The real range of civil offsets. Whole hours only: nothing on this device
     # reads a fractional offset, so offering 5:30 would be a lie.

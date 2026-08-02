@@ -13,8 +13,26 @@ import novagui_radios
 import novagui_system
 import novagui_sensors
 import novagui_watch
+import novagui_res
+import novagui_shell
 
 t = T('test_screenfit')
+
+
+def _cmd_with(lines):
+    """A finished CommandScreen showing given output (no shell needed)."""
+    scr = novagui.CommandScreen('Out', 'true')
+    scr.lines = novagui._fmt_capture('\n'.join(lines))
+    scr._ok = True
+    return scr
+
+
+def _shell_with(lines):
+    scr = novagui_shell.ShellScreen()
+    for ln in lines:
+        scr._emit_wrapped(ln, novagui_shell._COLS)
+    scr.pending = 'a fairly long pending command line'
+    return scr
 
 _orig_text = novacanvas.Canvas.text
 _bad = []
@@ -74,6 +92,36 @@ SCREENS = (
     ('notifications', novagui_system.NotificationsScreen),
     ('battery', novagui_sensors.BatteryScreen),
     ('environment', novagui_sensors.EnvironmentScreen),
+    ('clock_app', novagui_sensors.ClockScreen),
+    # --- added after a reported "things run off the screen" pass -------------
+    ('resources', novagui_res.ResourcesScreen),
+    ('shell', novagui_shell.ShellScreen),
+    ('deepsleep', novagui.DeepSleepScreen),
+    ('screenlock', novagui_system.ScreenLock),
+    ('tz', novagui_system.TZScreen),
+    ('versions', novagui_system.VersionsScreen),
+    ('settings_clock', novagui._mk_group('Clock', novagui._rows_clock)),
+    ('updates', novagui.UpdatesScreen),
+    ('appstore', novagui.AppStoreScreen),
+    ('scripts', novagui.ScriptsScreen),
+    ('keyboard', lambda: novagui_system.KeyboardScreen('Command')),
+    ('pin', lambda: novagui_system.PinScreen('set')),
+    ('password', lambda: novagui_system.PasswordScreen('set')),
+    ('syscheck', novagui_system.SystemCheckScreen),
+    ('lowpower', novagui.LowPowerScreen),
+    ('error', lambda: novagui.ErrorScreen('a fairly long crash reason string')),
+    ('reboot', novagui.RebootScreen),
+    ('moduletest', lambda: novagui.ModuleTestScreen('gps', 'GPS')),
+    # A shell command's OUTPUT is the least predictable text on the device -- it
+    # is whatever the OS printed, at whatever width. These are real shapes: a
+    # tagged status line, an untagged table row, and a long unbroken token.
+    ('command_out', lambda: _cmd_with([
+        '[@] Memory freed: 190 KB -> 274 KB free  (+84 KB)',
+        '  Largest block : 146 KB   (fragmentation 12%)',
+        'https://rpc.novalabs.app/releases/latest.json'])),
+    ('command_busy', lambda: novagui.CommandScreen('Working', 'true')),
+    ('shell_out', lambda: _shell_with([
+        '> meminfo', '  Total : 446 KB', '  Largest block : 10 KB   (frag 80%)'])),
 )
 
 for name, factory in SCREENS:

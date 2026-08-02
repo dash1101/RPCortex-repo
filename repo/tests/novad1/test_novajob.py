@@ -255,7 +255,7 @@ t.ok(len(novagui._rows_system()) <= 6,
      'the System group still fits one screen ({} rows)'.format(
          len(novagui._rows_system())))
 t.ok(any(r[1] == 'Versions' for r in novagui._rows_system()), 'Versions is in it')
-t.ok(any(r[1] == 'UTC Offset' for r in novagui._rows_clock()),
+t.ok(any(r[1] == 'Timezone' for r in novagui._rows_clock()),
      'and UTC Offset sits with the other clock settings')
 
 # ------------------------------------------------------- the command footer

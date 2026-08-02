@@ -19,7 +19,8 @@
 # long session, which is the worst kind. _MAX_LINES caps it at a few screens'
 # worth and old lines fall off the top.
 
-from novaui import Screen, ev, _TOP, _ROWH, _ADV, _SB_W, _wrap, scrollbar, fit as _fit  # noqa
+from novaui import (Screen, ev, _TOP, _ROWH, _ADV, _SB_W, _wrap, scrollbar,
+                    strip_ansi as _strip_ansi, fit as _fit)  # noqa
 
 _MAX_LINES = 48          # ~10 screens of scrollback; older lines are dropped
 # Output is wrapped once, on the way in, at the panel's character width. Wrapping
@@ -50,7 +51,12 @@ def run_line(cmd):
             out = _R.end_capture(prev) or ''
     except Exception as e:
         return ['error: ' + str(e)]
-    out = out.replace('\r', '')
+    # Strip ANSI. The shell colours its output and marks each line with a tag
+    # ('\x1b[96m[\x1b[97m@\x1b[96m] ...'), so raw capture text renders on the panel
+    # as literal escape sequences with the marker buried in them — which is what
+    # made [@] and [!] come out as garbage here while the Commands screen, which
+    # has always stripped, showed them cleanly.
+    out = _strip_ansi(out).replace('\r', '')
     return [ln for ln in out.split('\n')] if out.strip() else []
 
 

@@ -64,6 +64,34 @@ def _wrap(s, ncols):
     return out or ['']
 
 
+def strip_ansi(s):
+    """Remove ANSI escape sequences from captured shell text.
+
+    Lives in the leaf because every consumer of the shell's capture buffer needs
+    it and they are in different modules — the Commands screen in novagui, the
+    Shell app in novagui_shell, the web panel in novaweb. The Shell app shipped
+    without it and rendered the shell's own '[@]' / '[!]' line markers as raw
+    escape sequences, which is what made those symbols come out as garbage on the
+    panel while every other screen showed them cleanly.
+
+    A sequence runs from ESC to the first ASCII letter, which covers the colour
+    codes (\x1b[96m), the cursor moves and the erases (\x1b[2J, \x1b[K) that the
+    TUI commands emit."""
+    out = ''
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == '\x1b':
+            j = i + 1
+            while j < n and not ('a' <= s[j] <= 'z' or 'A' <= s[j] <= 'Z'):
+                j += 1
+            i = j + 1
+        else:
+            out += s[i]
+            i += 1
+    return out
+
+
 def fit(c, x, y, s, col=1):
     """Draw ONE line guaranteed to fit the panel: narrow (proportional) spacing,
     truncated if it still doesn't fit. Use this for any message whose length isn't

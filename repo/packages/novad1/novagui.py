@@ -2643,20 +2643,8 @@ def _home_keys():
     return keys or None
 
 
-def _strip_ansi(s):
-    out = ''
-    i = 0
-    n = len(s)
-    while i < n:
-        if s[i] == '\x1b':
-            j = i + 1
-            while j < n and not ('a' <= s[j] <= 'z' or 'A' <= s[j] <= 'Z'):
-                j += 1
-            i = j + 1
-        else:
-            out += s[i]
-            i += 1
-    return out
+# One implementation, in the leaf — novagui, novagui_shell and novaweb all need it.
+from novaui import strip_ansi as _strip_ansi  # noqa: E402
 
 
 def _fmt_capture(out):
@@ -2673,15 +2661,37 @@ def _fmt_capture(out):
 
 
 def _run_capture(cmd):
-    """Run an OS shell command, return its output as wrapped display lines."""
+    """Run an OS shell command ONCE and return its output as display lines.
+
+    Exactly once is the point. This used to try three routes in turn — the
+    capture buffer, then sys.stdout swapped for a StringIO, then the capture
+    buffer again — each re-running the command if the previous one came back
+    empty. Every command that legitimately prints nothing was therefore executed
+    two or three times, and among the things this screen runs are `update online`,
+    `pkg upgrade` and `novad1 refresh`. The StringIO route never worked anyway:
+    reassigning sys.stdout does not reliably redirect output on MicroPython, which
+    is why the chain existed at all.
+
+    It is a single route now because RPCortex captures info/ok/warn/error as well
+    as multi(), so a command whose whole result is one status line is caught. When
+    there genuinely is no output, _silent_result reports the state the command was
+    about rather than a bare '(no output)'.
+
+    CONSTRAINT that came with dropping the fallback: this only sees output that
+    goes through RPCortex. A command using a bare print() writes straight to the
+    serial port and arrives here as nothing. Every command the GUI runs today was
+    checked and none do — but `bench` (RPCMark) and the editor DO, so neither may
+    be added to the Commands screen without giving it a _silent_result case.
+
+    The capture is properly nested: begin_capture returns the enclosing buffer and
+    end_capture restores it. Passing that back matters — a bare end_capture() sets
+    the buffer to None instead, which would silently discard the output of a shell
+    pipeline that happened to be capturing further up the stack."""
     import sys
     lp = sys.modules.get('Core.launchpad') or sys.modules.get('launchpad')
     if lp is None or not hasattr(lp, '_run_line'):
         return ['shell n/a']
     out = ''
-    # Use the OS's own capture buffer FIRST: on MicroPython reassigning
-    # sys.stdout does not reliably redirect the shell's output, so the old
-    # StringIO path captured nothing and every command looked like '(done)'.
     try:
         import RPCortex as _R
         prev = _R.begin_capture()
@@ -2689,36 +2699,11 @@ def _run_capture(cmd):
             lp._run_line(cmd)
         finally:
             out = _R.end_capture(prev) or ''
-    except Exception:
-        out = ''
-    if out.strip():
-        return _fmt_capture(out)
-    try:
-        import io
-        buf = io.StringIO()
-        old = sys.stdout
-        try:
-            sys.stdout = buf
-            lp._run_line(cmd)
-        finally:
-            sys.stdout = old
-        out = buf.getvalue()
-    except Exception:
-        try:
-            import RPCortex
-            RPCortex.begin_capture()
-            try:
-                lp._run_line(cmd)
-            except Exception:
-                pass
-            out = RPCortex.end_capture() or ''
-        except Exception:
-            out = ''
+    except Exception as e:
+        return ['error: ' + str(e)[:40]]
     lines = _fmt_capture(out)
     if lines:
         return lines[:60]
-    # A command that printed nothing used to show a bare '(done)', which says
-    # nothing about what happened. Report the state the command was about instead.
     return _silent_result(cmd)
 
 
@@ -3086,7 +3071,7 @@ def _rows_clock():
     the grouped layout: nothing at the top level scrolls."""
     return [
         ('push', 'Set Time', TimeScreen),
-        ('push', 'UTC Offset', TZScreen),
+        ('push', 'Timezone', TZScreen),
         _clock_row(),
         ('cycle', 'Dyn Clock', 'Settings.Dynamic_Clock', ['false', 'true'], 'false',
          None),
