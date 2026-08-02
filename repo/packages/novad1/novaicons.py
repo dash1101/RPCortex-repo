@@ -420,6 +420,18 @@ def _tag(c, cx, cy, r):               # Device / names — a luggage tag
         c.hline(x + 3, y + i * (h // 3), max(2, w - 8), 1)
 
 
+def _folder(c, cx, cy, r):            # File Explorer — a folder with a tab
+    w, h = 2 * r - 2, int(r * 1.3)
+    x, y = cx - r + 1, cy - h // 2 + 1
+    tab = max(2, r // 2)
+    th = max(2, r // 3)
+    c.hline(x, y - th, tab, 1)                    # the tab, up and across
+    c.vline(x + tab, y - th, th, 1)
+    _rbox(c, x, y, w, h)
+    c.vline(x, y - th, th + 1, 1)                 # join the tab to the body
+    c.hline(x + 2, y + 3, max(2, w - 6), 1)       # a sheet inside
+
+
 def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle
     # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
     bx, by = cx - r + 2, cy - r + 5
@@ -583,6 +595,7 @@ _MAP = {
     # gear, and not a duplicate of the app it sits beside.
     'set_display': _monitor, 'set_home': _house, 'set_network': _globe,
     'set_security': _padlock, 'set_system': _gear, 'set_device': _tag,
+    'files': _folder,
 }
 
 

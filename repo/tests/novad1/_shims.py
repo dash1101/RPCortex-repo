@@ -52,12 +52,18 @@ def install():
             ticks_diff=lambda a, b: a - b, ticks_add=lambda a, b: a + b,
             sleep_ms=lambda ms: None, sleep_us=lambda us: None,
             time=lambda: int(_t.time()), localtime=lambda *a: _t.localtime(*(a or ())))
-        # remove() and mkdir() are REAL. A no-op stub silently passes tests the
-        # device would fail: temp-file cleanup, and creating a directory that
-        # does not exist yet.
+        # remove(), mkdir(), listdir() and stat() are REAL. A no-op stub silently
+        # passes tests the device would fail: temp-file cleanup, creating a
+        # directory that does not exist yet, and — since the File Explorer — every
+        # assertion about what is in a directory and how big it is. A listdir that
+        # always returns [] would make an explorer's whole test file vacuous.
+        #
+        # statvfs is real too, for the storage readouts. Code that must cope with
+        # an unreadable path should be given a path that does not exist, which
+        # raises here exactly as it does on the device.
         sys.modules['uos'] = types.SimpleNamespace(
-            urandom=os.urandom, listdir=lambda p='.': [],
-            stat=lambda p: (_ for _ in ()).throw(OSError), mkdir=os.mkdir,
+            urandom=os.urandom, listdir=os.listdir, stat=os.stat,
+            statvfs=getattr(os, 'statvfs', None), mkdir=os.mkdir,
             remove=os.remove)
         sys.modules['regedit'] = types.SimpleNamespace(
             read=lambda k: _REG.get(k), save=lambda k, v: _REG.__setitem__(k, v) or True)

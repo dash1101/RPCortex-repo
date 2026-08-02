@@ -896,6 +896,7 @@ ClockScreen = _proxy('novagui_sensors', 'ClockScreen')
 TZScreen = _proxy('novagui_system', 'TZScreen')
 VersionsScreen = _proxy('novagui_system', 'VersionsScreen')
 ResourcesScreen = _proxy('novagui_res', 'ResourcesScreen')
+FilesScreen = _proxy('novagui_files', 'FilesScreen')
 
 def _lora_tx_app():
     return CodeListScreen('LoRa TX', 'lora', _lora_fire, fire_label='send')
@@ -2394,6 +2395,7 @@ _APP_CAT = {
     'gps': 'Sensors', 'dht11': 'Sensors', 'battery': 'Sensors',
     'scripts': 'Tools', 'notes': 'Tools', 'logs': 'Tools', 'clock': 'Tools',
     'store': 'Tools', 'cmds': 'Tools', 'res': 'Tools', 'shell': 'Tools',
+    'files': 'Tools',
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
     'fix': 'System',
     'set_display': 'System', 'set_home': 'System', 'set_network': 'System',
@@ -2673,6 +2675,7 @@ def _all_apps():
     apps.append(('clock', 'Clock', ClockScreen))          # time + date + stopwatch
     apps.append(('res', 'Resources', ResourcesScreen))    # live link/RAM/disk/clock
     apps.append(('shell', 'Shell', _shell_app))           # the OS shell, on screen
+    apps.append(('files', 'Files', FilesScreen))          # browse the filesystem
     apps.append(('power', 'Power', _power_menu))
     # The settings GROUPS are apps. The System folder used to sit beside a separate
     # Settings icon, which read as "the button you press to get to settings" and
