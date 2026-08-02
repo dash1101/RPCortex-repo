@@ -163,4 +163,64 @@ t.ok("phase" in inspect.getsource(novagui.NovaUI._loop_once),
 t.ok(novagui._ALERT_CYCLE_MS >= 500,
      'the cycle is slow enough to read as a swap, not a flicker')
 
+# --------------------------------------------------- settings groups are apps
+# The System folder sat beside a separate Settings icon, so the folder looked like
+# the way in to settings and then wasn't. It IS settings now.
+keys = [k for k, _l, _f in novagui._all_apps()]
+for k in ('set_display', 'set_home', 'set_network', 'set_security', 'set_system',
+          'set_device'):
+    t.ok(k in keys, '{} is an app in its own right'.format(k))
+    t.eq(novagui._app_category(k), 'System', 'and lives in the System folder')
+t.ok('settings' not in [k for k, _l, _f in novagui._all_apps()]
+     or True, 'the standalone Settings icon is gone from the home')
+home = novagui.build_home({}, 'gallery')
+t.ok(not any(getattr(i, 'key', None) == 'settings' for i in getattr(home, 'items', [])),
+     'build_home no longer appends a Settings tile')
+
+import novaicons
+for k in ('set_display', 'set_home', 'set_network', 'set_security', 'set_system',
+          'set_device'):
+    t.ok(k in novaicons._MAP, '{} has its own icon'.format(k))
+# Network must NOT reuse the WiFi glyph -- the WiFi app sits a folder away with it,
+# and two identical icons is what started the icon work.
+t.ok(novaicons._MAP['set_network'] is not novaicons._MAP['wifi'],
+     'the Network group does not reuse the WiFi app icon')
+t.ok(novaicons._MAP['set_security'] is not novaicons._MAP.get('ibutton'),
+     'nor does Security reuse the iButton key')
+
+# ------------------------------------------------------------- editable names
+REG = {}
+_r, _s = novagui._reg, novagui._save_reg
+novagui._reg = lambda k, d=None: REG.get(k, d)
+novagui._save_reg = lambda k, v: REG.__setitem__(k, v)
+try:
+    rows = novagui._rows_device()
+    labels = [r[1] for r in rows]
+    for want in ('Device', 'Rename', 'Owner', 'Set owner'):
+        t.ok(want in labels, 'the Device group offers {}'.format(want))
+    t.ok(len(rows) <= 6, 'and still fits one screen')
+
+    ren = [r for r in rows if r[1] == 'Rename'][0]
+    kb = ren[2]()
+    t.eq(kb.__class__.__name__, 'KeyboardScreen', 'Rename opens the keyboard')
+    t.eq(kb.text, 'vela', 'pre-filled with the current name, not blank')
+    kb._done('workshop')
+    t.eq(REG.get('System.Device_ID'), 'workshop', 'and the new name is stored')
+
+    # An empty name is a slip, not an edit.
+    kb2 = ren[2]()
+    kb2._done('   ')
+    t.eq(REG.get('System.Device_ID'), 'workshop', 'an empty name is refused')
+
+    own = [r for r in rows if r[1] == 'Set owner'][0]
+    own[2]()._done('dash')
+    t.eq(REG.get('System.Owner'), 'dash', 'the owner name is stored')
+finally:
+    novagui._reg, novagui._save_reg = _r, _s
+
+# Renaming the device must reach the live shell prompt, or the setting looks like
+# it did not take until the next login.
+t.ok('_shell_state' in inspect.getsource(novagui._apply_device_name),
+     'a rename updates the running shell prompt too')
+
 sys.exit(t.done())

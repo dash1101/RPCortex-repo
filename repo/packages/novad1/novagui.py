@@ -2397,7 +2397,7 @@ _APP_CAT = {
     'check': 'System', 'power': 'System', 'settings': 'System', 'diag': 'System',
     'fix': 'System',
     'set_display': 'System', 'set_home': 'System', 'set_network': 'System',
-    'set_security': 'System', 'set_system': 'System',
+    'set_security': 'System', 'set_system': 'System', 'set_device': 'System',
     'kbd': 'Testing',
     'radar': 'Wireless', 'presence': 'Wireless',
 }
@@ -2683,6 +2683,7 @@ def _all_apps():
     apps.append(('set_network', 'Network', _mk_group('Network', _rows_network)))
     apps.append(('set_security', 'Security', _mk_group('Security', _rows_security)))
     apps.append(('set_system', 'System', _mk_group('System', _rows_system)))
+    apps.append(('set_device', 'Device', _mk_group('Device', _rows_device)))
     apps.extend(_script_apps())              # installed button-grid script-apps -> home
     apps.extend(_py_apps())                  # installed kind:py apps -> home
     return apps
@@ -3123,6 +3124,61 @@ def _clock_row():
     except Exception:
         steps = ['80', '125', '150', '200']
     return ('cycle', 'CPU MHz', None, steps, _live_clock, _apply_clock)
+
+
+def _name_editor(key, title, default='', apply=None):
+    """A settings row that edits a stored NAME with the on-screen keyboard.
+
+    Names had to be set from the serial shell with `reg set`, which is fine for a
+    device on a desk and useless for one in a pocket. Returns a factory because
+    settings rows are ('push', label, factory).
+
+    The keyboard is pre-filled with the current value, so changing one character
+    of a name does not mean retyping it."""
+    def _open():
+        cur = str(_reg(key, default) or '')
+
+        def done(text):
+            text = (text or '').strip()
+            if not text:
+                return None          # an empty name is a mistake, not an edit
+            _save_reg(key, text)
+            if apply is not None:
+                try:
+                    apply(text)
+                except Exception:
+                    pass
+            return None
+
+        return KeyboardScreen(title, on_done=done, initial=cur)
+    return _open
+
+
+def _apply_device_name(name):
+    """Keep the shell prompt in step with the device name.
+
+    launchpad reads System.Device_ID once at login into _shell_state['host'], so
+    a change made here would otherwise not show in the prompt until the next
+    login — the setting would look like it had not taken."""
+    try:
+        import sys as _s
+        lp = _s.modules.get('launchpad') or _s.modules.get('Core.launchpad')
+        if lp is not None and hasattr(lp, '_shell_state'):
+            lp._shell_state['host'] = name
+    except Exception:
+        pass
+
+
+def _rows_device():
+    """Names. Who the device is, and who it belongs to."""
+    return [
+        ('info', 'Device', lambda: str(_reg('System.Device_ID', 'vela'))),
+        ('push', 'Rename', _name_editor('System.Device_ID', 'Device name',
+                                        'vela', _apply_device_name)),
+        ('info', 'Owner', lambda: str(_reg('System.Owner', '') or 'not set')),
+        ('push', 'Set owner', _name_editor('System.Owner', 'Owner name')),
+        ('action', 'Accounts', 'users'),
+    ]
 
 
 def _rows_clock():

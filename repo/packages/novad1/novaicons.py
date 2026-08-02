@@ -410,6 +410,16 @@ def _padlock(c, cx, cy, r):           # Security settings — a padlock
     c.fill_rect(cx - 1, y + 2, 2, max(2, bh - 4), 1)   # keyhole
 
 
+def _tag(c, cx, cy, r):               # Device / names — a luggage tag
+    w, h = 2 * r - 2, int(r * 1.2)
+    x, y = cx - r + 3, cy - h // 2
+    _rbox(c, x, y, w - 2, h)
+    c.circle(cx - r + 1, cy, max(1, r // 4), 1)   # the eyelet, off the left edge
+    c.line(cx - r + 1 + max(1, r // 4), cy, x, cy, 1)
+    for i in (1, 2):                              # two written lines
+        c.hline(x + 3, y + i * (h // 3), max(2, w - 8), 1)
+
+
 def _store(c, cx, cy, r):             # App Store — a shopping bag with a handle
     # Body: a bag that is clearly a bag (tapered top edge), not a bare square.
     bx, by = cx - r + 2, cy - r + 5
@@ -572,7 +582,7 @@ _MAP = {
     # folder IS the settings app — so each needs an icon that is not the
     # gear, and not a duplicate of the app it sits beside.
     'set_display': _monitor, 'set_home': _house, 'set_network': _globe,
-    'set_security': _padlock, 'set_system': _gear,
+    'set_security': _padlock, 'set_system': _gear, 'set_device': _tag,
 }
 
 
