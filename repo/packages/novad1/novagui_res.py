@@ -231,6 +231,8 @@ class ResourcesScreen(Screen):
     Check, Battery, WiFi and the shell's meminfo, and none of them updated while
     you watched. Rows scroll; the refresh is on a timer so a slow read can never
     stall the shared event loop more than once a second."""
+    help = ('turn = scroll',
+            'live, 1s refresh')
     def __init__(self):
         self.title = 'Resources'
         self.top = 0

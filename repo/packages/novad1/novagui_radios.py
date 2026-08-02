@@ -20,6 +20,9 @@ class MessagesScreen(Screen):
     reaching for the web panel on a phone — the device can do it itself now.) The
     manager owns the radio + listens in the background, so messages arrive even off
     this screen."""
+    help = ('turn = pick',
+            'OK = write new',
+            'hold OK = ping')
     def __init__(self):
         self.title = 'Messages'
         self.top = 0
@@ -69,7 +72,8 @@ class MessagesScreen(Screen):
                 enc = ' *enc'
         except Exception:
             pass
-        _fit(c, 2, c.h - _FH, (self._sent or 'Sel=write  hold=ping') + enc)
+        if self._sent or enc:
+            _fit(c, 2, c.h - _FH, (self._sent or '') + enc)
 
     def tick(self, dt_ms=0):
         if self._sent_ms > 0:
@@ -454,7 +458,8 @@ class CodeListScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        _fit(c, 2, c.h - _FH, self.msg or ('Sel=' + self.fire_label))
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         if not self.rows:
@@ -514,6 +519,7 @@ class CodeListScreen(Screen):
 
 class IRCaptureScreen(Screen):
     """Record a raw IR burst and save it as a Flipper-compatible .ir file."""
+    help = ('OK = record a code',)
     def __init__(self):
         self.title = 'Record IR'
         self.msg = 'point remote+Sel'
@@ -522,7 +528,6 @@ class IRCaptureScreen(Screen):
     def draw(self, c):
         c.text(2, _TOP, 'Record IR', 1)
         _fit(c, 2, _TOP + _ROWH, self.msg)
-        _fit(c, 2, c.h - _FH, 'Sel=rec')
 
     def tick(self, dt_ms=0):
         if not self._cap:
@@ -583,7 +588,8 @@ class IRSignalsScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        _fit(c, 2, c.h - _FH, self.msg or 'Sel=send')
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -640,7 +646,8 @@ class IRFilesScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        _fit(c, 2, c.h - _FH, self.msg or 'Sel=open Home=del')
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         rows_list = ['+ Record'] + self._files()
@@ -844,7 +851,8 @@ class ButtonGridScreen(Screen):
             else:
                 c.rect(x, y, bw - 2, bh - 2, 1)
                 c.text(x + 3, y + 2, lbl, 1)
-        _fit(c, 2, c.h - _FH, self.msg or 'Sel=run')
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         n = len(self.buttons)

@@ -17,6 +17,10 @@ from novacore import reg as _reg, save_reg as _save_reg  # noqa
 
 class WiFiScreen(Screen):
     """Functional WiFi app: show status, scan, connect to a saved network."""
+    help = ('OK = scan',
+            'hold OK = add a net',
+            'on a net: OK = join',
+            'hold OK = forget it')
     def __init__(self):
         self.title = 'WiFi'
         self.nets = []          # list of (ssid, rssi, saved)
@@ -46,7 +50,7 @@ class WiFiScreen(Screen):
         c.text(2, _TOP, self._status_line()[:16], 1)
         if self.nets:
             entries = self._rows()
-            rows = (c.h - _TOP - _ROWH) // _ROWH
+            rows = (c.h - _TOP - _ROWH) // _ROWH + 1   # the hint row is now free
             if self.sel < self.top:
                 self.top = self.sel
             elif self.sel >= self.top + rows:
@@ -64,13 +68,11 @@ class WiFiScreen(Screen):
                     _fit(c, 2, y, row, 0)
                 else:
                     _fit(c, 2, y, row, 1)
-            cur = entries[self.sel] if self.sel < len(entries) else (None, 0, False)
-            _fit(c, 2, c.h - _FH,
-                 'Sel=add' if cur[0] is None
-                 else ('Sel=join  hold=forget' if cur[2] else 'Sel=join'))
+            # No hint row: the controls are in `help`, and the list gets the space.
+            # Leaving it here would have drawn over the extra entry the list can
+            # now show, which is what removing the OTHER hint had just bought.
         else:
             _fit(c, 2, _TOP + _ROWH, self.msg)
-            _fit(c, 2, c.h - _FH, 'OK=scan   hold=add')
 
     def tick(self, dt_ms=0):
         if self._pending == 'scan':
@@ -248,6 +250,9 @@ class WiFiScreen(Screen):
 
 class TimeScreen(Screen):
     """Set the hardware clock (hour/minute). Select switches field, turn adjusts."""
+    help = ('turn = change value',
+            'OK = next field',
+            'hold OK = save')
     def __init__(self):
         self.title = 'Set Time'
         self.field = 0
@@ -268,7 +273,6 @@ class TimeScreen(Screen):
         # underline the active field
         ux = x if self.field == 0 else x + 3 * _ADV * sc
         c.hline(ux, y + _FH * sc + 1, 2 * _ADV * sc, 1)
-        _fit(c, 2, c.h - _FH, 'Sel=field  Sel-hold=set')
 
     def on_event(self, e):
         d = 1 if e == ev.ROT_CW else (-1 if e == ev.ROT_CCW else 0)
@@ -376,6 +380,8 @@ class SystemCheckScreen(Screen):
 
 class NotificationsScreen(Screen):
     """View recent notifications (newest first); Select clears. Marks read on open."""
+    help = ('turn = scroll',
+            'OK = clear all')
     def __init__(self):
         self.title = 'Alerts'
         self.top = 0
@@ -411,7 +417,6 @@ class NotificationsScreen(Screen):
             if idx >= len(wl):
                 break
             c.text(2, _TOP + i * _ROWH, wl[idx], 1)
-        c.text(2, c.h - _FH, 'Sel=clear', 1)
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -660,6 +665,8 @@ class TZScreen(Screen):
     Titled 'Timezone' rather than 'UTC Offset' because the longer string does not
     fit the status bar once the clock and status icons have taken their share, and
     a title that has to be truncated to fit is one that should have been shorter."""
+    help = ('turn = adjust',
+            'OK = save')
     title = 'Timezone'
 
     # The real range of civil offsets. Whole hours only: nothing on this device
@@ -685,7 +692,6 @@ class TZScreen(Screen):
         c.text(max(0, (c.w - c.text_width(lbl, 2)) // 2), c.h // 2 - _FH, lbl, 1, 2)
         # 19 characters, because the panel is 20 wide and the old hint ran off the
         # edge mid-word -- it read 'OK = s', which is worse than no hint at all.
-        _fit(c, 2, c.h - _FH, 'saved' if self.saved else 'turn=adjust  OK=save')
 
     def on_event(self, e):
         if e == ev.ROT_CW:
@@ -710,6 +716,7 @@ class VersionsScreen(Screen):
     firmware version only from the shell. When something behaves oddly the first
     question is always "which of these am I actually running", and it should not
     take four screens to answer."""
+    help = ('turn = scroll')
     title = 'Versions'
 
     def __init__(self):
@@ -811,6 +818,7 @@ class ScreenLock(Screen):
 
     The gesture is a HOLD of SELECT rather than a tap, for the same reason the
     shutdown wake is a hold: a single press is exactly what a pocket produces."""
+    help = ('hold OK = unlock',)
     fullscreen = True
     title = 'Locked'
 

@@ -67,6 +67,10 @@ class ShellScreen(Screen):
     grid to maintain. It is a transcript plus one editable line, which is all the
     encoder and two buttons can actually drive, and it means the expensive part
     (the keyboard) only exists while you are typing."""
+    help = ('hold OK = keyboard',
+            'OK = run (Enter)',
+            'turn = scroll back',
+            'BACK = clear input')
 
     def __init__(self):
         self.title = 'Shell'

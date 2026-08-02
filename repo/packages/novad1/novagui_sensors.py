@@ -106,6 +106,8 @@ class ClockScreen(Screen):
     """A big clock (time + date) with a stopwatch. Turn to switch Clock <-> Stopwatch.
     Stopwatch: SELECT = start / stop / reset. A real Tools app (reads the RTC; the
     device shows local time, same source as the status-bar clock)."""
+    help = ('turn = stopwatch',
+            'OK = start / stop')
     def __init__(self):
         self.title = 'Clock'
         self.view = 0            # 0 = clock, 1 = stopwatch
@@ -141,7 +143,6 @@ class ClockScreen(Screen):
             dow = days[t[6]] if 0 <= t[6] < 7 else ''
             ds = '{} {:04d}-{:02d}-{:02d}'.format(dow, t[0], t[1], t[2])
             c.text(max(0, (c.w - len(ds) * _ADV) // 2), _TOP + 4 + _FH * 2 + 5, ds, 1)
-            c.text(2, c.h - _FH, 'turn: stopwatch', 1)
         else:
             cs = self.sw_ms // 10                    # centiseconds
             self._big(c, '{:02d}:{:02d}.{:1d}'.format(cs // 6000, (cs // 100) % 60, (cs // 10) % 10))

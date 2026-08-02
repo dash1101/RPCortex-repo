@@ -286,6 +286,11 @@ def draw_status_bar(c, state):
         x -= 9
         _bell(c, x, 1)
     title = state.get('title', 'Nova D1')
+    # A '?' after the title marks a screen whose controls are documented, so the
+    # hints can come off the body without becoming undiscoverable. One glyph, in
+    # the bar that is already there, instead of a row out of six.
+    if state.get('help'):
+        title = title + ' ?'
     avail = title_budget(c, x)
     while title and c.text_width(title, 1, True) > avail:
         title = title[:-1]
@@ -924,7 +929,8 @@ class ScriptsScreen(Screen):
                 c.text(4, y, label, 0)
             else:
                 c.text(4, y, label, 1)
-        _fit(c, 2, c.h - _FH, self.msg or 'Sel=open')
+        if self.msg:
+            _fit(c, 2, c.h - _FH, self.msg)
 
     def on_event(self, e):
         files = self._files()
@@ -1059,6 +1065,7 @@ class NovaUI:
         if not getattr(scr, 'fullscreen', False):
             st = self._get_state(now)
             st['title'] = scr.title
+            st['help'] = bool(getattr(scr, 'help', ()))
             draw_status_bar(c, st)
             self._draw_home_hold(c)
         scr.draw(c)
@@ -1424,6 +1431,26 @@ def _mk_test(key, label):
     return lambda: ModuleTestScreen(key, label)
 
 
+def _controls_for_current():
+    """Show the controls for the screen the user was on when they held HOME.
+
+    That screen is one BELOW this menu on the stack: holding HOME pushed the
+    power menu on top of it. Reading stack[-1] would document the power menu
+    itself, which is the one screen nobody needs help with."""
+    from novaui import HelpScreen
+    scr = None
+    try:
+        st = _active_ui.stack if _active_ui is not None else []
+        for cand in reversed(st):
+            if not (isinstance(cand, Menu) and getattr(cand, 'title', '') == 'Power'):
+                scr = cand
+                break
+    except Exception:
+        scr = None
+    name = getattr(scr, 'title', 'Controls') if scr is not None else 'Controls'
+    return HelpScreen(name, getattr(scr, 'help', ()) if scr is not None else ())
+
+
 def _power_lock():
     """Lock the device.
 
@@ -1762,6 +1789,7 @@ def _power_menu():
     # restarts the GUI service so it re-reads the pin config (apply a 'd1 pins'
     # change without a full reboot); Reboot reloads the whole OS.
     return Menu('Power', [
+        ('Controls', _controls_for_current),
         ('Lock', _power_lock),
         ('Incognito', StealthSplashScreen),
         ('Reload', lambda: CommandScreen('Reload', 'novad1 refresh')),

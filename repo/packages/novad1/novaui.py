@@ -26,8 +26,21 @@ _ROWH = _FH + 2
 
 class Screen:
     """Base screen. draw(c) paints from _TOP down; tick(dt_ms) returns True only when a
-    redraw is needed; on_event(e) returns None / 'back' / 'home' / a new Screen to push."""
+    redraw is needed; on_event(e) returns None / 'back' / 'home' / a new Screen to push.
+
+    `help` is how a screen documents its controls. Every screen with a non-obvious
+    gesture used to spend its bottom ROW on a hint like 'Sel=rec' or
+    'turn=adjust  OK=save' — permanently, on a panel six rows tall. That is a
+    sixth of the display given over to text you read once and then never again,
+    and it is the reason lists showed five entries instead of six.
+
+    Put the hints here instead. They are shown on demand from the Controls screen
+    (hold HOME, which is already the universal gesture), and the status bar marks
+    a screen that has them with a '?'. A dynamic STATUS message is different and
+    still belongs on screen — 'Connected', 'Wrong password?' — because that is
+    feedback about what just happened, not a manual."""
     title = 'Screen'
+    help = ()
 
     def draw(self, c):
         pass
@@ -90,6 +103,47 @@ def strip_ansi(s):
             out += s[i]
             i += 1
     return out
+
+
+class HelpScreen(Screen):
+    """The controls for whatever screen you came from.
+
+    Deliberately plain: a list of 'gesture = what it does' lines, scrollable when
+    there are more than fit. The universal ones (HOME quits, hold HOME for this
+    screen) are appended for every app, because they are the two people forget."""
+    title = 'Controls'
+
+    UNIVERSAL = ('HOME = quit to home', 'hold HOME = controls')
+
+    def __init__(self, name='Controls', lines=()):
+        self.name = name
+        self.lines = list(lines) + list(self.UNIVERSAL)
+        self.top = 0
+
+    def _visible(self, c):
+        return max(1, (c.h - _TOP) // _ROWH)
+
+    def draw(self, c):
+        vis = self._visible(c)
+        n = len(self.lines)
+        if self.top > max(0, n - vis):
+            self.top = max(0, n - vis)
+        for i in range(vis):
+            idx = self.top + i
+            if idx >= n:
+                break
+            fit(c, 2, _TOP + i * _ROWH, self.lines[idx])
+        if n > vis:
+            scrollbar(c, c.w - _SB_W, _TOP, c.h - _TOP, self.top, vis, n)
+
+    def on_event(self, e):
+        if e == ev.ROT_CW:
+            self.top += 1
+        elif e == ev.ROT_CCW:
+            self.top = max(0, self.top - 1)
+        elif e in (ev.BACK, ev.HOME, ev.SELECT):
+            return 'back'
+        return None
 
 
 def fit(c, x, y, s, col=1):
