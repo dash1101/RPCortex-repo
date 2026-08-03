@@ -2,5 +2,13 @@
   "greet": {
     "desc": "Worked example package - registers a 'greet' shell command",
     "author": "dash1101"
+  },
+  "bench": {
+    "desc": "RPCMark - the cross-version benchmark, same workload as the MicroPython build",
+    "author": "dash1101"
+  },
+  "stress": {
+    "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
+    "author": "dash1101"
   }
 }

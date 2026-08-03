@@ -4,6 +4,17 @@
   "maintainer": "dash1101",
   "packages": [
     {
+      "name": "bench",
+      "ver": "1.0",
+      "desc": "RPCMark - the cross-version benchmark, same workload as the MicroPython build",
+      "author": "dash1101",
+      "abi": "1.3",
+      "arch": "armv6m",
+      "size": 4336,
+      "sha256": "6656e40cc76189a284147b5fe1a2601050bc59e3f1b8fa0b08d23bd3abe1aa91",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/bench.app"
+    },
+    {
       "name": "greet",
       "ver": "1.0",
       "desc": "Worked example package - registers a 'greet' shell command",
@@ -13,6 +24,17 @@
       "size": 1732,
       "sha256": "44959f9fa4d7293c9f3a0ee8e4328c4923038c01e4c14a3d4353d8b3c7dcbc04",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/greet.app"
+    },
+    {
+      "name": "stress",
+      "ver": "1.0",
+      "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
+      "author": "dash1101",
+      "abi": "1.3",
+      "arch": "armv6m",
+      "size": 11048,
+      "sha256": "746147d5e914448fd7aa90feb60fc4a3fb897483880b304c5c4f99255ecc1c31",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/stress.app"
     }
   ]
 }
