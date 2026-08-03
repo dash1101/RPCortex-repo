@@ -14,5 +14,25 @@
   "tuidemo": {
     "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
     "author": "dash1101"
+  },
+  "calc": {
+    "desc": "Shell calculator - arithmetic, math functions and base conversion",
+    "author": "dash1101"
+  },
+  "gpio": {
+    "desc": "Drive and read GPIO pins, plus the ADC and the die temperature",
+    "author": "dash1101"
+  },
+  "i2cscan": {
+    "desc": "Scan the I2C bus and name what answers",
+    "author": "dash1101"
+  },
+  "dht": {
+    "desc": "Read DHT11 and DHT22 temperature and humidity sensors",
+    "author": "dash1101"
+  },
+  "probe": {
+    "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
+    "author": "dash1101"
   }
 }

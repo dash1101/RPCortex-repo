@@ -15,6 +15,39 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/bench.app"
     },
     {
+      "name": "calc",
+      "ver": "1.0",
+      "desc": "Shell calculator - arithmetic, math functions and base conversion",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 9660,
+      "sha256": "893c5009a9d860f7adeda9a148dccfa99d7cafa73956de49d1f4d52f01262404",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/calc.app"
+    },
+    {
+      "name": "dht",
+      "ver": "2.0",
+      "desc": "Read DHT11 and DHT22 temperature and humidity sensors",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 4352,
+      "sha256": "27040769019f60a4af943e584cff7fb77472ce7aac3d062229a7ded85ae679fa",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/dht.app"
+    },
+    {
+      "name": "gpio",
+      "ver": "2.0",
+      "desc": "Drive and read GPIO pins, plus the ADC and the die temperature",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 6020,
+      "sha256": "39a37c0203bf4447dd3307567a8412fdfd193231659462fa63cefdd72191e608",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/gpio.app"
+    },
+    {
       "name": "greet",
       "ver": "1.0",
       "desc": "Worked example package - registers a 'greet' shell command",
@@ -24,6 +57,28 @@
       "size": 1732,
       "sha256": "44959f9fa4d7293c9f3a0ee8e4328c4923038c01e4c14a3d4353d8b3c7dcbc04",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/greet.app"
+    },
+    {
+      "name": "i2cscan",
+      "ver": "2.0",
+      "desc": "Scan the I2C bus and name what answers",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 4864,
+      "sha256": "b538567cd60b6f0ca9dfe43ef1269b7831cac7583a1bc420c09f2bce700ea244",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/i2cscan.app"
+    },
+    {
+      "name": "probe",
+      "ver": "1.0",
+      "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 5292,
+      "sha256": "4cc3c51e931cd025be2e46bc38abdb44440644b8cbbf60399d21aa61c034e923",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
     },
     {
       "name": "stress",
