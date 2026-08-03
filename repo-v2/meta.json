@@ -10,5 +10,9 @@
   "stress": {
     "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
     "author": "dash1101"
+  },
+  "tuidemo": {
+    "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
+    "author": "dash1101"
   }
 }

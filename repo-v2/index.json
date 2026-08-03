@@ -35,6 +35,17 @@
       "size": 11048,
       "sha256": "746147d5e914448fd7aa90feb60fc4a3fb897483880b304c5c4f99255ecc1c31",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/stress.app"
+    },
+    {
+      "name": "tuidemo",
+      "ver": "1.0",
+      "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
+      "author": "dash1101",
+      "abi": "1.4",
+      "arch": "armv6m",
+      "size": 5032,
+      "sha256": "20406780bbbef801a420246ef8252c1b951c4f37fc122c493ea66b648da770af",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/tuidemo.app"
     }
   ]
 }
