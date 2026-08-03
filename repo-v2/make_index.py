@@ -138,6 +138,10 @@ def build(check_only=False):
             'name':   name,
             'ver':    version,
             'desc':   info.get('desc', ''),
+            # Diagnostics and worked examples, marked so they can be told apart
+            # from packages someone would actually want. They exist to prove the
+            # OS works and are the first thing to drop from a release.
+            'kind':   info.get('kind', 'app'),
             'author': info.get('author', 'dash1101'),
             'abi':    '%d.%d' % (major, minor),
             'arch':   'armv6m',

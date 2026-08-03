@@ -1,19 +1,23 @@
 {
   "greet": {
     "desc": "Worked example package - registers a 'greet' shell command",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "example"
   },
   "bench": {
     "desc": "RPCMark - the cross-version benchmark, same workload as the MicroPython build",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "test"
   },
   "stress": {
     "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "test"
   },
   "tuidemo": {
     "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "example"
   },
   "calc": {
     "desc": "Shell calculator - arithmetic, math functions and base conversion",
@@ -33,10 +37,12 @@
   },
   "probe": {
     "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "test"
   },
   "ws2812": {
     "desc": "Addressable LED strips, driven through PIO for exact timing",
-    "author": "dash1101"
+    "author": "dash1101",
+    "kind": "example"
   }
 }
