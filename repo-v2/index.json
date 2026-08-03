@@ -74,10 +74,10 @@
       "ver": "1.0",
       "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
       "author": "dash1101",
-      "abi": "1.6",
+      "abi": "1.7",
       "arch": "armv6m",
-      "size": 5292,
-      "sha256": "caca02d3b142c95913341079b2f6fb0d416bda8f27d065c5f058a98130c24bd1",
+      "size": 6832,
+      "sha256": "2e3a596db78ce1cf7bb085edfdb713e5255f47315ed2a32146fc405f55fd4630",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
     },
     {
