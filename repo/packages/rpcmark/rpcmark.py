@@ -1,221 +1,182 @@
 # Desc: RPCMark benchmark package for RPCortex - Vela OS
 # File: /Packages/RPCMark/rpcmark.py
-# Last Updated: 6/11/2026
 # Lang: MicroPython, English
-# Version: v2.1.0
+# Version: v3.0.0
 # Author: dash1101
 #
 # Shell command: bench
-# A CPU/RAM benchmark. Lives as a package so it can be updated (or removed and
-# reinstalled) through the package manager.
-# (Formerly "NebulaMark", then "PulseMark" — now permanently "RPCMark".)
+#
+# The workloads and iteration counts match the v2 (C++) build's bench command
+# exactly, and both sides score with the same formula against the same reference
+# figures. Anything that differed between them would make the comparison a story
+# rather than a measurement.
+#
+# The previous benchmark is still here, as 'bench classic'. It measures a
+# different thing (mandelbrot, pi, arithmetic throughput) and its numbers are not
+# comparable with v2 — which is exactly why the default changed. It lives in a
+# separate module so it costs no import-time RAM unless it is asked for.
 
-import gc
-import sys
+import utime
 
-# Benchmark core (v2.0) written by: shaoziyang
-# Website: https://github.com/shaoziyang/micropython_benchmarks
+from RPCortex import info, multi, ok, warn
 
-tr = []
+# Matched to os/apps/bench/bench.cpp in the v2 repo. Changing one without the
+# other silently breaks the comparison, and nothing would report an error.
+INT_ITER   = 200000
+MEM_BYTES  = 8192
+MEM_PASSES = 40
+CALL_ITER  = 100000
+STR_ITER   = 2000
+FS_ITER    = 20
+
+# Reference milliseconds: the time a v1.0 device is expected to take. A device
+# that hits these exactly scores 200 per test, so v1.0 lands near 1000 overall
+# and a score reads as "this many times a v1.0 device".
+#
+# These are estimates until a real v1.0 run replaces them. That does not affect
+# the comparison: both builds divide by the same constants, so the RATIO between
+# two scores is exact regardless. Only the 1000 anchor depends on them.
+REF = {
+    'integer': 18700,
+    'memory':   9400,
+    'function': 8100,
+    'string':   6200,
+    'filesys':   420,
+}
+
+# A root-level file rather than v2's /tmp/bench.tmp: v1 has no /tmp. The work is
+# the same write/read/remove either way.
+_TMP = '/rpcmark.tmp'
+
+_USAGE = """bench - RPCMark, the cross-version benchmark
+
+  bench           run the benchmark (comparable with the v2 build)
+  bench classic   the older benchmark - different workload, not comparable
+  bench help      this help
+
+The score is fixed work over elapsed time, so higher is faster."""
 
 
-def RPCMark():
-    global tr
-    tr = []   # reset between runs — module stays cached in the shell scope
+def _bench_int():
+    t0 = utime.ticks_ms()
+    acc = 0
+    for i in range(1, INT_ITER + 1):
+        acc += i
+        acc ^= (acc >> 3)
+        acc += (i * 7)
+        acc &= 0xFFFFFFFF          # C++ wraps at 32 bits; match it
+    return utime.ticks_diff(utime.ticks_ms(), t0)
 
-    try:
-        from time import ticks_ms, ticks_diff
-        import machine
-        TEST_ENV = 'micropython'
 
-        def freq():
-            try:
-                f = machine.freq()//1000000
-            except:
-                f = machine.freq()[0]//1000000
-            return f
-    except:
-        from time import monotonic_ns
+def _bench_mem():
+    buf = bytearray(MEM_BYTES)
+    for i in range(MEM_BYTES):
+        buf[i] = i & 0xFF
+    t0 = utime.ticks_ms()
+    total = 0
+    for _ in range(MEM_PASSES):
+        for i in range(MEM_BYTES):
+            total += buf[i]
+    return utime.ticks_diff(utime.ticks_ms(), t0)
 
-        def ticks_ms():
-            return monotonic_ns()//1000000
 
-        def ticks_diff(T2, T1):
-            return T2 - T1
+def _leaf(a, b):
+    return a + b
 
+
+def _bench_call():
+    t0 = utime.ticks_ms()
+    acc = 0
+    for i in range(CALL_ITER):
+        acc = _leaf(acc, i)
+    return utime.ticks_diff(utime.ticks_ms(), t0)
+
+
+def _bench_str():
+    t0 = utime.ticks_ms()
+    hits = 0
+    for i in range(STR_ITER):
+        s = "item" + str(i)
+        for ch in s:
+            if ch == '7':
+                hits += 1
+    return utime.ticks_diff(utime.ticks_ms(), t0)
+
+
+def _bench_fs():
+    data = b'abcdefghijklmnopqrstuvwxyz' * 10
+    data = data[:256]
+    t0 = utime.ticks_ms()
+    for _ in range(FS_ITER):
         try:
-            import board
-            TEST_ENV = 'circuitpython'
+            with open(_TMP, 'wb') as f:
+                f.write(data)
+            with open(_TMP, 'rb') as f:
+                f.read()
+            import uos
+            uos.remove(_TMP)
+        except OSError:
+            break
+    return utime.ticks_diff(utime.ticks_ms(), t0)
 
-            import microcontroller
 
-            def freq():
-                return microcontroller.cpu.frequency//1000000
+def _score(ms, ref):
+    if ms <= 0:
+        ms = 1
+    return (ref * 200) // ms
 
-        except:
-            TEST_ENV = 'OTHER'
 
-            try:
-                import psutil
+def _run():
+    multi("")
+    multi("=== RPCMark ===")
+    multi("Same workload as the C++ build, so the numbers compare.")
+    multi("")
+    multi("  {:<12} {:>9}   {:>5}".format("TEST", "TIME", "SCORE"))
+    multi("  " + "-" * 30)
 
-                def freq():
-                    return psutil.cpu_freq().max
-            except:
-                def freq():
-                    return 'unknown'
+    total = 0
+    for name, fn in (('integer',  _bench_int),
+                     ('memory',   _bench_mem),
+                     ('function', _bench_call),
+                     ('string',   _bench_str),
+                     ('filesys',  _bench_fs)):
+        ms = fn()
+        sc = _score(ms, REF[name])
+        total += sc
+        multi("  {:<12} {:>6} ms   {:>5}".format(name, ms, sc))
 
-    def memory():
-        try:
-            r = gc.mem_free()+gc.mem_alloc()
-        except:
-            try:
-                r = psutil.virtual_memory().total
-            except:
-                r = 'unknown'
-        return r
-
-    PLATFORM = sys.platform
-    VERSION = sys.version
-    FREQ = freq()
-    MEMORY = memory()
-
-    def run_test(func, *param):
-        gc.collect()
-        try:
-            t1 = ticks_ms()
-            if param == None:
-                func()
-            else:
-                func(*param)
-            t2 = ticks_ms()
-            dt = ticks_diff(t2, t1)
-            print('Calculation time:', dt, 'ms\n')
-            return dt
-        except:
-            print('Error occurred during operation!')
-
-    def mandelbrot_test(p):
-        iter = p[0]
-        def in_set(c):
-            z = 0
-            for i in range(iter):
-                z = z * z + c
-                if abs(z) > 4:
-                    return False
-            return True
-
-        r = ''
-        for v in range(31):
-            for u in range(81):
-                if in_set((u / 30 - 2) + (v / 15 - 1) * 1j):
-                    r += ' '
-                else:
-                    r += '#'
-            r += '\n'
-        if len(p) > 1 and p[1]:
-            print(r)
-
-    def pi_test(p):
-        iter = p[0]
-        extra = 8
-        one = 10 ** (iter+extra)
-        t, c, n, na, d, da = 3*one, 3*one, 1, 0, 0, 24
-
-        while t > 1:
-            n, na, d, da = n+na, na+8, d+da, da+32
-            t = t * n // d
-            c += t
-        return c // (10 ** extra)
-
-    def add_test(p):
-        for i in range(p[0]):
-            C = p[1] + p[2]
-
-    def mul_test(p):
-        for i in range(p[0]):
-            C = p[1] * p[2]
-
-    def div_test(p):
-        for i in range(p[0]):
-            C = p[1] / p[2]
-
-    def pow_test(p):
-        for i in range(p[0]):
-            C = p[1] ** p[2]
-
-    INT_ADD_TEST_LIST = ('Integer addition {} times', add_test, [12345678, 56781234], 10000, 100000, 1000000)
-    INT_MUL_TEST_LIST = ('Integer multiplication {} times', mul_test, [12345678, 56781234], 10000, 100000, 1000000)
-    INT_DIV_TEST_LIST = ('Integer division {} times', div_test, [99999991, 45481], 10000, 100000, 1000000)
-    FLOAT_ADD_TEST_LIST = ('Float addition {} times', add_test, [12345678.1234, 56781234.5678], 10000, 100000, 1000000)
-    FLOAT_MUL_TEST_LIST = ('Float multiplication {} times', mul_test, [12345678.1234, 56781234.5678], 10000, 100000, 1000000)
-    FLOAT_DIV_TEST_LIST = ('Float division {} times', div_test, [99999991.2345, 45481.1357], 10000, 100000, 1000000)
-    POWER_TEST_LIST = ('Power calculation {} times', pow_test, [1234.5678, 2.3456], 10000, 100000, 1000000)
-    MAND_TEST_LIST = ('Mandelbrot iterating {} times', mandelbrot_test, [], 100, 500, 5000)
-    PI_TEST_LIST = ('Pi Calculation {} bits', pi_test, [], 1000, 5000, 10000, 100000, 200000)
-
-    TEST_LIST = (
-        INT_ADD_TEST_LIST, INT_MUL_TEST_LIST, INT_DIV_TEST_LIST,
-        FLOAT_ADD_TEST_LIST, FLOAT_MUL_TEST_LIST, FLOAT_DIV_TEST_LIST,
-        POWER_TEST_LIST,
-        MAND_TEST_LIST,
-        PI_TEST_LIST
-    )
-
-    def run():
-        global tr
-
-        for TEST in TEST_LIST:
-            for item in TEST:
-                if type(item) == int:
-                    print(TEST[0].format(item))
-                    p = TEST[2].copy()
-                    p.insert(0, item)
-                    r = run_test(TEST[1], p)
-                    tr.append([TEST[0].format(item), str(r)])
-
-    def print_result():
-        print('|{:36}|{:12}|'.format('item', 'result'))
-        print('|{:36}|{:12}|'.format('-', '  :-:'))
-        print('|{:36}|{:12}|'.format('Platform', PLATFORM))
-        print('|{:36}|{:12}|'.format('Version', VERSION))
-        print('|{:36}|{:12}|'.format('Frequency', FREQ))
-        print('|{:36}|{:12}|'.format('Memory', MEMORY))
-
-        for i in range(len(tr)):
-            print('|{:36}|{:12}|'.format(tr[i][0], tr[i][1]))
-
-    ###############################################################################
-
-    print('\n\n')
-    print('##############')
-    print('# Begin test #')
-    print('##############')
-
-    print('\nEnvironment:', TEST_ENV)
-    print('Platform:', PLATFORM)
-    print('Version:', VERSION)
-    print('Frequency:', FREQ)
-    print('Memory:', MEMORY)
-    print()
-
-    run()
-
-    print('\nTest finished.')
-    print('==============')
-
-    print_result()
+    multi("  " + "-" * 30)
+    multi("  {:<12} {:>9}   {:>5}".format("TOTAL", "", total))
+    multi("")
+    multi("  Run 'bench' on a v2 device for its number.")
+    multi("")
 
 
 def bench(args=None):
-    """Shell entry point: run the RPCMark benchmark."""
-    if isinstance(args, str) and args.strip().lower() in ('help', '-h', '--help', '?'):
-        print('  bench - RPCMark CPU/RAM benchmark')
-        print('    bench        run the benchmark (takes a little while)')
-        print('    bench help   this help')
+    args = (args or '').strip()
+    sub = args.split(None, 1)[0].lower() if args else ''
+
+    if sub in ('help', '-h', '--help', '?'):
+        for line in _USAGE.split('\n'):
+            multi("  " + line)
         return
-    print('Starting RPCMark benchmark - this will take a while...')
-    RPCMark()
 
+    if sub == 'classic':
+        # Lazy: the classic suite is only loaded when asked for, so the common
+        # path does not pay for it.
+        info("Running the classic benchmark - not comparable with v2.")
+        try:
+            import rpcmark_classic
+        except ImportError:
+            warn("Classic benchmark not installed.")
+            return
+        rpcmark_classic.run()
+        return
 
-if __name__ == '__main__':
-    bench()
+    if sub:
+        warn("Unknown option '{}'.  Try 'bench help'.".format(sub))
+        return
+
+    info("Running RPCMark - this takes a little while.")
+    _run()
+    ok("Benchmark complete.")

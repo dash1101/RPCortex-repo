@@ -11,8 +11,8 @@
     },
     {
       "name": "RPCMark",
-      "ver": "2.1.1",
-      "desc": "CPU/RAM benchmark (bench)",
+      "ver": "3.0.0",
+      "desc": "Cross-version benchmark - the same workload v2 runs as 'bench' (bench / bench classic)",
       "author": "dash1101",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo/packages/rpcmark.pkg"
     },
