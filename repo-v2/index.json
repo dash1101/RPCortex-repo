@@ -43,8 +43,8 @@
       "author": "dash1101",
       "abi": "1.4",
       "arch": "armv6m",
-      "size": 5032,
-      "sha256": "20406780bbbef801a420246ef8252c1b951c4f37fc122c493ea66b648da770af",
+      "size": 5176,
+      "sha256": "c9368b1be00493ff800487c6a240f34c270c6409cc39f8e6fc52377066aea269",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/tuidemo.app"
     }
   ]
