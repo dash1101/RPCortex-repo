@@ -41,10 +41,10 @@
       "ver": "1.0",
       "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
       "author": "dash1101",
-      "abi": "1.4",
+      "abi": "1.5",
       "arch": "armv6m",
-      "size": 5460,
-      "sha256": "3eb74ad68860af6aaa56718dab9246023113db39d0d90cf0a1e485598b481531",
+      "size": 5596,
+      "sha256": "45c9a5b28fd30e7cf96a2b307794a06347ff15108675e445df8007beb6a3b1c4",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/tuidemo.app"
     }
   ]
