@@ -60,24 +60,24 @@
     },
     {
       "name": "i2cscan",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "Scan the I2C bus and name what answers",
       "author": "dash1101",
-      "abi": "1.6",
+      "abi": "1.7",
       "arch": "armv6m",
       "size": 4864,
-      "sha256": "2965851e9df33df084c852a15f1c803d91392f4aa2f2f904ceae11b47c9d85ca",
+      "sha256": "d44af6015580de79fce3e830e8507ce30dee8270dceb4aeb1f1df0db149457b7",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/i2cscan.app"
     },
     {
       "name": "probe",
-      "ver": "1.0",
+      "ver": "1.1",
       "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
       "author": "dash1101",
       "abi": "1.7",
       "arch": "armv6m",
       "size": 6832,
-      "sha256": "2e3a596db78ce1cf7bb085edfdb713e5255f47315ed2a32146fc405f55fd4630",
+      "sha256": "ed10ae1d90f15bc079e0c3cd0f46dd36b6a2c94bd5b71f1151ec5d3dafd81b07",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
     },
     {
