@@ -66,7 +66,7 @@
       "abi": "1.6",
       "arch": "armv6m",
       "size": 4864,
-      "sha256": "b538567cd60b6f0ca9dfe43ef1269b7831cac7583a1bc420c09f2bce700ea244",
+      "sha256": "2965851e9df33df084c852a15f1c803d91392f4aa2f2f904ceae11b47c9d85ca",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/i2cscan.app"
     },
     {
@@ -77,7 +77,7 @@
       "abi": "1.6",
       "arch": "armv6m",
       "size": 5292,
-      "sha256": "4cc3c51e931cd025be2e46bc38abdb44440644b8cbbf60399d21aa61c034e923",
+      "sha256": "caca02d3b142c95913341079b2f6fb0d416bda8f27d065c5f058a98130c24bd1",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
     },
     {
