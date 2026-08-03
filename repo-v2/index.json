@@ -101,6 +101,17 @@
       "size": 5596,
       "sha256": "45c9a5b28fd30e7cf96a2b307794a06347ff15108675e445df8007beb6a3b1c4",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/tuidemo.app"
+    },
+    {
+      "name": "ws2812",
+      "ver": "1.0",
+      "desc": "Addressable LED strips, driven through PIO for exact timing",
+      "author": "dash1101",
+      "abi": "1.8",
+      "arch": "armv6m",
+      "size": 5092,
+      "sha256": "826073115230e3efc78751f37e1be93e9e81449fa0d9c71ec2899b2d58bec5e5",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/ws2812.app"
     }
   ]
 }

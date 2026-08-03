@@ -34,5 +34,9 @@
   "probe": {
     "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
     "author": "dash1101"
+  },
+  "ws2812": {
+    "desc": "Addressable LED strips, driven through PIO for exact timing",
+    "author": "dash1101"
   }
 }
