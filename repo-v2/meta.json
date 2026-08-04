@@ -4,16 +4,6 @@
     "author": "dash1101",
     "kind": "example"
   },
-  "bench": {
-    "desc": "RPCMark - the cross-version benchmark, same workload as the MicroPython build",
-    "author": "dash1101",
-    "kind": "test"
-  },
-  "stress": {
-    "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
-    "author": "dash1101",
-    "kind": "test"
-  },
   "tuidemo": {
     "desc": "Worked example of a full-screen package - lists, colour, keys and mouse",
     "author": "dash1101",
@@ -34,11 +24,6 @@
   "dht": {
     "desc": "Read DHT11 and DHT22 temperature and humidity sensors",
     "author": "dash1101"
-  },
-  "probe": {
-    "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
-    "author": "dash1101",
-    "kind": "test"
   },
   "ws2812": {
     "desc": "Addressable LED strips, driven through PIO for exact timing",

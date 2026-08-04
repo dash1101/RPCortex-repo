@@ -4,18 +4,6 @@
   "maintainer": "dash1101",
   "packages": [
     {
-      "name": "bench",
-      "ver": "1.0",
-      "desc": "RPCMark - the cross-version benchmark, same workload as the MicroPython build",
-      "kind": "test",
-      "author": "dash1101",
-      "abi": "1.3",
-      "arch": "armv6m",
-      "size": 4336,
-      "sha256": "6656e40cc76189a284147b5fe1a2601050bc59e3f1b8fa0b08d23bd3abe1aa91",
-      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/bench.app"
-    },
-    {
       "name": "calc",
       "ver": "1.0",
       "desc": "Shell calculator - arithmetic, math functions and base conversion",
@@ -74,30 +62,6 @@
       "size": 4864,
       "sha256": "d44af6015580de79fce3e830e8507ce30dee8270dceb4aeb1f1df0db149457b7",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/i2cscan.app"
-    },
-    {
-      "name": "probe",
-      "ver": "1.1",
-      "desc": "Measure what host tests cannot - cores, timing, hardware, memory",
-      "kind": "test",
-      "author": "dash1101",
-      "abi": "1.7",
-      "arch": "armv6m",
-      "size": 6832,
-      "sha256": "ed10ae1d90f15bc079e0c3cd0f46dd36b6a2c94bd5b71f1151ec5d3dafd81b07",
-      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
-    },
-    {
-      "name": "stress",
-      "ver": "1.0",
-      "desc": "System stress test - exercises tasks, memory, filesystem and the scheduler",
-      "kind": "test",
-      "author": "dash1101",
-      "abi": "1.3",
-      "arch": "armv6m",
-      "size": 11048,
-      "sha256": "746147d5e914448fd7aa90feb60fc4a3fb897483880b304c5c4f99255ecc1c31",
-      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/stress.app"
     },
     {
       "name": "tuidemo",
