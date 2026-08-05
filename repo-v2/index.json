@@ -59,8 +59,8 @@
       "author": "dash1101",
       "abi": "1.16",
       "arch": "armv6m",
-      "size": 19760,
-      "sha256": "d6d92d2e77a3f452c8509c2ea88b196b81b27cc5cfdafbf54743665f809f5a88",
+      "size": 20144,
+      "sha256": "3f4632622347459485a46f9ff5519d4e90b2a11445cc5461e3c5e49837bcd873",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/httpd.app"
     },
     {
