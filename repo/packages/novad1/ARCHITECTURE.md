@@ -7,7 +7,7 @@ driven by the `novad1` shell command + a cooperative GUI service.
 
 This document describes the layers, the one dependency rule, and — honestly — where the
 code does not yet obey it. It is written from the **actual import graph**, not an
-aspiration; if you change the imports, update this file.
+aspiration, so a change to the imports is a change to this file.
 
 ## The layers
 
