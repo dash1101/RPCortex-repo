@@ -53,14 +53,14 @@
     },
     {
       "name": "httpd",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "Serve a status page and the filesystem over WiFi",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.15",
+      "abi": "1.16",
       "arch": "armv6m",
-      "size": 13164,
-      "sha256": "66b33b3870c576a7a88596348f7a54d7afff2910e698dbad6c0ba81223d42902",
+      "size": 19760,
+      "sha256": "d6d92d2e77a3f452c8509c2ea88b196b81b27cc5cfdafbf54743665f809f5a88",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/httpd.app"
     },
     {
