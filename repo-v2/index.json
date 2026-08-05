@@ -89,14 +89,14 @@
     },
     {
       "name": "websearch",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "Look things up over the network - instant answers and Wikipedia",
       "kind": "app",
       "author": "dash1101",
       "abi": "1.13",
       "arch": "armv6m",
-      "size": 7712,
-      "sha256": "c0cda3f6bc9c38ccffddf35596b41d8ebafe412b221fdf12b1356801dec6ea43",
+      "size": 7948,
+      "sha256": "88dc447a3d6adb9d908287d37cb9469bcd35d3f5346f09a1c45d3b3c9750c2d6",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/websearch.app"
     },
     {
