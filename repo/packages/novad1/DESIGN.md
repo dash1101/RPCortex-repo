@@ -3,8 +3,8 @@
 The Nova D1 UI is a **128×64, 1-bit** OLED driven by **one rotary encoder + 3 buttons**.
 That is the whole design budget: ~21 characters wide, ~6 rows tall, no colour, no
 touch, one thumb. This document is the set of rules that make every screen feel like
-part of one device instead of 50 separately-invented screens. Follow it when adding a
-screen; if you need to break a rule, say why in the code.
+part of one device instead of 50 separately-invented screens. It applies to every new
+screen; a rule broken deliberately should say why in the code.
 
 ## Principles
 
