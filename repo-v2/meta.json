@@ -37,5 +37,9 @@
   "speedtest": {
     "desc": "Measure network latency and download throughput",
     "author": "dash1101"
+  },
+  "httpd": {
+    "desc": "Serve a status page and the filesystem over WiFi",
+    "author": "dash1101"
   }
 }

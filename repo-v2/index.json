@@ -52,6 +52,18 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/greet.app"
     },
     {
+      "name": "httpd",
+      "ver": "2.0",
+      "desc": "Serve a status page and the filesystem over WiFi",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.15",
+      "arch": "armv6m",
+      "size": 13164,
+      "sha256": "66b33b3870c576a7a88596348f7a54d7afff2910e698dbad6c0ba81223d42902",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/httpd.app"
+    },
+    {
       "name": "i2cscan",
       "ver": "2.1",
       "desc": "Scan the I2C bus and name what answers",
