@@ -29,5 +29,13 @@
     "desc": "Addressable LED strips, driven through PIO for exact timing",
     "author": "dash1101",
     "kind": "example"
+  },
+  "websearch": {
+    "desc": "Look things up over the network - instant answers and Wikipedia",
+    "author": "dash1101"
+  },
+  "speedtest": {
+    "desc": "Measure network latency and download throughput",
+    "author": "dash1101"
   }
 }
