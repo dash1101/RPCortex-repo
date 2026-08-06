@@ -4,6 +4,18 @@
   "maintainer": "dash1101",
   "packages": [
     {
+      "name": "bench",
+      "ver": "1.0",
+      "desc": "RPCMark - the same workload as the MicroPython build, so the scores compare",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 4344,
+      "sha256": "3aafa61af1060a5391e5892d39319380d73fd587ea9e5007eff7890b979ab166",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/bench.app"
+    },
+    {
       "name": "calc",
       "ver": "1.0",
       "desc": "Shell calculator - arithmetic, math functions and base conversion",
@@ -52,6 +64,18 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/greet.app"
     },
     {
+      "name": "havoc",
+      "ver": "1.0",
+      "desc": "Try to break the OS from inside the sandbox - every call that must fail safely",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 17772,
+      "sha256": "88471ef68d65474b3840948aa99b20b74599a65dd5cf323ac1545a9025e8a6bc",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/havoc.app"
+    },
+    {
       "name": "httpd",
       "ver": "2.1",
       "desc": "Serve a status page and the filesystem over WiFi",
@@ -76,6 +100,18 @@
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/i2cscan.app"
     },
     {
+      "name": "probe",
+      "ver": "1.1",
+      "desc": "Report what a board can actually do: cores, timing, jitter, pins and memory",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 9096,
+      "sha256": "4939e8c15912077b33a899f83418222eaec49ba9bdd91b66e6c1c907661bd041",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/probe.app"
+    },
+    {
       "name": "speedtest",
       "ver": "2.0",
       "desc": "Measure network latency and download throughput",
@@ -86,6 +122,18 @@
       "size": 6528,
       "sha256": "7f721a5c125a099d61d35bf0763c160d65917f33d231d46c70ebee2d2dc3949f",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/speedtest.app"
+    },
+    {
+      "name": "stress",
+      "ver": "1.1",
+      "desc": "Prove the scheduler, the allocator and the filesystem hold under load",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.6",
+      "arch": "armv6m",
+      "size": 11804,
+      "sha256": "5b4239a12f3a491ff1e6bea397313fd77eed3815e17fa6f52049a198541e6ca5",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/stress.app"
     },
     {
       "name": "tuidemo",
