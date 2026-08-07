@@ -41,5 +41,29 @@
   "httpd": {
     "desc": "Serve a status page and the filesystem over WiFi",
     "author": "dash1101"
+  },
+  "novad1": {
+    "desc": "Nova D1 - the handheld multi-tool: OLED, encoder, radios and the app system",
+    "author": "dash1101"
+  },
+  "bench": {
+    "desc": "RPCMark - the same workload as the MicroPython build, so scores compare",
+    "author": "dash1101",
+    "kind": "diagnostic"
+  },
+  "probe": {
+    "desc": "Measures what a host test cannot - syscall cost, timing accuracy, jitter, PIO",
+    "author": "dash1101",
+    "kind": "diagnostic"
+  },
+  "stress": {
+    "desc": "On-board self-test - two cores, concurrent filesystem writers, the allocator",
+    "author": "dash1101",
+    "kind": "diagnostic"
+  },
+  "havoc": {
+    "desc": "Attacks the ABI from inside the sandbox - checks that bad input fails safely",
+    "author": "dash1101",
+    "kind": "diagnostic"
   }
 }
