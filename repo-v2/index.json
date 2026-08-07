@@ -101,14 +101,14 @@
     },
     {
       "name": "novad1",
-      "ver": "0.88.0",
+      "ver": "0.89.0",
       "desc": "Nova D1 - the handheld multi-tool: OLED, encoder, radios and the app system",
       "kind": "app",
       "author": "dash1101",
       "abi": "1.19",
       "arch": "armv6m",
-      "size": 57472,
-      "sha256": "fea9730900f4afcb9261de9c16ccf67eeafd43da63b4942da415c0094b840e64",
+      "size": 71492,
+      "sha256": "ae46996c0a232854a3f04f38cbfeac27dbdff39622113e09c1ce992f71d444d6",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/novad1.app"
     },
     {
