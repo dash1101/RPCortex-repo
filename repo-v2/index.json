@@ -106,9 +106,9 @@
       "kind": "app",
       "author": "dash1101",
       "abi": "1.21",
-      "arch": "armv8m",
-      "size": 309764,
-      "sha256": "2125f6942ebbfe94489acfca125c66bb17f249d37fcf788359a56b15ad4faafa",
+      "arch": "armv6m",
+      "size": 274100,
+      "sha256": "2d8e1955384faa2d81367f020057afe6e8fc11559a5f54efe23bce13d82d8ff5",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/novad1.app"
     },
     {
