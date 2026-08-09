@@ -59,8 +59,8 @@
       "author": "dash1101",
       "abi": "1.19",
       "arch": "armv6m",
-      "size": 1436,
-      "sha256": "f9c97058b0e1c3b1229cace7e6a4bf19ddc5e21fc3f8ae0a1c4dbd395e180069",
+      "size": 1548,
+      "sha256": "2f1b35f2c5b513c638a282522042446399bc13b26809e3706d61ea503808a8f1",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/greet.app"
     },
     {
