@@ -108,8 +108,12 @@ is a pragmatic trade-off, and each is a candidate for a later, careful fix.
      Clock), `novagui_radios.py` (Messages/GPS/NFC/IR/Sub-GHz/BLE/LoRa/ButtonGrid —
      11 classes), `novagui_system.py` (WiFi/Set Time/System Check/Notifications/PIN),
      `novagui_watch.py` (Radar/Presence), `novagui_res.py` (Resources — the live
-     link/RAM/disk/clock readout), `novagui_shell.py` (the shell on the panel).
-     `novagui.py` is down to ~1,700 lines.
+     link/RAM/disk/clock readout), `novagui_shell.py` (the shell on the panel),
+     `novagui_files.py` (the read-only file explorer).
+     The split has not shrunk `novagui.py`, because screens have been added at
+     about the rate they have been moved out. It is still the largest file in the
+     suite and still the thing this item is about; what has changed is that new
+     screens now start as siblings.
 
      `novagui_res.py` and `novagui_shell.py` were written as siblings from the
      start rather than added to the monolith and split out later. Neither imports

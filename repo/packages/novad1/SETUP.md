@@ -182,6 +182,6 @@ compare the `override` rows against how the device is actually wired.
 |---|---|
 | Board profiles, pin resolution | `novaboard.py` |
 | Display backends | `display.py` |
-| Wiring reference (ESP32-S3) | `NovaLabs/docs/novad1-wiring.md` |
+| Wiring reference (ESP32-S3) | `docs/novad1-wiring.md`, in the NovaLabs repository |
 | Module layering + invariants | `ARCHITECTURE.md` |
 | UI design notes | `DESIGN.md` |

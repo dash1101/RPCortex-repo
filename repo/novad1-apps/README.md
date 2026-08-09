@@ -20,7 +20,7 @@ app.name: BLE Pranks
 app.dev: dash1101
 app.ver: 1.0.0
 app.category: auto        # auto | Wireless | Sensors | Tools | System
-app.kind: buttons         # buttons (a button grid) | py (a Nova-UI Screen, later)
+app.kind: buttons         # buttons (a button grid) | py (a Nova-UI Screen)
 app.entry: ble-pranks.txt
 app.desc: Ping nearby phones with fake pairing popups.
 ```
@@ -44,15 +44,16 @@ Actions: `ir <file> <sig>` · `subghz <file>` · `lora <text>` · `ble ping <app
 · `ble scan|stop` · `run <shell>` · `notify <text>` · `sleep <s>` · `log <text>`.
 
 ## Installing (Nova D1)
-- **Now:** drop the app's entry file into the device's scripts store (web *Codes*
+- **App Store screen:** browse `index.json` over WiFi → install → it downloads to the
+  store, auto-categorises, and pins to the home. `kind: buttons` apps land in the
+  scripts store and `kind: py` apps in the pyapps store.
+- **By hand:** drop the app's entry file into the device's scripts store (web *Codes*
   upload, SD, `_xfer`) — it appears in **Scripts** and runs.
-- **Planned App Store screen:** browse `index.json` over WiFi → install → it downloads
-  to the store, auto-categorises, and pins to the home. See
-  `NovaLabs/docs/novad1-spec-app-system.md`.
 
 ## Contributing
-1. Add `novad1-apps/<name>/app.cfg` + your entry file.
+1. Add `novad1-apps/<name>/app.cfg` and the entry file beside it.
 2. Add an entry to `index.json` (`dir`, `name`, `ver`, `category`, `kind`, `desc`).
-3. Keep actions self-contained (not dependent on the user's own saved codes).
+3. Keep actions self-contained, rather than depending on codes a particular device
+   happens to have saved.
    The CI test (`repo/tests/novad1/test_appstore.py`) validates every app's cfg,
    entry file, and (for button grids) that all actions use a known verb.
