@@ -28,6 +28,16 @@ anything that is not ARMv6-M for exactly that reason, and refuses an unreadable
 architecture too: failing closed is the only safe default when the cost of being
 wrong is a fault on someone's device.
 
+The `arch` field in the index is a separate question from what the binary
+contains: it is which boards the package is **offered** to. It defaults to
+`armv6m` — a portable binary runs on every board — and a package narrows it in
+`meta.json` when it should not be offered everywhere. Nova D1 is the case that
+needs it: its binary is ARMv6-M like the rest, but it is position-independent and
+loads from a flash slot only the RP2350 has, so it is published as `armv8m` and
+the index keeps it off the RP2040 boards it could never run on. "Is this binary
+ARMv6-M" and "who do we offer it to" are read from two different places — the
+binary and `meta.json` — because they are two different facts.
+
 ## Layout
 
 ```
@@ -42,7 +52,9 @@ make_index.py   rebuilds index.json from packages/
 1. Build it against `os/include/rpc_app.h` with the app flags in the OS
    `CMakeLists.txt` (or add it there via `rpc_add_app`).
 2. Copy the `.app` into `packages/`.
-3. Add its description to `meta.json`.
+3. Add its description to `meta.json` — and, for a package that only runs on the
+   RP2350 (position-independent, loaded from a flash slot), an `"arch": "armv8m"`
+   there too, so it is not offered to the RP2040 boards.
 4. Run `./make_index.py`.
 5. Commit both the `.app` and the regenerated `index.json`.
 

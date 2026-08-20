@@ -4,6 +4,18 @@
   "maintainer": "dash1101",
   "packages": [
     {
+      "name": "backup",
+      "ver": "2.0",
+      "desc": "Named snapshots of this device's configuration, and a way back to any of them",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.22",
+      "arch": "armv6m",
+      "size": 7944,
+      "sha256": "a2e31a4f02edc1852be7b95f0893a34ef321680fac68d53bfddaac67b42723dc",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/backup.app"
+    },
+    {
       "name": "bench",
       "ver": "1.0",
       "desc": "RPCMark - the same workload as the MicroPython build, so scores compare",
@@ -38,6 +50,18 @@
       "size": 3644,
       "sha256": "1da8e7738ce09daae37003d7d3a5412e0a05fd5eeeb8ee3571695e8e28ea8b05",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/dht.app"
+    },
+    {
+      "name": "fileexp",
+      "ver": "2.0",
+      "desc": "A full-screen file browser - arrows to move, Enter to open, copy, rename and edit",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.22",
+      "arch": "armv6m",
+      "size": 11200,
+      "sha256": "21a6a4fee19f6fa7328eae460d22048ea22e2ddbf6a2463b3da0956e7b675f43",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/fileexp.app"
     },
     {
       "name": "gpio",
@@ -101,14 +125,14 @@
     },
     {
       "name": "novad1",
-      "ver": "1.4.1",
+      "ver": "1.6.0",
       "desc": "Nova D1 - the handheld multi-tool: OLED, encoder, radios and the app system",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.21",
+      "abi": "1.22",
       "arch": "armv8m",
-      "size": 309764,
-      "sha256": "f240b288f6c376c245df4a823a93eff4bdf10d94d83b9d9855a240b81462f75d",
+      "size": 336376,
+      "sha256": "aa2caaddabb35d5dbcff4179db52b9c56bff036a712f148dafa85d85c67eeb69",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/novad1.app"
     },
     {
@@ -146,6 +170,18 @@
       "size": 8856,
       "sha256": "63742a0c9250dc573dfb9dc1822f46ef9cf4338243b08f754234b1437f7230d4",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/stress.app"
+    },
+    {
+      "name": "sysmon",
+      "ver": "2.0",
+      "desc": "Live system monitor - CPU load, memory, die temperature and the log tail",
+      "kind": "app",
+      "author": "dash1101",
+      "abi": "1.22",
+      "arch": "armv6m",
+      "size": 9336,
+      "sha256": "5087dd65b5497d375d1e1eb90839e03752ba0e60fd6a546a2cf69bb19b39b512",
+      "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/sysmon.app"
     },
     {
       "name": "tuidemo",

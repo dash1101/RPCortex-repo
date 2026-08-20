@@ -144,7 +144,17 @@ def build(check_only=False):
             'kind':   info.get('kind', 'app'),
             'author': info.get('author', 'dash1101'),
             'abi':    '%d.%d' % (major, minor),
-            'arch':   'armv6m',
+            # The offer target, which is NOT the same question as read_arch above.
+            # read_arch checks what instructions the binary CONTAINS, and every
+            # package here is built for ARMv6-M so it never hard-faults on an M0+.
+            # This field is which boards the package is OFFERED to, and defaults to
+            # armv6m — an ARMv6-M binary runs on every board, so the permissive
+            # value is right for anything portable. A package can narrow it in
+            # meta.json: novad1 is position-independent and lives in a flash slot
+            # (RP2350-only), so it is offered as armv8m even though its machine is
+            # armv6m like the rest. pkgrepo's arch check treats armv6m as running
+            # everywhere and armv8m as RP2350-only, which is exactly this split.
+            'arch':   info.get('arch', 'armv6m'),
             'size':   len(blob),
             'sha256': hashlib.sha256(blob).hexdigest(),
             'url':    BASE_URL + fname,

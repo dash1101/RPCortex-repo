@@ -42,9 +42,22 @@
     "desc": "Serve a status page and the filesystem over WiFi",
     "author": "dash1101"
   },
+  "backup": {
+    "desc": "Named snapshots of this device's configuration, and a way back to any of them",
+    "author": "dash1101"
+  },
+  "fileexp": {
+    "desc": "A full-screen file browser - arrows to move, Enter to open, copy, rename and edit",
+    "author": "dash1101"
+  },
+  "sysmon": {
+    "desc": "Live system monitor - CPU load, memory, die temperature and the log tail",
+    "author": "dash1101"
+  },
   "novad1": {
     "desc": "Nova D1 - the handheld multi-tool: OLED, encoder, radios and the app system",
-    "author": "dash1101"
+    "author": "dash1101",
+    "arch": "armv8m"
   },
   "bench": {
     "desc": "RPCMark - the same workload as the MicroPython build, so scores compare",
