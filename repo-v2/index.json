@@ -5,14 +5,14 @@
   "packages": [
     {
       "name": "backup",
-      "ver": "2.1",
+      "ver": "2.2",
       "desc": "Named snapshots of this device's configuration, and a way back to any of them",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.22",
+      "abi": "1.23",
       "arch": "armv6m",
-      "size": 7888,
-      "sha256": "2b4f215e70f2f83eafa112c70944a88525f01ef71e6ddcd6daab4cc92a3d3cc2",
+      "size": 7368,
+      "sha256": "43c76c3127046dd080d9721ea3e8c01f71fffc95046f6cc642b639a5866d5d56",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/backup.app"
     },
     {
@@ -53,14 +53,14 @@
     },
     {
       "name": "fileexp",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "A full-screen file browser - arrows to move, Enter to open, copy, rename and edit",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.22",
+      "abi": "1.23",
       "arch": "armv6m",
-      "size": 11200,
-      "sha256": "21a6a4fee19f6fa7328eae460d22048ea22e2ddbf6a2463b3da0956e7b675f43",
+      "size": 11368,
+      "sha256": "24cc1ceb424cc892d1805149a7640cc605457985c2d64e10beddc105c571ebbf",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/fileexp.app"
     },
     {
