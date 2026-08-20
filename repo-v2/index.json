@@ -5,14 +5,14 @@
   "packages": [
     {
       "name": "backup",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "Named snapshots of this device's configuration, and a way back to any of them",
       "kind": "app",
       "author": "dash1101",
       "abi": "1.22",
       "arch": "armv6m",
-      "size": 7944,
-      "sha256": "a2e31a4f02edc1852be7b95f0893a34ef321680fac68d53bfddaac67b42723dc",
+      "size": 7888,
+      "sha256": "2b4f215e70f2f83eafa112c70944a88525f01ef71e6ddcd6daab4cc92a3d3cc2",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/backup.app"
     },
     {
