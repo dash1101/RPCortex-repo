@@ -125,14 +125,14 @@
     },
     {
       "name": "novad1",
-      "ver": "1.6.1",
+      "ver": "1.6.3",
       "desc": "Nova D1 - the handheld multi-tool: OLED, encoder, radios and the app system",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.22",
+      "abi": "1.24",
       "arch": "armv8m",
-      "size": 336396,
-      "sha256": "609796ac8afc62c1176f9aed97d7fb330a215c662647bfd9ae0f36f2a3defcf0",
+      "size": 350372,
+      "sha256": "022eecf0f383babbf17de58869f546685f1d67d8dd8c579ba08f692a15e57ab9",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/novad1.app"
     },
     {
@@ -173,14 +173,14 @@
     },
     {
       "name": "sysmon",
-      "ver": "2.0",
+      "ver": "2.1",
       "desc": "Live system monitor - CPU load, memory, die temperature and the log tail",
       "kind": "app",
       "author": "dash1101",
-      "abi": "1.22",
+      "abi": "1.24",
       "arch": "armv6m",
       "size": 9336,
-      "sha256": "5087dd65b5497d375d1e1eb90839e03752ba0e60fd6a546a2cf69bb19b39b512",
+      "sha256": "ba7c996fa0a8a642e41e3a9310e2c6d2661f6c179cdc739d607918331ea41c1b",
       "url": "https://raw.githubusercontent.com/dash1101/RPCortex-repo/main/repo-v2/packages/sysmon.app"
     },
     {
